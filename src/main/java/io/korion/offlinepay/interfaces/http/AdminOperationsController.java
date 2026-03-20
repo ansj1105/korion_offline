@@ -27,6 +27,24 @@ public class AdminOperationsController {
         return Map.of("items", adminOperationsService.listDeadLetterBatches(size, networkScope));
     }
 
+    @GetMapping("/collateral-operations")
+    public Object listCollateralOperations(
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String operationType,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String assetCode
+    ) {
+        return Map.of("items", adminOperationsService.listCollateralOperations(size, operationType, status, assetCode));
+    }
+
+    @GetMapping("/collateral-operations/overview")
+    public Object collateralOperationOverview(
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String assetCode
+    ) {
+        return adminOperationsService.getCollateralOperationOverview(size, assetCode);
+    }
+
     @PostMapping("/dead-letters/{batchId}/retry")
     public Object retryDeadLetter(@PathVariable String batchId) {
         return Map.of(

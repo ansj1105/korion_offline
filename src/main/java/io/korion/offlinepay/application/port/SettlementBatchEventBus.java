@@ -23,6 +23,24 @@ public interface SettlementBatchEventBus {
 
     void publishDeadLetter(String batchId, int attemptCount, String errorMessage, String failedAt);
 
+    void publishCollateralOperationRequested(
+            String operationId,
+            String operationType,
+            String assetCode,
+            String referenceId,
+            String requestedAt
+    );
+
+    void publishCollateralOperationResult(
+            String operationId,
+            String operationType,
+            String status,
+            String assetCode,
+            String referenceId,
+            String processedAt,
+            String errorMessage
+    );
+
     void acknowledgeRequested(String messageId);
 
     record QueuedBatchMessage(

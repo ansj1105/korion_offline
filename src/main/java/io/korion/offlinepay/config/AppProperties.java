@@ -32,6 +32,8 @@ public record AppProperties(
             String settlementResultStream,
             String settlementConflictStream,
             String settlementDeadLetterStream,
+            String collateralRequestedStream,
+            String collateralResultStream,
             String settlementGroup
     ) {}
 

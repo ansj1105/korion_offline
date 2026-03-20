@@ -32,6 +32,8 @@ class SettlementWorkerTest {
                         "stream:settlement:result",
                         "stream:settlement:conflict",
                         "stream:settlement:dead-letter",
+                        "stream:collateral:requested",
+                        "stream:collateral:result",
                         "offlinepay:settlement-group"
                 ),
                 new AppProperties.Worker(true, "worker-1", 60000, 3)

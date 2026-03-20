@@ -25,6 +25,8 @@ class HealthControllerTest {
                         "stream:settlement:result",
                         "stream:settlement:conflict",
                         "stream:settlement:dead-letter",
+                        "stream:collateral:requested",
+                        "stream:collateral:result",
                         "offlinepay:settlement-group"
                 ),
                 new AppProperties.Worker(false, "test-worker", 60000, 3)

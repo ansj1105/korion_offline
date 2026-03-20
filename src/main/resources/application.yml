@@ -35,6 +35,8 @@ offline-pay:
     settlement-result-stream: ${SETTLEMENT_RESULT_STREAM_NAME:stream:settlement:result}
     settlement-conflict-stream: ${SETTLEMENT_CONFLICT_STREAM_NAME:stream:settlement:conflict}
     settlement-dead-letter-stream: ${SETTLEMENT_DEAD_LETTER_STREAM_NAME:stream:settlement:dead-letter}
+    collateral-requested-stream: ${COLLATERAL_REQUESTED_STREAM_NAME:stream:collateral:requested}
+    collateral-result-stream: ${COLLATERAL_RESULT_STREAM_NAME:stream:collateral:result}
     settlement-group: ${SETTLEMENT_GROUP_NAME:offlinepay:settlement-group}
   worker:
     enabled: ${SETTLEMENT_WORKER_ENABLED:false}

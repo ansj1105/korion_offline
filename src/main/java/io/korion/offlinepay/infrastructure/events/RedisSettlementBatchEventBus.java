@@ -164,6 +164,52 @@ public class RedisSettlementBatchEventBus implements SettlementBatchEventBus {
     }
 
     @Override
+    public void publishCollateralOperationRequested(
+            String operationId,
+            String operationType,
+            String assetCode,
+            String referenceId,
+            String requestedAt
+    ) {
+        redisTemplate.opsForStream().add(
+                StringRecord.of(
+                        Map.of(
+                                "operationId", operationId,
+                                "operationType", operationType,
+                                "assetCode", assetCode,
+                                "referenceId", referenceId,
+                                "requestedAt", requestedAt
+                        )
+                ).withStreamKey(properties.redis().collateralRequestedStream())
+        );
+    }
+
+    @Override
+    public void publishCollateralOperationResult(
+            String operationId,
+            String operationType,
+            String status,
+            String assetCode,
+            String referenceId,
+            String processedAt,
+            String errorMessage
+    ) {
+        redisTemplate.opsForStream().add(
+                StringRecord.of(
+                        Map.of(
+                                "operationId", operationId,
+                                "operationType", operationType,
+                                "status", status,
+                                "assetCode", assetCode,
+                                "referenceId", referenceId,
+                                "processedAt", processedAt,
+                                "errorMessage", errorMessage == null ? "" : errorMessage
+                        )
+                ).withStreamKey(properties.redis().collateralResultStream())
+        );
+    }
+
+    @Override
     public void acknowledgeRequested(String messageId) {
         redisTemplate.opsForStream().acknowledge(
                 properties.redis().settlementGroup(),

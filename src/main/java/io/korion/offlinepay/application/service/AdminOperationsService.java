@@ -2,13 +2,17 @@ package io.korion.offlinepay.application.service;
 
 import io.korion.offlinepay.application.factory.SettlementBatchFactory;
 import io.korion.offlinepay.application.factory.SettlementStreamEventFactory;
+import io.korion.offlinepay.application.port.CollateralOperationRepository;
 import io.korion.offlinepay.application.port.SettlementBatchEventBus;
 import io.korion.offlinepay.application.port.SettlementBatchRepository;
 import io.korion.offlinepay.application.port.SettlementConflictRepository;
+import io.korion.offlinepay.domain.model.CollateralOperation;
 import io.korion.offlinepay.domain.model.SettlementBatch;
 import io.korion.offlinepay.domain.model.SettlementConflict;
 import io.korion.offlinepay.domain.model.SettlementConflictMetric;
 import io.korion.offlinepay.domain.model.SettlementStatusMetric;
+import io.korion.offlinepay.domain.status.CollateralOperationStatus;
+import io.korion.offlinepay.domain.status.CollateralOperationType;
 import io.korion.offlinepay.domain.status.SettlementBatchStatus;
 import java.time.OffsetDateTime;
 import java.util.LinkedHashMap;
@@ -22,6 +26,7 @@ public class AdminOperationsService {
 
     private final SettlementBatchRepository settlementBatchRepository;
     private final SettlementConflictRepository settlementConflictRepository;
+    private final CollateralOperationRepository collateralOperationRepository;
     private final SettlementBatchEventBus settlementBatchEventBus;
     private final SettlementBatchFactory settlementBatchFactory;
     private final SettlementStreamEventFactory settlementStreamEventFactory;
@@ -29,12 +34,14 @@ public class AdminOperationsService {
     public AdminOperationsService(
             SettlementBatchRepository settlementBatchRepository,
             SettlementConflictRepository settlementConflictRepository,
+            CollateralOperationRepository collateralOperationRepository,
             SettlementBatchEventBus settlementBatchEventBus,
             SettlementBatchFactory settlementBatchFactory,
             SettlementStreamEventFactory settlementStreamEventFactory
     ) {
         this.settlementBatchRepository = settlementBatchRepository;
         this.settlementConflictRepository = settlementConflictRepository;
+        this.collateralOperationRepository = collateralOperationRepository;
         this.settlementBatchEventBus = settlementBatchEventBus;
         this.settlementBatchFactory = settlementBatchFactory;
         this.settlementStreamEventFactory = settlementStreamEventFactory;
@@ -62,6 +69,21 @@ public class AdminOperationsService {
     @Transactional(readOnly = true)
     public List<SettlementBatch> listDeadLetterBatches(int size, String networkScope) {
         return settlementBatchRepository.findDeadLetterBatches(size, normalizeNetworkScope(networkScope));
+    }
+
+    @Transactional(readOnly = true)
+    public List<CollateralOperation> listCollateralOperations(
+            int size,
+            String operationType,
+            String status,
+            String assetCode
+    ) {
+        return collateralOperationRepository.findRecent(
+                size,
+                parseOperationType(operationType),
+                parseOperationStatus(status),
+                assetCode
+        );
     }
 
     @Transactional
@@ -168,6 +190,27 @@ public class AdminOperationsService {
         );
     }
 
+    @Transactional(readOnly = true)
+    public CollateralOperationOverview getCollateralOperationOverview(int size, String assetCode) {
+        List<CollateralOperation> recentOperations = collateralOperationRepository.findRecent(size, null, null, assetCode);
+        long pendingCount = recentOperations.stream().filter(item -> item.status() == CollateralOperationStatus.REQUESTED).count();
+        long failedCount = recentOperations.stream().filter(item -> item.status() == CollateralOperationStatus.FAILED).count();
+        long completedCount = recentOperations.stream().filter(item -> item.status() == CollateralOperationStatus.COMPLETED).count();
+        long topupCount = recentOperations.stream().filter(item -> item.operationType() == CollateralOperationType.TOPUP).count();
+        long releaseCount = recentOperations.stream().filter(item -> item.operationType() == CollateralOperationType.RELEASE).count();
+
+        return new CollateralOperationOverview(
+                new CollateralOperationOverviewSummary(
+                        pendingCount,
+                        failedCount,
+                        completedCount,
+                        topupCount,
+                        releaseCount
+                ),
+                recentOperations
+        );
+    }
+
     private String normalizeNetworkScope(String networkScope) {
         if (networkScope == null || networkScope.isBlank()) {
             return null;
@@ -230,6 +273,41 @@ public class AdminOperationsService {
             long closed,
             long conflicts
     ) {}
+
+    public record CollateralOperationOverview(
+            CollateralOperationOverviewSummary summary,
+            List<CollateralOperation> recentOperations
+    ) {}
+
+    public record CollateralOperationOverviewSummary(
+            long pendingCount,
+            long failedCount,
+            long completedCount,
+            long topupCount,
+            long releaseCount
+    ) {}
+
+    private CollateralOperationType parseOperationType(String operationType) {
+        if (operationType == null || operationType.isBlank()) {
+            return null;
+        }
+        try {
+            return CollateralOperationType.valueOf(operationType.trim().toUpperCase());
+        } catch (IllegalArgumentException ignored) {
+            return null;
+        }
+    }
+
+    private CollateralOperationStatus parseOperationStatus(String status) {
+        if (status == null || status.isBlank()) {
+            return null;
+        }
+        try {
+            return CollateralOperationStatus.valueOf(status.trim().toUpperCase());
+        } catch (IllegalArgumentException ignored) {
+            return null;
+        }
+    }
 
     private static final class BucketAccumulator {
         private final String bucketAt;
