@@ -2,6 +2,7 @@ package io.korion.offlinepay.interfaces.http;
 
 import io.korion.offlinepay.application.service.CollateralApplicationService;
 import io.korion.offlinepay.interfaces.http.dto.CreateCollateralRequest;
+import io.korion.offlinepay.interfaces.http.dto.ReleaseCollateralRequest;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -36,5 +37,18 @@ public class CollateralController {
     @GetMapping("/{collateralId}")
     public Object detail(@PathVariable String collateralId) {
         return collateralApplicationService.getCollateral(collateralId);
+    }
+
+    @PostMapping("/{collateralId}/release")
+    public Object release(@PathVariable String collateralId, @Valid @RequestBody ReleaseCollateralRequest request) {
+        return collateralApplicationService.releaseCollateral(
+                collateralId,
+                new CollateralApplicationService.ReleaseCollateralCommand(
+                        request.userId(),
+                        request.deviceId(),
+                        request.reason(),
+                        request.metadata()
+                )
+        );
     }
 }

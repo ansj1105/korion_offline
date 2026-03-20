@@ -79,6 +79,49 @@ public class CollateralApplicationService {
                 .orElseThrow(() -> new IllegalArgumentException("collateral not found: " + collateralId));
     }
 
+    @Transactional
+    public CollateralLock releaseCollateral(String collateralId, ReleaseCollateralCommand command) {
+        CollateralLock collateral = collateralRepository.findById(collateralId)
+                .orElseThrow(() -> new IllegalArgumentException("collateral not found: " + collateralId));
+
+        if (collateral.userId() != command.userId()) {
+            throw new IllegalArgumentException("collateral user mismatch: " + collateralId);
+        }
+        if (!collateral.deviceId().equals(command.deviceId())) {
+            throw new IllegalArgumentException("collateral device mismatch: " + collateralId);
+        }
+        if (collateral.status() == CollateralStatus.RELEASED) {
+            return collateral;
+        }
+        if (collateral.remainingAmount().signum() <= 0) {
+            throw new IllegalArgumentException("collateral remaining amount is empty: " + collateralId);
+        }
+
+        String referenceId = "release:" + collateralId;
+        coinManageCollateralPort.releaseCollateral(
+                collateral.userId(),
+                collateral.deviceId(),
+                collateral.id(),
+                collateral.assetCode(),
+                collateral.remainingAmount(),
+                referenceId
+        );
+
+        collateralRepository.deductRemainingAmount(collateral.id(), collateral.remainingAmount());
+        collateralRepository.updateStatus(
+                collateral.id(),
+                CollateralStatus.RELEASED,
+                jsonService.write(Map.of(
+                        "reason", command.reason() == null ? "manual_release" : command.reason(),
+                        "metadata", command.metadata() == null ? Map.of() : command.metadata(),
+                        "referenceId", referenceId
+                ))
+        );
+
+        return collateralRepository.findById(collateral.id())
+                .orElseThrow(() -> new IllegalArgumentException("collateral not found after release: " + collateralId));
+    }
+
     public record CreateCollateralCommand(
             long userId,
             String deviceId,
@@ -86,6 +129,13 @@ public class CollateralApplicationService {
             String assetCode,
             String initialStateRoot,
             Integer policyVersion,
+            Map<String, Object> metadata
+    ) {}
+
+    public record ReleaseCollateralCommand(
+            long userId,
+            String deviceId,
+            String reason,
             Map<String, Object> metadata
     ) {}
 }
