@@ -106,60 +106,114 @@ public class JdbcSettlementBatchRepository implements SettlementBatchRepository 
     }
 
     @Override
-    public List<SettlementBatch> findDeadLetterBatches(int limit) {
-        String sql = QueryBuilder.select("settlement_batches")
+    public List<SettlementBatch> findDeadLetterBatches(int limit, String networkScope) {
+        QueryBuilder.SelectBuilder builder = QueryBuilder.select("settlement_batches")
                 .where("status", QueryBuilder.Op.EQ, "'FAILED'")
-                .where("summary ? 'deadLetteredAt'")
-                .orderBy("updated_at DESC")
+                .where("summary ? 'deadLetteredAt'");
+        appendNetworkScopeFilter(builder, "settlement_batches.id", networkScope);
+
+        String sql = builder.orderBy("updated_at DESC")
                 .limit(limit)
                 .build();
-        return jdbcClient.sql(sql)
+        JdbcClient.StatementSpec statement = jdbcClient.sql(sql);
+        bindNetworkScope(statement, networkScope);
+        return statement
                 .query(settlementBatchRowMapper)
                 .list();
     }
 
     @Override
-    public List<SettlementStatusMetric> summarizeStatusByHour(int hours) {
-        String sql = QueryBuilder.select(
+    public List<SettlementStatusMetric> summarizeStatusByHour(int hours, String networkScope) {
+        QueryBuilder.SelectBuilder builder = QueryBuilder.select(
                         "settlement_batches",
                         "date_trunc('hour', updated_at) AS bucket_at",
                         "status",
                         "COUNT(*) AS count"
                 )
-                .where("updated_at", QueryBuilder.Op.GTE, "NOW() - make_interval(hours => :hours)")
-                .groupBy("date_trunc('hour', updated_at)")
+                .where("updated_at", QueryBuilder.Op.GTE, "NOW() - make_interval(hours => :hours)");
+        appendNetworkScopeFilter(builder, "settlement_batches.id", networkScope);
+
+        String sql = builder.groupBy("date_trunc('hour', updated_at)")
                 .groupBy("status")
                 .orderBy("bucket_at ASC")
                 .orderBy("status ASC")
                 .build();
-        return jdbcClient.sql(sql)
+        JdbcClient.StatementSpec statement = jdbcClient.sql(sql)
                 .param("hours", hours)
+                ;
+        bindNetworkScope(statement, networkScope);
+        return statement
                 .query(settlementStatusMetricRowMapper)
                 .list();
     }
 
     @Override
-    public List<SettlementBatch> findRecentBatches(int limit) {
-        String sql = QueryBuilder.select("settlement_batches")
+    public List<SettlementBatch> findRecentBatches(int limit, String networkScope) {
+        QueryBuilder.SelectBuilder builder = QueryBuilder.select("settlement_batches");
+        appendNetworkScopeFilter(builder, "settlement_batches.id", networkScope);
+
+        String sql = builder
                 .orderBy("updated_at DESC")
                 .limit(limit)
                 .build();
-        return jdbcClient.sql(sql)
+        JdbcClient.StatementSpec statement = jdbcClient.sql(sql);
+        bindNetworkScope(statement, networkScope);
+        return statement
                 .query(settlementBatchRowMapper)
                 .list();
     }
 
     @Override
-    public long countDeadLetterBatches(int hours) {
-        String sql = QueryBuilder.select("settlement_batches", "COUNT(*) AS count")
+    public long countDeadLetterBatches(int hours, String networkScope) {
+        QueryBuilder.SelectBuilder builder = QueryBuilder.select("settlement_batches", "COUNT(*) AS count")
                 .where("status", QueryBuilder.Op.EQ, "'FAILED'")
                 .where("summary ? 'deadLetteredAt'")
-                .where("updated_at", QueryBuilder.Op.GTE, "NOW() - make_interval(hours => :hours)")
-                .build();
-        Long count = jdbcClient.sql(sql)
+                .where("updated_at", QueryBuilder.Op.GTE, "NOW() - make_interval(hours => :hours)");
+        appendNetworkScopeFilter(builder, "settlement_batches.id", networkScope);
+
+        String sql = builder.build();
+        JdbcClient.StatementSpec statement = jdbcClient.sql(sql)
                 .param("hours", hours)
+                ;
+        bindNetworkScope(statement, networkScope);
+        Long count = statement
                 .query(Long.class)
                 .single();
         return count == null ? 0L : count;
+    }
+
+    private void appendNetworkScopeFilter(QueryBuilder.SelectBuilder builder, String batchIdExpression, String networkScope) {
+        if (networkScope == null || networkScope.isBlank()) {
+            return;
+        }
+
+        builder.where("""
+                EXISTS (
+                    SELECT 1
+                    FROM settlement_requests settlement_request_filter
+                    JOIN offline_payment_proofs offline_payment_proof_filter
+                      ON offline_payment_proof_filter.id = settlement_request_filter.proof_id
+                    WHERE settlement_request_filter.batch_id = %s
+                      AND %s = :networkScope
+                )
+                """.formatted(batchIdExpression, networkScopeExpression("offline_payment_proof_filter")));
+    }
+
+    private String networkScopeExpression(String proofAlias) {
+        return """
+                COALESCE(
+                    NULLIF(CAST(%s.raw_payload AS jsonb) ->> 'networkMode', ''),
+                    CASE
+                        WHEN CAST(%s.raw_payload AS jsonb) ->> 'network' = 'mainnet' THEN 'mainnet'
+                        ELSE 'testnet'
+                    END
+                )
+                """.formatted(proofAlias, proofAlias);
+    }
+
+    private void bindNetworkScope(JdbcClient.StatementSpec statement, String networkScope) {
+        if (networkScope != null && !networkScope.isBlank()) {
+            statement.param("networkScope", networkScope);
+        }
     }
 }

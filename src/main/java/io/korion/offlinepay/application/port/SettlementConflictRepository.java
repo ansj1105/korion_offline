@@ -21,8 +21,9 @@ public interface SettlementConflictRepository {
             String conflictType,
             String collateralId,
             String deviceId,
+            String networkScope,
             int size
     );
 
-    List<SettlementConflictMetric> summarizeByHour(int hours);
+    List<SettlementConflictMetric> summarizeByHour(int hours, String networkScope);
 }

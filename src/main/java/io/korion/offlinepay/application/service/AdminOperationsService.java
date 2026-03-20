@@ -46,14 +46,22 @@ public class AdminOperationsService {
             String conflictType,
             String collateralId,
             String deviceId,
+            String networkScope,
             int size
     ) {
-        return settlementConflictRepository.findRecent(status, conflictType, collateralId, deviceId, size);
+        return settlementConflictRepository.findRecent(
+                status,
+                conflictType,
+                collateralId,
+                deviceId,
+                normalizeNetworkScope(networkScope),
+                size
+        );
     }
 
     @Transactional(readOnly = true)
-    public List<SettlementBatch> listDeadLetterBatches(int size) {
-        return settlementBatchRepository.findDeadLetterBatches(size);
+    public List<SettlementBatch> listDeadLetterBatches(int size, String networkScope) {
+        return settlementBatchRepository.findDeadLetterBatches(size, normalizeNetworkScope(networkScope));
     }
 
     @Transactional
@@ -78,9 +86,10 @@ public class AdminOperationsService {
     }
 
     @Transactional(readOnly = true)
-    public SettlementDashboardMetrics getSettlementDashboardMetrics(int hours) {
-        List<SettlementStatusMetric> settlementMetrics = settlementBatchRepository.summarizeStatusByHour(hours);
-        List<SettlementConflictMetric> conflictMetrics = settlementConflictRepository.summarizeByHour(hours);
+    public SettlementDashboardMetrics getSettlementDashboardMetrics(int hours, String networkScope) {
+        String normalizedNetworkScope = normalizeNetworkScope(networkScope);
+        List<SettlementStatusMetric> settlementMetrics = settlementBatchRepository.summarizeStatusByHour(hours, normalizedNetworkScope);
+        List<SettlementConflictMetric> conflictMetrics = settlementConflictRepository.summarizeByHour(hours, normalizedNetworkScope);
 
         Map<String, BucketAccumulator> buckets = new LinkedHashMap<>();
         for (SettlementStatusMetric metric : settlementMetrics) {
@@ -105,10 +114,11 @@ public class AdminOperationsService {
     }
 
     @Transactional(readOnly = true)
-    public OfflinePayOverview getOfflinePayOverview(int days) {
+    public OfflinePayOverview getOfflinePayOverview(int days, String networkScope) {
         int hours = Math.max(1, days * 24);
-        SettlementDashboardMetrics metrics = getSettlementDashboardMetrics(hours);
-        List<SettlementBatch> recentBatches = settlementBatchRepository.findRecentBatches(Math.min(days, 8));
+        String normalizedNetworkScope = normalizeNetworkScope(networkScope);
+        SettlementDashboardMetrics metrics = getSettlementDashboardMetrics(hours, normalizedNetworkScope);
+        List<SettlementBatch> recentBatches = settlementBatchRepository.findRecentBatches(Math.min(days, 8), normalizedNetworkScope);
 
         long requestedBatchCount = 0L;
         long settledBatchCount = 0L;
@@ -130,7 +140,7 @@ public class AdminOperationsService {
                         requestedBatchCount,
                         settledBatchCount,
                         conflictBatchCount,
-                        settlementBatchRepository.countDeadLetterBatches(hours),
+                        settlementBatchRepository.countDeadLetterBatches(hours, normalizedNetworkScope),
                         pendingBatchCount,
                         recentBatches.isEmpty() ? 0D : (double) proofCountTotal / recentBatches.size()
                 ),
@@ -156,6 +166,18 @@ public class AdminOperationsService {
                         ))
                         .toList()
         );
+    }
+
+    private String normalizeNetworkScope(String networkScope) {
+        if (networkScope == null || networkScope.isBlank()) {
+            return null;
+        }
+
+        String normalized = networkScope.trim().toLowerCase();
+        return switch (normalized) {
+            case "mainnet", "testnet" -> normalized;
+            default -> null;
+        };
     }
 
     public record SettlementDashboardMetrics(

@@ -17,12 +17,18 @@ public class AdminMetricsController {
     }
 
     @GetMapping("/settlements/timeseries")
-    public Object settlementTimeseries(@RequestParam(defaultValue = "24") int hours) {
-        return adminOperationsService.getSettlementDashboardMetrics(hours);
+    public Object settlementTimeseries(
+            @RequestParam(defaultValue = "24") int hours,
+            @RequestParam(required = false) String networkScope
+    ) {
+        return adminOperationsService.getSettlementDashboardMetrics(hours, networkScope);
     }
 
     @GetMapping("/offline-pay/overview")
-    public Object offlinePayOverview(@RequestParam(defaultValue = "7") int days) {
-        return adminOperationsService.getOfflinePayOverview(days);
+    public Object offlinePayOverview(
+            @RequestParam(defaultValue = "7") int days,
+            @RequestParam(required = false) String networkScope
+    ) {
+        return adminOperationsService.getOfflinePayOverview(days, networkScope);
     }
 }

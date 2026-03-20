@@ -75,6 +75,7 @@ public class JdbcSettlementConflictRepository implements SettlementConflictRepos
             String conflictType,
             String collateralId,
             String deviceId,
+            String networkScope,
             int size
     ) {
         QueryBuilder.SelectBuilder builder = QueryBuilder.select("settlement_conflicts");
@@ -90,6 +91,7 @@ public class JdbcSettlementConflictRepository implements SettlementConflictRepos
         if (deviceId != null && !deviceId.isBlank()) {
             builder.where("device_id", QueryBuilder.Op.EQ, ":deviceId");
         }
+        appendNetworkScopeFilter(builder, networkScope);
 
         String sql = builder
                 .orderBy("updated_at DESC")
@@ -110,23 +112,64 @@ public class JdbcSettlementConflictRepository implements SettlementConflictRepos
         if (deviceId != null && !deviceId.isBlank()) {
             statement.param("deviceId", deviceId);
         }
+        bindNetworkScope(statement, networkScope);
         return statement.query(settlementConflictRowMapper).list();
     }
 
     @Override
-    public List<SettlementConflictMetric> summarizeByHour(int hours) {
-        String sql = QueryBuilder.select(
+    public List<SettlementConflictMetric> summarizeByHour(int hours, String networkScope) {
+        QueryBuilder.SelectBuilder builder = QueryBuilder.select(
                         "settlement_conflicts",
                         "date_trunc('hour', created_at) AS bucket_at",
                         "COUNT(*) AS count"
                 )
-                .where("created_at", QueryBuilder.Op.GTE, "NOW() - make_interval(hours => :hours)")
-                .groupBy("date_trunc('hour', created_at)")
+                .where("created_at", QueryBuilder.Op.GTE, "NOW() - make_interval(hours => :hours)");
+        appendNetworkScopeFilter(builder, networkScope);
+
+        String sql = builder.groupBy("date_trunc('hour', created_at)")
                 .orderBy("bucket_at ASC")
                 .build();
-        return jdbcClient.sql(sql)
+        JdbcClient.StatementSpec statement = jdbcClient.sql(sql)
                 .param("hours", hours)
+                ;
+        bindNetworkScope(statement, networkScope);
+        return statement
                 .query(settlementConflictMetricRowMapper)
                 .list();
+    }
+
+    private void appendNetworkScopeFilter(QueryBuilder.SelectBuilder builder, String networkScope) {
+        if (networkScope == null || networkScope.isBlank()) {
+            return;
+        }
+
+        builder.where("""
+                EXISTS (
+                    SELECT 1
+                    FROM settlement_requests settlement_request_filter
+                    JOIN offline_payment_proofs offline_payment_proof_filter
+                      ON offline_payment_proof_filter.id = settlement_request_filter.proof_id
+                    WHERE settlement_request_filter.id = settlement_conflicts.settlement_id
+                      AND %s = :networkScope
+                )
+                """.formatted(networkScopeExpression("offline_payment_proof_filter")));
+    }
+
+    private String networkScopeExpression(String proofAlias) {
+        return """
+                COALESCE(
+                    NULLIF(CAST(%s.raw_payload AS jsonb) ->> 'networkMode', ''),
+                    CASE
+                        WHEN CAST(%s.raw_payload AS jsonb) ->> 'network' = 'mainnet' THEN 'mainnet'
+                        ELSE 'testnet'
+                    END
+                )
+                """.formatted(proofAlias, proofAlias);
+    }
+
+    private void bindNetworkScope(JdbcClient.StatementSpec statement, String networkScope) {
+        if (networkScope != null && !networkScope.isBlank()) {
+            statement.param("networkScope", networkScope);
+        }
     }
 }

@@ -11,7 +11,7 @@
 ## 2. 전체 흐름
 
 1. 송신 단말은 오프라인 상태에서 NFC 또는 QR로 상대 단말/가맹점을 식별한다.
-2. 송신 단말은 로컬 저장값을 기준으로 `network`, `token`, `amount`, `description`, `authSessionId`, `stateHash`를 묶어 전송 요청을 만든다.
+2. 송신 단말은 로컬 저장값을 기준으로 `network`, `networkMode`, `token`, `amount`, `description`, `authSessionId`, `stateHash`를 묶어 전송 요청을 만든다.
 3. 단말은 현재 캐시된 가능 수량을 기준으로 1차 유효성 검사를 수행한다.
 4. 전송 직전 로컬 인증 방식을 통과한다.
    - `NONE`
@@ -114,11 +114,14 @@
   - conflict
   - dead-letter
 
-현재 구현상 다음 확장이 필요하다.
+현재 구현상 관리자 API는 `networkScope=mainnet|testnet` 필터를 지원한다.
 
-1. proof 또는 settlement row에 `network`, `token`, `local_available_amount` 승격
-2. admin metrics API에 `network` query parameter 추가
-3. 배치/충돌 집계에 proof/settlement join 기반 필터 추가
+- `GET /api/admin/metrics/settlements/timeseries`
+- `GET /api/admin/metrics/offline-pay/overview`
+- `GET /api/admin/conflicts`
+- `GET /api/admin/ops/dead-letters`
+
+필터 기준은 proof `raw_payload.networkMode`이고, 과거 payload는 `network=mainnet`이면 `mainnet`, 그 외는 `testnet`으로 fallback 한다.
 
 ## 7. 프런트 현재 구현 상태
 
@@ -136,5 +139,5 @@
 
 1. `offline_pay`에서 실패 reason code를 프런트 큐와 완전히 표준화
 2. 성공 판정 후 worker가 `coin_manage` 출금/입금 모델과 연결되도록 확장
-3. `mainnet/testnet` 기준 관리자 필터와 시계열 집계 추가
-4. proof payload를 typed contract로 승격
+3. proof payload를 typed contract로 승격
+4. settlement 결과와 외부 원장 sync 상태를 별도 outbox/state로 승격

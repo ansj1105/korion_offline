@@ -23,11 +23,12 @@ public class AdminConflictController {
             @RequestParam(required = false) String conflictType,
             @RequestParam(required = false) String collateralId,
             @RequestParam(required = false) String deviceId,
+            @RequestParam(required = false) String networkScope,
             @RequestParam(required = false) String cursor,
             @RequestParam(defaultValue = "20") int size
     ) {
         return Map.of(
-                "items", adminOperationsService.listConflicts(status, conflictType, collateralId, deviceId, size),
+                "items", adminOperationsService.listConflicts(status, conflictType, collateralId, deviceId, networkScope, size),
                 "nextCursor", cursor
         );
     }

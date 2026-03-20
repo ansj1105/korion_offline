@@ -20,8 +20,11 @@ public class AdminOperationsController {
     }
 
     @GetMapping("/dead-letters")
-    public Object listDeadLetters(@RequestParam(defaultValue = "20") int size) {
-        return Map.of("items", adminOperationsService.listDeadLetterBatches(size));
+    public Object listDeadLetters(
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String networkScope
+    ) {
+        return Map.of("items", adminOperationsService.listDeadLetterBatches(size, networkScope));
     }
 
     @PostMapping("/dead-letters/{batchId}/retry")

@@ -20,11 +20,11 @@ public interface SettlementBatchRepository {
 
     List<SettlementBatch> findRecentConflictedBatches(int limit);
 
-    List<SettlementBatch> findDeadLetterBatches(int limit);
+    List<SettlementBatch> findDeadLetterBatches(int limit, String networkScope);
 
-    List<SettlementStatusMetric> summarizeStatusByHour(int hours);
+    List<SettlementStatusMetric> summarizeStatusByHour(int hours, String networkScope);
 
-    List<SettlementBatch> findRecentBatches(int limit);
+    List<SettlementBatch> findRecentBatches(int limit, String networkScope);
 
-    long countDeadLetterBatches(int hours);
+    long countDeadLetterBatches(int hours, String networkScope);
 }
