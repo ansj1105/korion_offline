@@ -1,5 +1,6 @@
 package io.korion.offlinepay.application.service.settlement;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import io.korion.offlinepay.domain.model.Device;
 import io.korion.offlinepay.domain.model.OfflinePaymentProof;
 import java.nio.charset.StandardCharsets;
@@ -12,6 +13,8 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class DeviceSignatureVerificationService {
+
+    private final com.fasterxml.jackson.databind.ObjectMapper objectMapper = new com.fasterxml.jackson.databind.ObjectMapper();
 
     public VerificationResult verify(Device device, OfflinePaymentProof proof) {
         if (proof.signature() == null || proof.signature().isBlank()) {
@@ -47,7 +50,28 @@ public class DeviceSignatureVerificationService {
     }
 
     private String signingPayload(OfflinePaymentProof proof) {
-        return proof.newStateHash() + "|" + proof.timestampMs();
+        String deviceRegistrationId = "";
+        String signedUserId = "";
+        String authMethod = "";
+        try {
+            JsonNode payloadNode = objectMapper.readTree(
+                    proof.rawPayloadJson() == null || proof.rawPayloadJson().isBlank() ? "{}" : proof.rawPayloadJson()
+            );
+            deviceRegistrationId = textValue(payloadNode.get("deviceRegistrationId"));
+            signedUserId = textValue(payloadNode.get("signedUserId"));
+            authMethod = textValue(payloadNode.get("authMethod"));
+        } catch (Exception ignored) {
+            // Keep backward compatibility for old payloads with no binding context.
+        }
+        return proof.newStateHash() + "|" + proof.timestampMs() + "|" + deviceRegistrationId + "|" + signedUserId + "|" + authMethod;
+    }
+
+    private String textValue(JsonNode node) {
+        if (node == null || node.isNull()) {
+            return "";
+        }
+        String text = node.asText("");
+        return text == null ? "" : text.trim();
     }
 
     private String stripPem(String value) {

@@ -1,6 +1,7 @@
 package io.korion.offlinepay.application.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -29,6 +30,7 @@ import io.korion.offlinepay.application.service.settlement.ProofFingerprintServi
 import io.korion.offlinepay.application.service.settlement.SpendingProofHashService;
 import io.korion.offlinepay.application.service.settlement.SettlementPolicyEvaluator;
 import io.korion.offlinepay.application.service.settlement.DeviceSignatureVerificationService;
+import io.korion.offlinepay.application.service.settlement.DeviceBindingVerificationService;
 import io.korion.offlinepay.domain.model.CollateralLock;
 import io.korion.offlinepay.domain.model.Device;
 import io.korion.offlinepay.domain.model.OfflinePaymentProof;
@@ -77,7 +79,8 @@ class SettlementApplicationServiceTest {
             new ProofConflictDetector(jsonService),
             new ProofChainValidator(jsonService, spendingProofHashService),
             new SettlementPolicyEvaluator(jsonService),
-            new DeviceSignatureVerificationService()
+            new DeviceSignatureVerificationService(),
+            new DeviceBindingVerificationService(jsonService)
     );
 
     @Test
@@ -176,5 +179,92 @@ class SettlementApplicationServiceTest {
         verify(foxCoinHistoryPort).recordSettlementHistory(any(FoxCoinHistoryPort.SettlementHistoryCommand.class));
         verify(settlementRepository).update(anyString(), any(SettlementStatus.class), anyBoolean(), anyString());
         assertEquals(SettlementStatus.SETTLED, result.status());
+    }
+
+    @Test
+    void finalizeSettlementRejectsInvalidDeviceBinding() {
+        SettlementRequest request = new SettlementRequest(
+                "settlement-2",
+                "batch-2",
+                "collateral-2",
+                "proof-2",
+                SettlementStatus.VALIDATING,
+                false,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        CollateralLock collateral = new CollateralLock(
+                "collateral-2",
+                77L,
+                "device-1",
+                "USDT",
+                new BigDecimal("150"),
+                new BigDecimal("100"),
+                "GENESIS",
+                1,
+                CollateralStatus.LOCKED,
+                "lock-2",
+                OffsetDateTime.now().plusDays(1),
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        OfflinePaymentProof proof = new OfflinePaymentProof(
+                "proof-2",
+                "batch-2",
+                "voucher-2",
+                "collateral-2",
+                "device-1",
+                "device-2",
+                1,
+                1,
+                1L,
+                "nonce-2",
+                spendingProofHashService.computeNewStateHash("GENESIS", new BigDecimal("10"), 1L, "device-1", "nonce-2"),
+                "GENESIS",
+                "local_sig_fake",
+                new BigDecimal("10"),
+                System.currentTimeMillis(),
+                System.currentTimeMillis() + 60_000,
+                "{}",
+                "SENDER",
+                "{\"deviceRegistrationId\":\"other-row\",\"signedUserId\":77,\"authMethod\":\"PIN\",\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"100\"}",
+                OffsetDateTime.now()
+        );
+        Device device = new Device(
+                "row-1",
+                "device-1",
+                77L,
+                "public-key",
+                1,
+                DeviceStatus.ACTIVE,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+
+        when(settlementRepository.findById("settlement-2"))
+                .thenReturn(Optional.of(request))
+                .thenReturn(Optional.of(new SettlementRequest(
+                        "settlement-2",
+                        "batch-2",
+                        "collateral-2",
+                        "proof-2",
+                        SettlementStatus.REJECTED,
+                        false,
+                        "{\"reasonCode\":\"INVALID_DEVICE_BINDING\"}",
+                        OffsetDateTime.now(),
+                        OffsetDateTime.now()
+                )));
+        when(collateralRepository.findById("collateral-2")).thenReturn(Optional.of(collateral));
+        when(proofRepository.findById("proof-2")).thenReturn(Optional.of(proof));
+        when(deviceRepository.findByDeviceId("device-1")).thenReturn(Optional.of(device));
+
+        SettlementRequest result = service.finalizeSettlement("settlement-2");
+
+        verify(settlementRepository).update(anyString(), any(SettlementStatus.class), anyBoolean(), anyString());
+        assertEquals(SettlementStatus.REJECTED, result.status());
+        assertTrue(result.settlementResultJson().contains("INVALID_DEVICE_BINDING"));
     }
 }

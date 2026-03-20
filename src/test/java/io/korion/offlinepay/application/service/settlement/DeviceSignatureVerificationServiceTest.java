@@ -29,7 +29,7 @@ class DeviceSignatureVerificationServiceTest {
 
         Signature signer = Signature.getInstance("SHA256withECDSA");
         signer.initSign(keyPair.getPrivate());
-        signer.update((stateHash + "|" + timestamp).getBytes(StandardCharsets.UTF_8));
+        signer.update((stateHash + "|" + timestamp + "|||").getBytes(StandardCharsets.UTF_8));
         String signature = Base64.getEncoder().encodeToString(signer.sign());
 
         Device device = device(Base64.getEncoder().encodeToString(keyPair.getPublic().getEncoded()));
@@ -51,7 +51,7 @@ class DeviceSignatureVerificationServiceTest {
 
         Signature signer = Signature.getInstance("SHA256withECDSA");
         signer.initSign(keyPair.getPrivate());
-        signer.update(("other-state" + "|" + timestamp).getBytes(StandardCharsets.UTF_8));
+        signer.update(("other-state" + "|" + timestamp + "|||").getBytes(StandardCharsets.UTF_8));
         String signature = Base64.getEncoder().encodeToString(signer.sign());
 
         Device device = device(Base64.getEncoder().encodeToString(keyPair.getPublic().getEncoded()));

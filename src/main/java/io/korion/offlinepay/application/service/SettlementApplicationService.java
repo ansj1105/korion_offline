@@ -23,6 +23,7 @@ import io.korion.offlinepay.application.service.settlement.ProofSchemaValidator;
 import io.korion.offlinepay.application.service.settlement.SettlementEvaluation;
 import io.korion.offlinepay.application.service.settlement.SettlementPolicyEvaluator;
 import io.korion.offlinepay.application.service.settlement.DeviceSignatureVerificationService;
+import io.korion.offlinepay.application.service.settlement.DeviceBindingVerificationService;
 import io.korion.offlinepay.domain.model.CollateralLock;
 import io.korion.offlinepay.domain.model.Device;
 import io.korion.offlinepay.domain.model.OfflinePaymentProof;
@@ -62,6 +63,7 @@ public class SettlementApplicationService {
     private final ProofChainValidator proofChainValidator;
     private final SettlementPolicyEvaluator settlementPolicyEvaluator;
     private final DeviceSignatureVerificationService deviceSignatureVerificationService;
+    private final DeviceBindingVerificationService deviceBindingVerificationService;
 
     public SettlementApplicationService(
             CollateralRepository collateralRepository,
@@ -83,7 +85,8 @@ public class SettlementApplicationService {
             ProofConflictDetector proofConflictDetector,
             ProofChainValidator proofChainValidator,
             SettlementPolicyEvaluator settlementPolicyEvaluator,
-            DeviceSignatureVerificationService deviceSignatureVerificationService
+            DeviceSignatureVerificationService deviceSignatureVerificationService,
+            DeviceBindingVerificationService deviceBindingVerificationService
     ) {
         this.collateralRepository = collateralRepository;
         this.deviceRepository = deviceRepository;
@@ -105,6 +108,7 @@ public class SettlementApplicationService {
         this.proofChainValidator = proofChainValidator;
         this.settlementPolicyEvaluator = settlementPolicyEvaluator;
         this.deviceSignatureVerificationService = deviceSignatureVerificationService;
+        this.deviceBindingVerificationService = deviceBindingVerificationService;
     }
 
     @Transactional
@@ -325,6 +329,10 @@ public class SettlementApplicationService {
                 .orElse(null);
         if (device == null) {
             return rejected("DEVICE_NOT_FOUND", proof, "sender device missing");
+        }
+        DeviceBindingVerificationService.VerificationResult bindingVerification = deviceBindingVerificationService.verify(device, proof);
+        if (!bindingVerification.valid()) {
+            return rejected("INVALID_DEVICE_BINDING", proof, bindingVerification.detail());
         }
         DeviceSignatureVerificationService.VerificationResult signatureVerification = deviceSignatureVerificationService.verify(device, proof);
         if (!signatureVerification.verified() && !signatureVerification.unsupported()) {

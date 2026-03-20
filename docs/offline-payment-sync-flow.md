@@ -12,6 +12,8 @@
 
 1. 송신 단말은 오프라인 상태에서 NFC 또는 QR로 상대 단말/가맹점을 식별한다.
 2. 송신 단말은 로컬 저장값을 기준으로 `network`, `networkMode`, `token`, `amount`, `description`, `authSessionId`, `prevStateHash`, `newStateHash`, `monotonicCounter`, `nonce`를 묶어 전송 요청을 만든다.
+   - 이때 payload에는 `deviceRegistrationId`, `signedUserId`, `authMethod`도 함께 포함된다.
+   - native secure-state 경로는 이 바인딩 컨텍스트까지 포함한 payload를 서명한다.
 3. 단말은 현재 캐시된 가능 수량이 아니라, 마지막 온라인 동기화 시 받아둔 `offline collateral / available amount` 범위 안에서만 1차 유효성 검사를 수행한다.
 4. 전송 직전 로컬 인증 방식을 통과한다.
    - `NONE`
@@ -28,7 +30,7 @@
 7. `offline_pay`는 큐에 저장된 proof batch를 수신하고 정합성을 검증한다.
 8. 검증 성공 시 worker가 실제 후속 트랜잭션을 수행한다.
    - `coin_manage` 원장 반영
-   - 필요 시 출금/입금 execution
+   - 필요 시 기존 온라인 출금 진입점으로만 출금/입금 execution
    - `fox_coin` 거래내역 기록
 9. 검증 실패 시 서버는 실패 사유를 reason code로 반환한다.
 10. 단말은 해당 큐 요청을 성공 또는 실패 상태로 갱신한다.
@@ -66,7 +68,7 @@
   - 서버에서는 legacy/unsupported 경계로 취급
 - `native secure state`
   - Android Keystore / iOS Security framework 기반
-  - `newStateHash|timestamp`를 ECDSA로 서명
+  - `newStateHash|timestamp|deviceRegistrationId|signedUserId|authMethod`를 ECDSA로 서명
   - 서버는 검증 가능한 공개키가 등록된 경우 서명을 검증하고, 불일치 시 `INVALID_DEVICE_SIGNATURE`로 reject 한다
 
 즉 지금 단계에서 서버는:
@@ -86,6 +88,17 @@
 - `deviceId`
 - `timestamp`
 - `signature`
+- `deviceRegistrationId`
+- `signedUserId`
+- `authMethod`
+
+서버는 binding payload가 존재하면 추가로 아래를 확인한다.
+
+- `deviceRegistrationId == registered device row id`
+- `signedUserId == device.userId`
+- `authMethod` 존재 여부
+
+불일치 시 `INVALID_DEVICE_BINDING`
 
 현재 정책 검증 기준:
 
@@ -172,10 +185,12 @@
 
 현재 `coin_front`는 다음을 수행한다.
 
+- 앱이 오프라인으로 시작되면 근거리 전송 홈으로 fallback
 - NFC / QR 오프라인 인증
 - 네트워크/토큰/금액/설명 입력
 - offline collateral / available amount 기반 1차 검증
 - 오프라인 결제 인증 방식 설정
+- 등록된 secure device row id를 로컬에 캐시하고 proof에 포함
 - 전송 요청 로컬 큐 저장
 - 온라인 복귀 시 자동 sync 시도
 - 거래내역 화면 내 오프라인 큐 섹션 노출
