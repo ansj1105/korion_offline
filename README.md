@@ -34,12 +34,46 @@ docker compose up -d --build
 ./gradlew bootRun
 ```
 
-## 1차 API
+## 현재 API
 - `GET /health`
 - `POST /api/devices/register`
+- `POST /api/devices/revoke`
 - `POST /api/collateral`
-- `POST /api/settlement-batches`
-- `POST /api/settlement-batches/:batchId/finalize`
+- `GET /api/collateral/{collateralId}`
+- `POST /api/settlements`
+- `GET /api/settlements/{batchId}`
+- `POST /api/settlements/{settlementId}/finalize`
+- `GET /api/admin/conflicts`
+- `GET /api/admin/ops/dead-letters`
+- `POST /api/admin/ops/dead-letters/{batchId}/retry`
+- `GET /api/admin/metrics/settlements/timeseries`
+- `GET /api/admin/metrics/offline-pay/overview`
+
+## 현재 가능한 PoC 범위
+- 기기 등록
+- 담보 잠금 생성
+- proof batch 제출
+- worker 기반 검증 및 finalize
+- `coin_manage` 원장 finalize 호출
+- `fox_coin` 거래내역 기록 호출
+- dead-letter / conflict / overview 운영 확인
+
+아직 미구현인 범위:
+- `GET /api/devices`
+- `GET /api/devices/{deviceId}`
+- `POST /api/keys/rotate`
+- `POST /api/devices/sync`
+- `GET /api/collateral/locks`
+- `GET /api/settlements/history`
+- `GET /api/policy`
+- `pool allocate / pool detail / limit`
+
+## 빠른 PoC 시나리오
+1. `POST /api/devices/register`로 공개키 등록
+2. `POST /api/collateral`로 오프라인 담보 잠금 생성
+3. `POST /api/settlements`로 proof batch 제출
+4. worker 또는 `POST /api/settlements/{settlementId}/finalize`로 정산 finalize
+5. `GET /api/settlements/{batchId}`와 관리자 API로 결과 확인
 
 ## 외부 연동 경계
 - `POST /api/collateral` 생성 시 `coin_manage`에 자산 잠금 요청
