@@ -36,10 +36,10 @@ public class JdbcDeviceRepository implements DeviceRepository {
                 .insert("devices", "device_id", "user_id", "public_key", "key_version", "status", "metadata")
                 .build();
         jdbcClient.sql(sql.replace(":status", "'ACTIVE'").replace(":metadata", "CAST(:metadata AS jsonb)"))
-                .param("deviceId", deviceId)
-                .param("userId", userId)
-                .param("publicKey", publicKey)
-                .param("keyVersion", keyVersion)
+                .param("device_id", deviceId)
+                .param("user_id", userId)
+                .param("public_key", publicKey)
+                .param("key_version", keyVersion)
                 .param("metadata", metadataJson)
                 .update();
 
