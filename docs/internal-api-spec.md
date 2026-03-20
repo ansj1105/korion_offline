@@ -5,9 +5,9 @@
 ## 1. `coin_manage`
 
 Base path:
-- `/internal/offline-pay`
+- `/api/internal/offline-pay`
 
-### 1.1 `POST /internal/offline-pay/collateral/lock`
+### 1.1 `POST /api/internal/offline-pay/collateral/lock`
 
 Headers:
 - `X-Internal-Api-Key: <secret>`
@@ -34,7 +34,7 @@ Error:
 Idempotency:
 - `referenceId + deviceId + policyVersion` 기준 중복 요청 재실행 안전해야 함
 
-### 1.2 `POST /internal/offline-pay/settlements/finalize`
+### 1.2 `POST /api/internal/offline-pay/settlements/finalize`
 
 Headers:
 - `X-Internal-Api-Key: <secret>`
@@ -68,9 +68,9 @@ Error:
 ## 2. `fox_coin`
 
 Base path:
-- `/internal/offline-pay`
+- `/api/v1/internal/offline-pay`
 
-### 2.1 `POST /internal/offline-pay/settlements/history`
+### 2.1 `POST /api/v1/internal/offline-pay/settlements/history`
 
 Headers:
 - `X-Internal-Api-Key: <secret>`

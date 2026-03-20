@@ -16,7 +16,7 @@ public class CoinManageSettlementAdapter implements CoinManageSettlementPort {
     @Override
     public void finalizeSettlement(SettlementLedgerCommand command) {
         InternalAckResponseContract response = restClient.post()
-                .uri("/internal/offline-pay/settlements/finalize")
+                .uri("/api/internal/offline-pay/settlements/finalize")
                 .body(new CoinManageFinalizeSettlementContract(
                         command.settlementId(),
                         command.batchId(),

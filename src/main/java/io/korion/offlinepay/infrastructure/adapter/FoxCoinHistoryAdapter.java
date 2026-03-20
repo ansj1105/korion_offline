@@ -16,7 +16,7 @@ public class FoxCoinHistoryAdapter implements FoxCoinHistoryPort {
     @Override
     public void recordSettlementHistory(SettlementHistoryCommand command) {
         InternalAckResponseContract response = restClient.post()
-                .uri("/internal/offline-pay/settlements/history")
+                .uri("/api/v1/internal/offline-pay/settlements/history")
                 .body(new FoxCoinRecordSettlementHistoryContract(
                         command.settlementId(),
                         command.batchId(),

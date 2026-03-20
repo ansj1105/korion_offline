@@ -17,7 +17,7 @@ public class CoinManageCollateralAdapter implements CoinManageCollateralPort {
     @Override
     public LockCollateralResult lockCollateral(long userId, String deviceId, String assetCode, BigDecimal amount, String referenceId, int policyVersion) {
         CoinManageLockCollateralResponseContract response = restClient.post()
-                .uri("/internal/offline-pay/collateral/lock")
+                .uri("/api/internal/offline-pay/collateral/lock")
                 .body(new CoinManageLockCollateralContract(
                         userId,
                         deviceId,
