@@ -1,0 +1,84 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: offline_pay
+      POSTGRES_USER: offline_pay
+      POSTGRES_PASSWORD: offline_pay
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U offline_pay -d offline_pay"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6382:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  flyway:
+    image: flyway/flyway:11-alpine
+    command:
+      - -url=jdbc:postgresql://postgres:5432/offline_pay
+      - -user=offline_pay
+      - -password=offline_pay
+      - -connectRetries=60
+      - migrate
+    volumes:
+      - ./src/main/resources/db/migration:/flyway/sql
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  app-api:
+    build: .
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: jdbc:postgresql://postgres:5432/offline_pay
+      DATABASE_USERNAME: offline_pay
+      DATABASE_PASSWORD: offline_pay
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      SETTLEMENT_WORKER_ENABLED: "false"
+    ports:
+      - "3100:3100"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      flyway:
+        condition: service_completed_successfully
+
+  app-worker:
+    build: .
+    env_file:
+      - .env
+    environment:
+      SPRING_MAIN_WEB_APPLICATION_TYPE: "none"
+      SETTLEMENT_WORKER_ENABLED: "true"
+      DATABASE_URL: jdbc:postgresql://postgres:5432/offline_pay
+      DATABASE_USERNAME: offline_pay
+      DATABASE_PASSWORD: offline_pay
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      flyway:
+        condition: service_completed_successfully
+
+volumes:
+  postgres-data:

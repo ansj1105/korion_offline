@@ -1,0 +1,44 @@
+spring:
+  application:
+    name: offline-pay-backend
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5434/offline_pay}
+    username: ${DATABASE_USERNAME:offline_pay}
+    password: ${DATABASE_PASSWORD:offline_pay}
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6382}
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+server:
+  port: ${APP_PORT:3100}
+
+offline-pay:
+  asset-code: ${COLLATERAL_ASSET_CODE:USDT}
+  default-collateral-expiry-hours: ${DEFAULT_COLLATERAL_EXPIRY_HOURS:24}
+  settlement-stream-batch-size: ${SETTLEMENT_STREAM_BATCH_SIZE:20}
+  settlement-stream-block-ms: ${SETTLEMENT_STREAM_BLOCK_MS:1000}
+  coin-manage:
+    base-url: ${COIN_MANAGE_BASE_URL:http://localhost:3000}
+    api-key: ${COIN_MANAGE_API_KEY:replace-with-internal-api-key}
+    timeout-ms: ${COIN_MANAGE_TIMEOUT_MS:5000}
+  fox-coin:
+    base-url: ${FOX_COIN_BASE_URL:http://localhost:3101}
+    api-key: ${FOX_COIN_API_KEY:replace-with-fox-coin-internal-api-key}
+    timeout-ms: ${FOX_COIN_TIMEOUT_MS:5000}
+  redis:
+    key-prefix: ${REDIS_KEY_PREFIX:offlinepay}
+    settlement-requested-stream: ${SETTLEMENT_REQUESTED_STREAM_NAME:stream:settlement:requested}
+    settlement-result-stream: ${SETTLEMENT_RESULT_STREAM_NAME:stream:settlement:result}
+    settlement-conflict-stream: ${SETTLEMENT_CONFLICT_STREAM_NAME:stream:settlement:conflict}
+    settlement-dead-letter-stream: ${SETTLEMENT_DEAD_LETTER_STREAM_NAME:stream:settlement:dead-letter}
+    settlement-group: ${SETTLEMENT_GROUP_NAME:offlinepay:settlement-group}
+  worker:
+    enabled: ${SETTLEMENT_WORKER_ENABLED:false}
+    consumer-name: ${SETTLEMENT_CONSUMER_NAME:offline-pay-worker}
+    claim-idle-ms: ${SETTLEMENT_WORKER_CLAIM_IDLE_MS:60000}
+    max-attempts: ${SETTLEMENT_WORKER_MAX_ATTEMPTS:3}
+    poll-delay-ms: ${SETTLEMENT_WORKER_POLL_DELAY_MS:5000}

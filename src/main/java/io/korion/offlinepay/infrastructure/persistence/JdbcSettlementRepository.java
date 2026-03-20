@@ -1,0 +1,87 @@
+package io.korion.offlinepay.infrastructure.persistence;
+
+import io.korion.offlinepay.application.port.SettlementRepository;
+import io.korion.offlinepay.domain.model.SettlementRequest;
+import io.korion.offlinepay.domain.status.SettlementStatus;
+import io.korion.offlinepay.infrastructure.persistence.mapper.SettlementRequestRowMapper;
+import java.util.List;
+import java.util.Optional;
+import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.stereotype.Repository;
+
+@Repository
+public class JdbcSettlementRepository implements SettlementRepository {
+
+    private final JdbcClient jdbcClient;
+    private final SettlementRequestRowMapper settlementRequestRowMapper;
+
+    public JdbcSettlementRepository(JdbcClient jdbcClient, SettlementRequestRowMapper settlementRequestRowMapper) {
+        this.jdbcClient = jdbcClient;
+        this.settlementRequestRowMapper = settlementRequestRowMapper;
+    }
+
+    @Override
+    public SettlementRequest save(String batchId, String collateralId, String proofId, SettlementStatus status, boolean conflictDetected, String settlementResultJson) {
+        String sql = QueryBuilder
+                .insert("settlement_requests", "batch_id", "collateral_id", "proof_id", "status", "conflict_detected", "settlement_result")
+                .build();
+        jdbcClient.sql(sql.replace(":settlement_result", "CAST(:settlementResult AS jsonb)"))
+                .param("batchId", java.util.UUID.fromString(batchId))
+                .param("collateralId", java.util.UUID.fromString(collateralId))
+                .param("proofId", java.util.UUID.fromString(proofId))
+                .param("status", status.name())
+                .param("conflictDetected", conflictDetected)
+                .param("settlementResult", settlementResultJson)
+                .update();
+
+        String selectSql = QueryBuilder.select("settlement_requests")
+                .where("batch_id = :batchId")
+                .orderBy("created_at DESC")
+                .limit(1)
+                .build();
+        return jdbcClient.sql(selectSql)
+                .param("batchId", java.util.UUID.fromString(batchId))
+                .query(settlementRequestRowMapper)
+                .single();
+    }
+
+    @Override
+    public List<SettlementRequest> findByBatchId(String batchId) {
+        String sql = QueryBuilder.select("settlement_requests")
+                .where("batch_id = :batchId")
+                .orderBy("created_at ASC")
+                .build();
+        return jdbcClient.sql(sql)
+                .param("batchId", java.util.UUID.fromString(batchId))
+                .query(settlementRequestRowMapper)
+                .list();
+    }
+
+    @Override
+    public Optional<SettlementRequest> findById(String settlementId) {
+        String sql = QueryBuilder.select("settlement_requests")
+                .where("id = :id")
+                .build();
+        return jdbcClient.sql(sql)
+                .param("id", java.util.UUID.fromString(settlementId))
+                .query(settlementRequestRowMapper)
+                .optional();
+    }
+
+    @Override
+    public void update(String settlementId, SettlementStatus status, boolean conflictDetected, String settlementResultJson) {
+        String sql = QueryBuilder.update("settlement_requests")
+                .set("status = :status")
+                .set("conflict_detected = :conflictDetected")
+                .set("settlement_result = settlement_result || CAST(:settlementResult AS jsonb)")
+                .touchUpdatedAt()
+                .where("id = :id")
+                .build();
+        jdbcClient.sql(sql)
+                .param("id", java.util.UUID.fromString(settlementId))
+                .param("status", status.name())
+                .param("conflictDetected", conflictDetected)
+                .param("settlementResult", settlementResultJson)
+                .update();
+    }
+}
