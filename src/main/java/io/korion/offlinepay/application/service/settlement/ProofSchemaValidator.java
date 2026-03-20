@@ -26,6 +26,9 @@ public class ProofSchemaValidator {
         if (proof.hashChainHead() == null || proof.hashChainHead().isBlank()) {
             throw new IllegalArgumentException("hashChainHead is required");
         }
+        if (proof.previousHash() == null || proof.previousHash().isBlank()) {
+            throw new IllegalArgumentException("previousHash is required");
+        }
         if (!StringUtils.hasText(proof.rawPayloadJson())) {
             throw new IllegalArgumentException("payload is required");
         }

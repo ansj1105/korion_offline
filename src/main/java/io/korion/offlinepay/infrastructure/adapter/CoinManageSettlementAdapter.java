@@ -28,7 +28,13 @@ public class CoinManageSettlementAdapter implements CoinManageSettlementPort {
                         command.amount(),
                         command.settlementStatus(),
                         command.releaseAction(),
-                        command.conflictDetected()
+                        command.conflictDetected(),
+                        command.proofFingerprint(),
+                        command.newStateHash(),
+                        command.previousHash(),
+                        command.monotonicCounter(),
+                        command.nonce(),
+                        command.signature()
                 ))
                 .retrieve()
                 .body(InternalAckResponseContract.class);

@@ -17,6 +17,12 @@ public interface CoinManageSettlementPort {
             BigDecimal amount,
             String settlementStatus,
             String releaseAction,
-            boolean conflictDetected
+            boolean conflictDetected,
+            String proofFingerprint,
+            String newStateHash,
+            String previousHash,
+            long monotonicCounter,
+            String nonce,
+            String signature
     ) {}
 }

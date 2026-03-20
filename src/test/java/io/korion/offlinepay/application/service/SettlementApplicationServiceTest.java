@@ -25,7 +25,10 @@ import io.korion.offlinepay.application.port.SettlementResultRepository;
 import io.korion.offlinepay.application.service.settlement.ProofChainValidator;
 import io.korion.offlinepay.application.service.settlement.ProofConflictDetector;
 import io.korion.offlinepay.application.service.settlement.ProofSchemaValidator;
+import io.korion.offlinepay.application.service.settlement.ProofFingerprintService;
+import io.korion.offlinepay.application.service.settlement.SpendingProofHashService;
 import io.korion.offlinepay.application.service.settlement.SettlementPolicyEvaluator;
+import io.korion.offlinepay.application.service.settlement.DeviceSignatureVerificationService;
 import io.korion.offlinepay.domain.model.CollateralLock;
 import io.korion.offlinepay.domain.model.Device;
 import io.korion.offlinepay.domain.model.OfflinePaymentProof;
@@ -40,6 +43,8 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 class SettlementApplicationServiceTest {
+
+    private final SpendingProofHashService spendingProofHashService = new SpendingProofHashService();
 
     private final CollateralRepository collateralRepository = Mockito.mock(CollateralRepository.class);
     private final DeviceRepository deviceRepository = Mockito.mock(DeviceRepository.class);
@@ -67,11 +72,12 @@ class SettlementApplicationServiceTest {
             new SettlementBatchFactory(jsonService),
             new SettlementRequestFactory(jsonService),
             new SettlementStreamEventFactory(),
-            new SettlementSyncCommandFactory(),
+            new SettlementSyncCommandFactory(new ProofFingerprintService()),
             new ProofSchemaValidator(),
             new ProofConflictDetector(jsonService),
-            new ProofChainValidator(jsonService),
-            new SettlementPolicyEvaluator(jsonService)
+            new ProofChainValidator(jsonService, spendingProofHashService),
+            new SettlementPolicyEvaluator(jsonService),
+            new DeviceSignatureVerificationService()
     );
 
     @Test
@@ -114,6 +120,13 @@ class SettlementApplicationServiceTest {
                 OffsetDateTime.now(),
                 OffsetDateTime.now()
         );
+        String proofHash = spendingProofHashService.computeNewStateHash(
+                "GENESIS",
+                new BigDecimal("100"),
+                1L,
+                "device-1",
+                "nonce-1"
+        );
         OfflinePaymentProof proof = new OfflinePaymentProof(
                 "proof-1",
                 "batch-1",
@@ -125,7 +138,7 @@ class SettlementApplicationServiceTest {
                 1,
                 1L,
                 "nonce-1",
-                "hash-1",
+                proofHash,
                 "GENESIS",
                 "signature",
                 new BigDecimal("100"),

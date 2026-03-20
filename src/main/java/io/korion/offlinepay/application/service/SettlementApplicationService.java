@@ -22,6 +22,7 @@ import io.korion.offlinepay.application.service.settlement.ProofConflictDetector
 import io.korion.offlinepay.application.service.settlement.ProofSchemaValidator;
 import io.korion.offlinepay.application.service.settlement.SettlementEvaluation;
 import io.korion.offlinepay.application.service.settlement.SettlementPolicyEvaluator;
+import io.korion.offlinepay.application.service.settlement.DeviceSignatureVerificationService;
 import io.korion.offlinepay.domain.model.CollateralLock;
 import io.korion.offlinepay.domain.model.Device;
 import io.korion.offlinepay.domain.model.OfflinePaymentProof;
@@ -60,6 +61,7 @@ public class SettlementApplicationService {
     private final ProofConflictDetector proofConflictDetector;
     private final ProofChainValidator proofChainValidator;
     private final SettlementPolicyEvaluator settlementPolicyEvaluator;
+    private final DeviceSignatureVerificationService deviceSignatureVerificationService;
 
     public SettlementApplicationService(
             CollateralRepository collateralRepository,
@@ -80,7 +82,8 @@ public class SettlementApplicationService {
             ProofSchemaValidator proofSchemaValidator,
             ProofConflictDetector proofConflictDetector,
             ProofChainValidator proofChainValidator,
-            SettlementPolicyEvaluator settlementPolicyEvaluator
+            SettlementPolicyEvaluator settlementPolicyEvaluator,
+            DeviceSignatureVerificationService deviceSignatureVerificationService
     ) {
         this.collateralRepository = collateralRepository;
         this.deviceRepository = deviceRepository;
@@ -101,6 +104,7 @@ public class SettlementApplicationService {
         this.proofConflictDetector = proofConflictDetector;
         this.proofChainValidator = proofChainValidator;
         this.settlementPolicyEvaluator = settlementPolicyEvaluator;
+        this.deviceSignatureVerificationService = deviceSignatureVerificationService;
     }
 
     @Transactional
@@ -322,6 +326,10 @@ public class SettlementApplicationService {
         if (device == null) {
             return rejected("DEVICE_NOT_FOUND", proof, "sender device missing");
         }
+        DeviceSignatureVerificationService.VerificationResult signatureVerification = deviceSignatureVerificationService.verify(device, proof);
+        if (!signatureVerification.verified() && !signatureVerification.unsupported()) {
+            return rejected("INVALID_DEVICE_SIGNATURE", proof, signatureVerification.detail());
+        }
         if (settlementResultRepository.existsByVoucherId(proof.voucherId())) {
             return conflicted("DUPLICATE_SETTLEMENT", proof, "{\"reasonCode\":\"DUPLICATE_SETTLEMENT\"}");
         }
@@ -408,7 +416,7 @@ public class SettlementApplicationService {
         coinManageSettlementPort.finalizeSettlement(
                 settlementSyncCommandFactory.createLedgerCommand(
                         collateral,
-                        proof.id(),
+                        proof,
                         proof.amount(),
                         request,
                         evaluation.status().name(),

@@ -24,4 +24,17 @@ public record OfflinePaymentProof(
         String uploaderType,
         String rawPayloadJson,
         OffsetDateTime createdAt
-) {}
+) {
+
+    public long monotonicCounter() {
+        return counter;
+    }
+
+    public String newStateHash() {
+        return hashChainHead;
+    }
+
+    public String prevStateHash() {
+        return previousHash;
+    }
+}
