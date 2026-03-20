@@ -1,6 +1,7 @@
 package io.korion.offlinepay.application.service.settlement;
 
 import io.korion.offlinepay.domain.model.OfflinePaymentProof;
+import org.springframework.util.StringUtils;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -24,6 +25,9 @@ public class ProofSchemaValidator {
         }
         if (proof.hashChainHead() == null || proof.hashChainHead().isBlank()) {
             throw new IllegalArgumentException("hashChainHead is required");
+        }
+        if (!StringUtils.hasText(proof.rawPayloadJson())) {
+            throw new IllegalArgumentException("payload is required");
         }
     }
 }

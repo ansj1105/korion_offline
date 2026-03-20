@@ -133,7 +133,7 @@ class SettlementApplicationServiceTest {
                 System.currentTimeMillis() + 60_000,
                 "{\"voucherId\":\"voucher-1\"}",
                 "SENDER",
-                "{}",
+                "{\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"100\"}",
                 OffsetDateTime.now()
         );
         Device device = new Device(
