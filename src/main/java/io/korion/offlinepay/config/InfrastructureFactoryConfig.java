@@ -17,6 +17,11 @@ import org.springframework.web.client.RestClient;
 public class InfrastructureFactoryConfig {
 
     @Bean
+    public RestClient.Builder restClientBuilder() {
+        return RestClient.builder();
+    }
+
+    @Bean
     public RestClient coinManageRestClient(RestClient.Builder builder, AppProperties properties) {
         return builder
                 .baseUrl(properties.coinManage().baseUrl())
