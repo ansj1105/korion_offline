@@ -29,6 +29,7 @@ import io.korion.offlinepay.domain.model.Device;
 import io.korion.offlinepay.domain.model.OfflinePaymentProof;
 import io.korion.offlinepay.domain.model.SettlementBatch;
 import io.korion.offlinepay.domain.model.SettlementRequest;
+import io.korion.offlinepay.domain.reason.OfflinePayReasonCode;
 import io.korion.offlinepay.domain.status.CollateralStatus;
 import io.korion.offlinepay.domain.status.SettlementBatchStatus;
 import io.korion.offlinepay.domain.status.SettlementStatus;
@@ -322,24 +323,28 @@ public class SettlementApplicationService {
         try {
             proofSchemaValidator.validate(proof);
         } catch (IllegalArgumentException exception) {
-            return rejected("INVALID_PROOF_SCHEMA", proof, exception.getMessage());
+            return rejected(OfflinePayReasonCode.INVALID_PROOF_SCHEMA, proof, exception.getMessage());
         }
 
         Device device = deviceRepository.findByDeviceId(proof.senderDeviceId())
                 .orElse(null);
         if (device == null) {
-            return rejected("DEVICE_NOT_FOUND", proof, "sender device missing");
+            return rejected(OfflinePayReasonCode.DEVICE_NOT_FOUND, proof, "sender device missing");
         }
         DeviceBindingVerificationService.VerificationResult bindingVerification = deviceBindingVerificationService.verify(device, proof);
         if (!bindingVerification.valid()) {
-            return rejected("INVALID_DEVICE_BINDING", proof, bindingVerification.detail());
+            return rejected(OfflinePayReasonCode.INVALID_DEVICE_BINDING, proof, bindingVerification.detail());
         }
         DeviceSignatureVerificationService.VerificationResult signatureVerification = deviceSignatureVerificationService.verify(device, proof);
         if (!signatureVerification.verified() && !signatureVerification.unsupported()) {
-            return rejected("INVALID_DEVICE_SIGNATURE", proof, signatureVerification.detail());
+            return rejected(OfflinePayReasonCode.INVALID_DEVICE_SIGNATURE, proof, signatureVerification.detail());
         }
         if (settlementResultRepository.existsByVoucherId(proof.voucherId())) {
-            return conflicted("DUPLICATE_SETTLEMENT", proof, "{\"reasonCode\":\"DUPLICATE_SETTLEMENT\"}");
+            return conflicted(
+                    OfflinePayReasonCode.DUPLICATE_SETTLEMENT,
+                    proof,
+                    "{\"reasonCode\":\"" + OfflinePayReasonCode.DUPLICATE_SETTLEMENT + "\"}"
+            );
         }
 
         List<OfflinePaymentProof> existingProofs = proofRepository.findByCollateralId(proof.collateralId()).stream()

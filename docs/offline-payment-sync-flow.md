@@ -1,12 +1,20 @@
 # Offline Payment Sync Flow
 
+관련 앱 모드/연결 정책은 [payment-mode-flow-spec.md](./payment-mode-flow-spec.md)를 기준으로 한다.
+
 ## 1. 목적
 
 오프라인 결제는 단말이 네트워크 없이도 `전송 요청`을 생성할 수 있어야 한다.  
 단, 자산 확정은 오프라인 시점이 아니라 서버 정합성 판정과 내부 원장 반영이 끝난 이후에만 인정한다.
 
 즉, 모바일 단말은 오프라인에서 `요청(intent/proof)`를 만들고 보관한다.
-온라인 복귀 후 `offline_pay`가 정합성을 검증하고, 성공 시 worker가 실제 원장/출금/입금 반영을 수행한다.
+온라인 복귀 후 `offline_pay`가 정합성을 검증하고, 성공 시 worker가 내부 원장 반영을 수행한다.
+
+중요:
+
+- 오프라인 페이는 `원장 기반 pay`다.
+- 정산 성공 후 자동 실출금은 수행하지 않는다.
+- 외부 체인 출금은 별도의 온라인 출금 의도에서 기존 출금 API만 사용한다.
 
 ## 2. 전체 흐름
 
@@ -29,8 +37,7 @@
    - 수동 재시도
 7. `offline_pay`는 큐에 저장된 proof batch를 수신하고 정합성을 검증한다.
 8. 검증 성공 시 worker가 실제 후속 트랜잭션을 수행한다.
-   - `coin_manage` 원장 반영
-   - 필요 시 기존 온라인 출금 진입점으로만 출금/입금 execution
+   - `coin_manage` 내부 원장 반영
    - `fox_coin` 거래내역 기록
 9. 검증 실패 시 서버는 실패 사유를 reason code로 반환한다.
 10. 단말은 해당 큐 요청을 성공 또는 실패 상태로 갱신한다.
@@ -135,9 +142,9 @@
   - 성공/실패 판정
   - worker 실행 트리거
 - `coin_manage`
-  - canonical ledger 반영
-  - 필요 시 testnet/mainnet 출금/입금 실행
-  - `coin_system_cloud.users.is_test = 1` 사용자는 mainnet 출금 금지
+  - canonical internal ledger 반영
+  - collateral lock / release 반영
+  - `coin_system_cloud.users.is_test = 1` 사용자는 mainnet 실출금 금지
 - `fox_coin`
   - 사용자 거래내역 반영
 
