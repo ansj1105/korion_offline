@@ -1,6 +1,7 @@
 package io.korion.offlinepay.application.port;
 
 import io.korion.offlinepay.domain.model.OfflinePaymentProof;
+import io.korion.offlinepay.domain.status.OfflineProofStatus;
 import java.math.BigDecimal;
 
 public interface OfflinePaymentProofRepository {
@@ -23,8 +24,11 @@ public interface OfflinePaymentProofRepository {
             long expiresAtMs,
             String canonicalPayload,
             String uploaderType,
+            String channelType,
             String rawPayloadJson
     );
+
+    void updateLifecycle(String proofId, OfflineProofStatus status, String reasonCode, boolean verified, boolean settled);
 
     java.util.Optional<OfflinePaymentProof> findById(String proofId);
 
@@ -33,4 +37,6 @@ public interface OfflinePaymentProofRepository {
     java.util.Optional<OfflinePaymentProof> findBySenderNonce(String senderDeviceId, String nonce);
 
     java.util.List<OfflinePaymentProof> findByCollateralId(String collateralId);
+
+    java.util.List<OfflinePaymentProof> findRecent(int size, OfflineProofStatus status, String channelType);
 }

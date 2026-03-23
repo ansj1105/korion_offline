@@ -23,7 +23,7 @@ public class JdbcDeviceRepository implements DeviceRepository {
     public Optional<Device> findByDeviceId(String deviceId) {
         String sql = QueryBuilder
                 .select("devices", "id", "device_id", "user_id", "public_key", "key_version", "status", "metadata", "created_at", "updated_at")
-                .where("device_id = :deviceId")
+                .where("device_id", QueryBuilder.Op.EQ, ":deviceId")
                 .build();
         return jdbcClient.sql(sql)
                 .param("deviceId", deviceId)
@@ -35,8 +35,8 @@ public class JdbcDeviceRepository implements DeviceRepository {
     public Optional<Device> findByUserIdAndDeviceId(long userId, String deviceId) {
         String sql = QueryBuilder
                 .select("devices", "id", "device_id", "user_id", "public_key", "key_version", "status", "metadata", "created_at", "updated_at")
-                .where("user_id = :userId")
-                .where("device_id = :deviceId")
+                .where("user_id", QueryBuilder.Op.EQ, ":userId")
+                .where("device_id", QueryBuilder.Op.EQ, ":deviceId")
                 .build();
         return jdbcClient.sql(sql)
                 .param("userId", userId)
@@ -49,8 +49,8 @@ public class JdbcDeviceRepository implements DeviceRepository {
     public List<Device> findActiveByUserId(long userId) {
         String sql = QueryBuilder
                 .select("devices", "id", "device_id", "user_id", "public_key", "key_version", "status", "metadata", "created_at", "updated_at")
-                .where("user_id = :userId")
-                .where("status = 'ACTIVE'")
+                .where("user_id", QueryBuilder.Op.EQ, ":userId")
+                .where("status", QueryBuilder.Op.EQ, "'ACTIVE'")
                 .build();
         return jdbcClient.sql(sql)
                 .param("userId", userId)
@@ -62,8 +62,10 @@ public class JdbcDeviceRepository implements DeviceRepository {
     public Device save(long userId, String deviceId, String publicKey, int keyVersion, String metadataJson) {
         String sql = QueryBuilder
                 .insert("devices", "device_id", "user_id", "public_key", "key_version", "status", "metadata")
+                .value("status", "'ACTIVE'")
+                .value("metadata", "CAST(:metadata AS jsonb)")
                 .build();
-        jdbcClient.sql(sql.replace(":status", "'ACTIVE'").replace(":metadata", "CAST(:metadata AS jsonb)"))
+        jdbcClient.sql(sql)
                 .param("device_id", deviceId)
                 .param("user_id", userId)
                 .param("public_key", publicKey)
@@ -78,13 +80,13 @@ public class JdbcDeviceRepository implements DeviceRepository {
     public void revoke(String deviceId, Integer keyVersion, String metadataJson) {
         QueryBuilder.UpdateBuilder builder = QueryBuilder
                 .update("devices")
-                .set("status = 'REVOKED'")
-                .set("metadata = metadata || CAST(:metadata AS jsonb)")
+                .set("status", "'REVOKED'")
+                .set("metadata", "metadata || CAST(:metadata AS jsonb)")
                 .touchUpdatedAt()
-                .where("device_id = :deviceId");
+                .where("device_id", QueryBuilder.Op.EQ, ":deviceId");
         String sql = keyVersion == null
-                ? builder.where("status = 'ACTIVE'").build()
-                : builder.where("key_version = :keyVersion").build();
+                ? builder.where("status", QueryBuilder.Op.EQ, "'ACTIVE'").build()
+                : builder.where("key_version", QueryBuilder.Op.EQ, ":keyVersion").build();
         JdbcClient.StatementSpec statementSpec = jdbcClient.sql(sql)
                 .param("deviceId", deviceId)
                 .param("metadata", metadataJson);

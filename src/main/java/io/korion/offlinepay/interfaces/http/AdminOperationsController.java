@@ -63,6 +63,23 @@ public class AdminOperationsController {
         return adminOperationsService.getOfflineEventOverview(size, assetCode);
     }
 
+    @GetMapping("/proofs")
+    public Object listProofs(
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String channelType
+    ) {
+        return Map.of("items", adminOperationsService.listProofs(size, status, channelType));
+    }
+
+    @GetMapping("/proofs/overview")
+    public Object proofOverview(
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String channelType
+    ) {
+        return adminOperationsService.getProofOverview(size, channelType);
+    }
+
     @PostMapping("/dead-letters/{batchId}/retry")
     public Object retryDeadLetter(@PathVariable String batchId) {
         return Map.of(

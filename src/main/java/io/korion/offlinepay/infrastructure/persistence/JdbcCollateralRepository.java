@@ -50,8 +50,9 @@ public class JdbcCollateralRepository implements CollateralRepository {
                         "expires_at",
                         "metadata"
                 )
+                .value("metadata", "CAST(:metadata AS jsonb)")
                 .build();
-        jdbcClient.sql(sql.replace(":metadata", "CAST(:metadata AS jsonb)"))
+        jdbcClient.sql(sql)
                 .param("userId", userId)
                 .param("deviceId", deviceId)
                 .param("assetCode", assetCode)
@@ -67,7 +68,7 @@ public class JdbcCollateralRepository implements CollateralRepository {
 
         String selectSql = QueryBuilder
                 .select("collateral_locks")
-                .where("device_id = :deviceId")
+                .where("device_id", QueryBuilder.Op.EQ, ":deviceId")
                 .orderBy("created_at DESC")
                 .limit(1)
                 .build();
@@ -80,7 +81,7 @@ public class JdbcCollateralRepository implements CollateralRepository {
     @Override
     public Optional<CollateralLock> findById(String collateralId) {
         String sql = QueryBuilder.select("collateral_locks")
-                .where("id = :id")
+                .where("id", QueryBuilder.Op.EQ, ":id")
                 .build();
         return jdbcClient.sql(sql)
                 .param("id", java.util.UUID.fromString(collateralId))
@@ -91,9 +92,9 @@ public class JdbcCollateralRepository implements CollateralRepository {
     @Override
     public Optional<CollateralLock> findLatestByUserIdAndDeviceIdAndAssetCode(long userId, String deviceId, String assetCode) {
         String sql = QueryBuilder.select("collateral_locks")
-                .where("user_id = :userId")
-                .where("device_id = :deviceId")
-                .where("asset_code = :assetCode")
+                .where("user_id", QueryBuilder.Op.EQ, ":userId")
+                .where("device_id", QueryBuilder.Op.EQ, ":deviceId")
+                .where("asset_code", QueryBuilder.Op.EQ, ":assetCode")
                 .orderBy("updated_at DESC")
                 .limit(1)
                 .build();
@@ -108,9 +109,9 @@ public class JdbcCollateralRepository implements CollateralRepository {
     @Override
     public void deductRemainingAmount(String collateralId, BigDecimal amount) {
         String sql = QueryBuilder.update("collateral_locks")
-                .set("remaining_amount = GREATEST(remaining_amount - :amount, 0)")
+                .set("remaining_amount", "GREATEST(remaining_amount - :amount, 0)")
                 .touchUpdatedAt()
-                .where("id = :id")
+                .where("id", QueryBuilder.Op.EQ, ":id")
                 .build();
         jdbcClient.sql(sql)
                 .param("id", java.util.UUID.fromString(collateralId))
@@ -121,10 +122,10 @@ public class JdbcCollateralRepository implements CollateralRepository {
     @Override
     public void updateStatus(String collateralId, CollateralStatus status, String metadataJson) {
         String sql = QueryBuilder.update("collateral_locks")
-                .set("status = :status")
-                .set("metadata = metadata || CAST(:metadata AS jsonb)")
+                .set("status", ":status")
+                .set("metadata", "metadata || CAST(:metadata AS jsonb)")
                 .touchUpdatedAt()
-                .where("id = :id")
+                .where("id", QueryBuilder.Op.EQ, ":id")
                 .build();
         jdbcClient.sql(sql)
                 .param("id", java.util.UUID.fromString(collateralId))

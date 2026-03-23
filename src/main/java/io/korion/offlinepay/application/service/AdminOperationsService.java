@@ -4,11 +4,13 @@ import io.korion.offlinepay.application.factory.SettlementBatchFactory;
 import io.korion.offlinepay.application.factory.SettlementStreamEventFactory;
 import io.korion.offlinepay.application.port.CollateralOperationRepository;
 import io.korion.offlinepay.application.port.OfflineEventLogRepository;
+import io.korion.offlinepay.application.port.OfflinePaymentProofRepository;
 import io.korion.offlinepay.application.port.SettlementBatchEventBus;
 import io.korion.offlinepay.application.port.SettlementBatchRepository;
 import io.korion.offlinepay.application.port.SettlementConflictRepository;
 import io.korion.offlinepay.domain.model.CollateralOperation;
 import io.korion.offlinepay.domain.model.OfflineEventLog;
+import io.korion.offlinepay.domain.model.OfflinePaymentProof;
 import io.korion.offlinepay.domain.model.SettlementBatch;
 import io.korion.offlinepay.domain.model.SettlementConflict;
 import io.korion.offlinepay.domain.model.SettlementConflictMetric;
@@ -17,6 +19,7 @@ import io.korion.offlinepay.domain.status.CollateralOperationStatus;
 import io.korion.offlinepay.domain.status.CollateralOperationType;
 import io.korion.offlinepay.domain.status.OfflineEventStatus;
 import io.korion.offlinepay.domain.status.OfflineEventType;
+import io.korion.offlinepay.domain.status.OfflineProofStatus;
 import io.korion.offlinepay.domain.status.SettlementBatchStatus;
 import java.time.OffsetDateTime;
 import java.util.LinkedHashMap;
@@ -32,6 +35,7 @@ public class AdminOperationsService {
     private final SettlementConflictRepository settlementConflictRepository;
     private final CollateralOperationRepository collateralOperationRepository;
     private final OfflineEventLogRepository offlineEventLogRepository;
+    private final OfflinePaymentProofRepository offlinePaymentProofRepository;
     private final SettlementBatchEventBus settlementBatchEventBus;
     private final SettlementBatchFactory settlementBatchFactory;
     private final SettlementStreamEventFactory settlementStreamEventFactory;
@@ -41,6 +45,7 @@ public class AdminOperationsService {
             SettlementConflictRepository settlementConflictRepository,
             CollateralOperationRepository collateralOperationRepository,
             OfflineEventLogRepository offlineEventLogRepository,
+            OfflinePaymentProofRepository offlinePaymentProofRepository,
             SettlementBatchEventBus settlementBatchEventBus,
             SettlementBatchFactory settlementBatchFactory,
             SettlementStreamEventFactory settlementStreamEventFactory
@@ -49,6 +54,7 @@ public class AdminOperationsService {
         this.settlementConflictRepository = settlementConflictRepository;
         this.collateralOperationRepository = collateralOperationRepository;
         this.offlineEventLogRepository = offlineEventLogRepository;
+        this.offlinePaymentProofRepository = offlinePaymentProofRepository;
         this.settlementBatchEventBus = settlementBatchEventBus;
         this.settlementBatchFactory = settlementBatchFactory;
         this.settlementStreamEventFactory = settlementStreamEventFactory;
@@ -239,9 +245,39 @@ public class AdminOperationsService {
         long pendingCount = recentEvents.stream().filter(item -> item.eventStatus() == OfflineEventStatus.PENDING).count();
         long failedCount = recentEvents.stream().filter(item -> item.eventStatus() == OfflineEventStatus.FAILED).count();
         long acknowledgedCount = recentEvents.stream().filter(item -> item.eventStatus() == OfflineEventStatus.ACKNOWLEDGED).count();
-        long syncFailedCount = recentEvents.stream().filter(item -> item.eventType() == OfflineEventType.SYNC_FAILED).count();
-        long rejectedCount = recentEvents.stream().filter(item -> item.eventType() == OfflineEventType.REQUEST_REJECTED).count();
-        long cancelledCount = recentEvents.stream().filter(item -> item.eventType() == OfflineEventType.REQUEST_CANCELLED).count();
+        long syncFailedCount = recentEvents.stream().filter(item ->
+                item.eventType() == OfflineEventType.SYNC_FAILED
+                        || item.eventType() == OfflineEventType.BATCH_SYNC_FAIL
+                        || item.eventType() == OfflineEventType.LOCAL_QUEUE_SAVE_FAIL
+                        || item.eventType() == OfflineEventType.SERVER_VALIDATION_FAIL
+                        || item.eventType() == OfflineEventType.SETTLEMENT_FAIL
+                        || item.eventType() == OfflineEventType.SETTLEMENT_FAILED
+        ).count();
+        long rejectedCount = recentEvents.stream().filter(item ->
+                item.eventType() == OfflineEventType.REQUEST_REJECTED
+                        || item.eventType() == OfflineEventType.RECEIVE_REJECTED
+        ).count();
+        long cancelledCount = recentEvents.stream().filter(item ->
+                item.eventType() == OfflineEventType.REQUEST_CANCELLED
+                        || item.eventType() == OfflineEventType.AUTH_CANCELLED
+        ).count();
+        long connectionFailedCount = recentEvents.stream().filter(item ->
+                item.eventType() == OfflineEventType.NFC_CONNECT_FAIL
+                        || item.eventType() == OfflineEventType.BLE_SCAN_FAIL
+                        || item.eventType() == OfflineEventType.BLE_PAIR_FAIL
+                        || item.eventType() == OfflineEventType.TRANSPORT_FAILED
+        ).count();
+        long authFailedCount = recentEvents.stream().filter(item ->
+                item.eventType() == OfflineEventType.AUTH_BIOMETRIC_FAIL
+                        || item.eventType() == OfflineEventType.AUTH_PIN_FAIL
+        ).count();
+        long payloadFailedCount = recentEvents.stream().filter(item ->
+                item.eventType() == OfflineEventType.QR_PARSE_FAIL
+                        || item.eventType() == OfflineEventType.PROOF_NOT_FOUND
+                        || item.eventType() == OfflineEventType.PROOF_EXPIRED
+                        || item.eventType() == OfflineEventType.PROOF_TAMPERED
+                        || item.eventType() == OfflineEventType.PAYLOAD_BUILD_FAIL
+        ).count();
 
         return new OfflineEventOverview(
                 new OfflineEventOverviewSummary(
@@ -250,9 +286,51 @@ public class AdminOperationsService {
                         acknowledgedCount,
                         syncFailedCount,
                         rejectedCount,
-                        cancelledCount
+                        cancelledCount,
+                        connectionFailedCount,
+                        authFailedCount,
+                        payloadFailedCount
                 ),
                 recentEvents
+        );
+    }
+
+    @Transactional(readOnly = true)
+    public List<OfflinePaymentProof> listProofs(int size, String status, String channelType) {
+        return offlinePaymentProofRepository.findRecent(
+                size,
+                parseProofStatus(status),
+                channelType == null || channelType.isBlank() ? null : channelType.trim().toUpperCase()
+        );
+    }
+
+    @Transactional(readOnly = true)
+    public ProofOverview getProofOverview(int size, String channelType) {
+        List<OfflinePaymentProof> recentProofs = offlinePaymentProofRepository.findRecent(
+                size,
+                null,
+                channelType == null || channelType.isBlank() ? null : channelType.trim().toUpperCase()
+        );
+        long uploadedCount = recentProofs.stream().filter(item -> item.status() == OfflineProofStatus.UPLOADED).count();
+        long validatingCount = recentProofs.stream().filter(item -> item.status() == OfflineProofStatus.VALIDATING).count();
+        long verifiedCount = recentProofs.stream().filter(item -> item.status() == OfflineProofStatus.VERIFIED_OFFLINE).count();
+        long settledCount = recentProofs.stream().filter(item -> item.status() == OfflineProofStatus.SETTLED).count();
+        long rejectedCount = recentProofs.stream().filter(item -> item.status() == OfflineProofStatus.REJECTED).count();
+        long conflictedCount = recentProofs.stream().filter(item -> item.status() == OfflineProofStatus.CONFLICTED).count();
+        long failedCount = recentProofs.stream().filter(item ->
+                item.status() == OfflineProofStatus.FAILED || item.status() == OfflineProofStatus.EXPIRED
+        ).count();
+        return new ProofOverview(
+                new ProofOverviewSummary(
+                        uploadedCount,
+                        validatingCount,
+                        verifiedCount,
+                        settledCount,
+                        rejectedCount,
+                        conflictedCount,
+                        failedCount
+                ),
+                recentProofs
         );
     }
 
@@ -337,13 +415,31 @@ public class AdminOperationsService {
             List<OfflineEventLog> recentEvents
     ) {}
 
+    public record ProofOverview(
+            ProofOverviewSummary summary,
+            List<OfflinePaymentProof> recentProofs
+    ) {}
+
     public record OfflineEventOverviewSummary(
             long pendingCount,
             long failedCount,
             long acknowledgedCount,
             long syncFailedCount,
             long rejectedCount,
-            long cancelledCount
+            long cancelledCount,
+            long connectionFailedCount,
+            long authFailedCount,
+            long payloadFailedCount
+    ) {}
+
+    public record ProofOverviewSummary(
+            long uploadedCount,
+            long validatingCount,
+            long verifiedCount,
+            long settledCount,
+            long rejectedCount,
+            long conflictedCount,
+            long failedCount
     ) {}
 
     private CollateralOperationType parseOperationType(String operationType) {
@@ -385,6 +481,17 @@ public class AdminOperationsService {
         }
         try {
             return OfflineEventStatus.valueOf(eventStatus.trim().toUpperCase());
+        } catch (IllegalArgumentException ignored) {
+            return null;
+        }
+    }
+
+    private OfflineProofStatus parseProofStatus(String status) {
+        if (status == null || status.isBlank()) {
+            return null;
+        }
+        try {
+            return OfflineProofStatus.valueOf(status.trim().toUpperCase());
         } catch (IllegalArgumentException ignored) {
             return null;
         }

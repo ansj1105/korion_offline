@@ -47,8 +47,10 @@ public class JdbcSettlementConflictRepository implements SettlementConflictRepos
                         "status",
                         "detail"
                 )
+                .value("status", "'OPEN'")
+                .value("detail", "CAST(:detail AS jsonb)")
                 .build();
-        jdbcClient.sql(sql.replace(":detail", "CAST(:detail AS jsonb)").replace(":status", "'OPEN'"))
+        jdbcClient.sql(sql)
                 .param("settlementId", java.util.UUID.fromString(settlementId))
                 .param("voucherId", voucherId)
                 .param("collateralId", java.util.UUID.fromString(collateralId))
@@ -59,7 +61,7 @@ public class JdbcSettlementConflictRepository implements SettlementConflictRepos
                 .update();
 
         String selectSql = QueryBuilder.select("settlement_conflicts")
-                .where("settlement_id = :settlementId")
+                .where("settlement_id", QueryBuilder.Op.EQ, ":settlementId")
                 .orderBy("created_at DESC")
                 .limit(1)
                 .build();

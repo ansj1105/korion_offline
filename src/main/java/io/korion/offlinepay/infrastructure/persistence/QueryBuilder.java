@@ -1,12 +1,15 @@
 package io.korion.offlinepay.infrastructure.persistence;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.StringJoiner;
 
 public final class QueryBuilder {
 
     public enum Op {
+        ASSIGN("="),
         EQ("="),
         NE("!="),
         GT(">"),
@@ -14,7 +17,12 @@ public final class QueryBuilder {
         LT("<"),
         LTE("<="),
         LIKE("LIKE"),
-        IN("IN");
+        IN("IN"),
+        JSONB_CONCAT("||"),
+        CONTAINS("@>"),
+        CONTAINED_BY("<@"),
+        STRICT_LEFT("<<"),
+        STRICT_RIGHT(">>");
 
         private final String symbol;
 
@@ -108,10 +116,16 @@ public final class QueryBuilder {
     public static final class InsertBuilder {
         private final String table;
         private final List<String> columns = new ArrayList<>();
+        private final Map<String, String> valueExpressions = new LinkedHashMap<>();
 
         private InsertBuilder(String table, String... columns) {
             this.table = table;
             this.columns.addAll(List.of(columns));
+        }
+
+        public InsertBuilder value(String column, String valueExpression) {
+            valueExpressions.put(column, valueExpression);
+            return this;
         }
 
         public String build() {
@@ -119,7 +133,7 @@ public final class QueryBuilder {
             StringJoiner valueJoiner = new StringJoiner(", ");
             for (String column : columns) {
                 columnJoiner.add(column);
-                valueJoiner.add(":" + column);
+                valueJoiner.add(valueExpressions.getOrDefault(column, ":" + column));
             }
             return "INSERT INTO " + table + " (" + columnJoiner + ") VALUES (" + valueJoiner + ")";
         }
@@ -136,6 +150,16 @@ public final class QueryBuilder {
 
         public UpdateBuilder set(String expression) {
             sets.add(expression);
+            return this;
+        }
+
+        public UpdateBuilder set(String column, String valueExpression) {
+            sets.add(column + " " + Op.ASSIGN.symbol() + " " + valueExpression);
+            return this;
+        }
+
+        public UpdateBuilder set(String column, Op op, String valueExpression) {
+            sets.add(column + " " + op.symbol() + " " + valueExpression);
             return this;
         }
 

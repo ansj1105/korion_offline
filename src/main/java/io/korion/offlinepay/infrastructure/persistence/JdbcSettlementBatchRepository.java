@@ -32,8 +32,9 @@ public class JdbcSettlementBatchRepository implements SettlementBatchRepository 
     public SettlementBatch save(String sourceDeviceId, String idempotencyKey, SettlementBatchStatus status, int proofsCount, String summaryJson) {
         String sql = QueryBuilder
                 .insert("settlement_batches", "source_device_id", "idempotency_key", "status", "proofs_count", "summary")
+                .value("summary", "CAST(:summary AS jsonb)")
                 .build();
-        jdbcClient.sql(sql.replace(":summary", "CAST(:summary AS jsonb)"))
+        jdbcClient.sql(sql)
                 .param("sourceDeviceId", sourceDeviceId)
                 .param("idempotencyKey", idempotencyKey)
                 .param("status", status.name())
@@ -47,7 +48,7 @@ public class JdbcSettlementBatchRepository implements SettlementBatchRepository 
     @Override
     public Optional<SettlementBatch> findById(String batchId) {
         String sql = QueryBuilder.select("settlement_batches")
-                .where("id = :id")
+                .where("id", QueryBuilder.Op.EQ, ":id")
                 .build();
         return jdbcClient.sql(sql)
                 .param("id", java.util.UUID.fromString(batchId))
@@ -58,7 +59,7 @@ public class JdbcSettlementBatchRepository implements SettlementBatchRepository 
     @Override
     public Optional<SettlementBatch> findByIdempotencyKey(String idempotencyKey) {
         String sql = QueryBuilder.select("settlement_batches")
-                .where("idempotency_key = :idempotencyKey")
+                .where("idempotency_key", QueryBuilder.Op.EQ, ":idempotencyKey")
                 .build();
         return jdbcClient.sql(sql)
                 .param("idempotencyKey", idempotencyKey)
@@ -69,10 +70,10 @@ public class JdbcSettlementBatchRepository implements SettlementBatchRepository 
     @Override
     public void updateStatus(String batchId, SettlementBatchStatus status, String summaryJson) {
         String sql = QueryBuilder.update("settlement_batches")
-                .set("status = :status")
-                .set("summary = summary || CAST(:summary AS jsonb)")
+                .set("status", ":status")
+                .set("summary", "summary || CAST(:summary AS jsonb)")
                 .touchUpdatedAt()
-                .where("id = :id")
+                .where("id", QueryBuilder.Op.EQ, ":id")
                 .build();
         jdbcClient.sql(sql)
                 .param("id", java.util.UUID.fromString(batchId))

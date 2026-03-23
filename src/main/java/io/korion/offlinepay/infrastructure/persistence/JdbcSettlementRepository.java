@@ -24,8 +24,9 @@ public class JdbcSettlementRepository implements SettlementRepository {
     public SettlementRequest save(String batchId, String collateralId, String proofId, SettlementStatus status, boolean conflictDetected, String settlementResultJson) {
         String sql = QueryBuilder
                 .insert("settlement_requests", "batch_id", "collateral_id", "proof_id", "status", "conflict_detected", "settlement_result")
+                .value("settlement_result", "CAST(:settlementResult AS jsonb)")
                 .build();
-        jdbcClient.sql(sql.replace(":settlement_result", "CAST(:settlementResult AS jsonb)"))
+        jdbcClient.sql(sql)
                 .param("batchId", java.util.UUID.fromString(batchId))
                 .param("collateralId", java.util.UUID.fromString(collateralId))
                 .param("proofId", java.util.UUID.fromString(proofId))
@@ -35,7 +36,7 @@ public class JdbcSettlementRepository implements SettlementRepository {
                 .update();
 
         String selectSql = QueryBuilder.select("settlement_requests")
-                .where("batch_id = :batchId")
+                .where("batch_id", QueryBuilder.Op.EQ, ":batchId")
                 .orderBy("created_at DESC")
                 .limit(1)
                 .build();
@@ -48,7 +49,7 @@ public class JdbcSettlementRepository implements SettlementRepository {
     @Override
     public List<SettlementRequest> findByBatchId(String batchId) {
         String sql = QueryBuilder.select("settlement_requests")
-                .where("batch_id = :batchId")
+                .where("batch_id", QueryBuilder.Op.EQ, ":batchId")
                 .orderBy("created_at ASC")
                 .build();
         return jdbcClient.sql(sql)
@@ -60,7 +61,7 @@ public class JdbcSettlementRepository implements SettlementRepository {
     @Override
     public Optional<SettlementRequest> findById(String settlementId) {
         String sql = QueryBuilder.select("settlement_requests")
-                .where("id = :id")
+                .where("id", QueryBuilder.Op.EQ, ":id")
                 .build();
         return jdbcClient.sql(sql)
                 .param("id", java.util.UUID.fromString(settlementId))
@@ -71,11 +72,11 @@ public class JdbcSettlementRepository implements SettlementRepository {
     @Override
     public void update(String settlementId, SettlementStatus status, boolean conflictDetected, String settlementResultJson) {
         String sql = QueryBuilder.update("settlement_requests")
-                .set("status = :status")
-                .set("conflict_detected = :conflictDetected")
-                .set("settlement_result = settlement_result || CAST(:settlementResult AS jsonb)")
+                .set("status", ":status")
+                .set("conflict_detected", ":conflictDetected")
+                .set("settlement_result", "settlement_result || CAST(:settlementResult AS jsonb)")
                 .touchUpdatedAt()
-                .where("id = :id")
+                .where("id", QueryBuilder.Op.EQ, ":id")
                 .build();
         jdbcClient.sql(sql)
                 .param("id", java.util.UUID.fromString(settlementId))

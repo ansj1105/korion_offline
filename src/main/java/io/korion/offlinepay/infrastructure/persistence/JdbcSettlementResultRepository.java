@@ -24,7 +24,7 @@ public class JdbcSettlementResultRepository implements SettlementResultRepositor
     @Override
     public boolean existsByVoucherId(String voucherId) {
         String sql = QueryBuilder.select("settlements", "COUNT(*)")
-                .where("voucher_id = :voucherId")
+                .where("voucher_id", QueryBuilder.Op.EQ, ":voucherId")
                 .build();
         Integer count = jdbcClient.sql(sql)
                 .param("voucherId", voucherId)
@@ -56,8 +56,9 @@ public class JdbcSettlementResultRepository implements SettlementResultRepositor
                         "detail",
                         "settled_amount"
                 )
+                .value("detail", "CAST(:detail AS jsonb)")
                 .build();
-        jdbcClient.sql(sql.replace(":detail", "CAST(:detail AS jsonb)"))
+        jdbcClient.sql(sql)
                 .param("settlementId", java.util.UUID.fromString(settlementId))
                 .param("batchId", java.util.UUID.fromString(batchId))
                 .param("voucherId", proof.voucherId())
@@ -79,7 +80,7 @@ public class JdbcSettlementResultRepository implements SettlementResultRepositor
     @Override
     public List<SettlementResultRecord> findByBatchId(String batchId) {
         String sql = QueryBuilder.select("settlements")
-                .where("batch_id = :batchId")
+                .where("batch_id", QueryBuilder.Op.EQ, ":batchId")
                 .orderBy("created_at ASC")
                 .build();
         return jdbcClient.sql(sql)

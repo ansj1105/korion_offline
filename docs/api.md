@@ -264,6 +264,55 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /api/admin/ops/proofs:
+    get:
+      tags: [Admin]
+      summary: proof lifecycle 최근 목록 조회
+      operationId: getOfflineProofs
+      parameters:
+        - in: query
+          name: size
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [UPLOADED, VALIDATING, VERIFIED_OFFLINE, SETTLED, REJECTED, CONFLICTED, EXPIRED, FAILED]
+        - in: query
+          name: channelType
+          schema:
+            type: string
+            enum: [NFC, QR, BLE, UNKNOWN]
+      responses:
+        '200':
+          description: proof 목록 조회 성공
+
+  /api/admin/ops/proofs/overview:
+    get:
+      tags: [Admin]
+      summary: proof lifecycle 상태 요약 조회
+      operationId: getOfflineProofOverview
+      parameters:
+        - in: query
+          name: size
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - in: query
+          name: channelType
+          schema:
+            type: string
+            enum: [NFC, QR, BLE, UNKNOWN]
+      responses:
+        '200':
+          description: proof overview 조회 성공
+
   /api/admin/metrics/settlements/timeseries:
     get:
       tags: [Admin]

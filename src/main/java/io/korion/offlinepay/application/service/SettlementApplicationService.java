@@ -31,6 +31,7 @@ import io.korion.offlinepay.domain.model.SettlementBatch;
 import io.korion.offlinepay.domain.model.SettlementRequest;
 import io.korion.offlinepay.domain.reason.OfflinePayReasonCode;
 import io.korion.offlinepay.domain.status.CollateralStatus;
+import io.korion.offlinepay.domain.status.OfflineProofStatus;
 import io.korion.offlinepay.domain.status.SettlementBatchStatus;
 import io.korion.offlinepay.domain.status.SettlementStatus;
 import java.math.BigDecimal;
@@ -151,6 +152,7 @@ public class SettlementApplicationService {
                     submission.expiresAtMs(),
                     submission.canonicalPayload(),
                     command.uploaderType().name(),
+                    extractChannelType(submission.payload()),
                     jsonService.write(submission.payload())
             );
 
@@ -280,7 +282,15 @@ public class SettlementApplicationService {
         CollateralLock collateral = collateralRepository.findById(request.collateralId())
                 .orElseThrow(() -> new IllegalArgumentException("collateral not found: " + request.collateralId()));
 
+        proofRepository.updateLifecycle(proof.id(), OfflineProofStatus.VALIDATING, null, false, false);
         SettlementEvaluation evaluation = evaluateProof(proof, collateral);
+        proofRepository.updateLifecycle(
+                proof.id(),
+                mapProofStatus(evaluation.status(), evaluation.conflictDetected()),
+                evaluation.reasonCode(),
+                evaluation.status() == SettlementStatus.SETTLED,
+                evaluation.status() == SettlementStatus.SETTLED
+        );
         if (evaluation.status() == SettlementStatus.SETTLED) {
             collateralRepository.deductRemainingAmount(collateral.id(), proof.amount());
         }
@@ -457,6 +467,34 @@ public class SettlementApplicationService {
             return SettlementBatchStatus.SETTLED;
         }
         return SettlementBatchStatus.FAILED;
+    }
+
+    private String extractChannelType(Map<String, Object> payload) {
+        if (payload == null) {
+            return "UNKNOWN";
+        }
+        Object channelType = payload.get("channelType");
+        if (channelType instanceof String channel && !channel.isBlank()) {
+            return channel.trim().toUpperCase();
+        }
+        Object connectionType = payload.get("connectionType");
+        if (connectionType instanceof String connection && !connection.isBlank()) {
+            return connection.trim().toUpperCase();
+        }
+        return "UNKNOWN";
+    }
+
+    private OfflineProofStatus mapProofStatus(SettlementStatus status, boolean conflictDetected) {
+        if (conflictDetected || status == SettlementStatus.CONFLICT) {
+            return OfflineProofStatus.CONFLICTED;
+        }
+        return switch (status) {
+            case SETTLED -> OfflineProofStatus.SETTLED;
+            case EXPIRED -> OfflineProofStatus.EXPIRED;
+            case REJECTED -> OfflineProofStatus.REJECTED;
+            case VALIDATING, PENDING -> OfflineProofStatus.VALIDATING;
+            default -> OfflineProofStatus.FAILED;
+        };
     }
 
     private CollateralStatus resolveCollateralStatus(

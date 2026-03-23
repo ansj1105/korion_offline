@@ -29,5 +29,22 @@ public final class OfflinePayReasonCode {
     public static final String LOCAL_AVAILABLE_AMOUNT_EXCEEDED = "LOCAL_AVAILABLE_AMOUNT_EXCEEDED";
     public static final String SERVER_AVAILABLE_AMOUNT_EXCEEDED = "SERVER_AVAILABLE_AMOUNT_EXCEEDED";
     public static final String PROOF_EXPIRED = "PROOF_EXPIRED";
+    public static final String NFC_CONNECT_FAIL = "NFC_CONNECT_FAIL";
+    public static final String BLE_SCAN_FAIL = "BLE_SCAN_FAIL";
+    public static final String BLE_PAIR_FAIL = "BLE_PAIR_FAIL";
+    public static final String QR_PARSE_FAIL = "QR_PARSE_FAIL";
+    public static final String AUTH_BIOMETRIC_FAIL = "AUTH_BIOMETRIC_FAIL";
+    public static final String AUTH_PIN_FAIL = "AUTH_PIN_FAIL";
+    public static final String AUTH_CANCELLED = "AUTH_CANCELLED";
+    public static final String PROOF_NOT_FOUND = "PROOF_NOT_FOUND";
+    public static final String PROOF_TAMPERED = "PROOF_TAMPERED";
+    public static final String PAYLOAD_BUILD_FAIL = "PAYLOAD_BUILD_FAIL";
+    public static final String SEND_TIMEOUT = "SEND_TIMEOUT";
+    public static final String SEND_INTERRUPTED = "SEND_INTERRUPTED";
+    public static final String RECEIVE_REJECTED = "RECEIVE_REJECTED";
+    public static final String LOCAL_QUEUE_SAVE_FAIL = "LOCAL_QUEUE_SAVE_FAIL";
+    public static final String BATCH_SYNC_FAIL = "BATCH_SYNC_FAIL";
+    public static final String SERVER_VALIDATION_FAIL = "SERVER_VALIDATION_FAIL";
+    public static final String SETTLEMENT_FAIL = "SETTLEMENT_FAIL";
     public static final String SETTLED = "SETTLED";
 }

@@ -55,8 +55,9 @@ public class JdbcOfflineEventLogRepository implements OfflineEventLogRepository 
                         "message",
                         "metadata"
                 )
+                .value("metadata", "CAST(:metadata AS jsonb)")
                 .build();
-        jdbcClient.sql(sql.replace(":metadata", "CAST(:metadata AS jsonb)"))
+        jdbcClient.sql(sql)
                 .param("userId", userId)
                 .param("deviceId", deviceId)
                 .param("eventType", eventType.name())

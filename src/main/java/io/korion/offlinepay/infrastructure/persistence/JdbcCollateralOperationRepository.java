@@ -46,9 +46,10 @@ public class JdbcCollateralOperationRepository implements CollateralOperationRep
                         "reference_id",
                         "metadata"
                 )
+                .value("metadata", "CAST(:metadata AS jsonb)")
                 .build();
 
-        jdbcClient.sql(sql.replace(":metadata", "CAST(:metadata AS jsonb)"))
+        jdbcClient.sql(sql)
                 .param("collateralId", collateralId == null || collateralId.isBlank() ? null : UUID.fromString(collateralId))
                 .param("userId", userId)
                 .param("deviceId", deviceId)
@@ -66,10 +67,10 @@ public class JdbcCollateralOperationRepository implements CollateralOperationRep
     @Override
     public void markCompleted(String referenceId, String collateralId, String metadataJson) {
         String sql = QueryBuilder.update("collateral_operations")
-                .set("status = :status")
-                .set("collateral_id = COALESCE(:collateralId, collateral_id)")
-                .set("error_message = NULL")
-                .set("metadata = metadata || CAST(:metadata AS jsonb)")
+                .set("status", ":status")
+                .set("collateral_id", "COALESCE(:collateralId, collateral_id)")
+                .set("error_message", "NULL")
+                .set("metadata", "metadata || CAST(:metadata AS jsonb)")
                 .touchUpdatedAt()
                 .where("reference_id", QueryBuilder.Op.EQ, ":referenceId")
                 .build();
@@ -84,9 +85,9 @@ public class JdbcCollateralOperationRepository implements CollateralOperationRep
     @Override
     public void markFailed(String referenceId, String errorMessage, String metadataJson) {
         String sql = QueryBuilder.update("collateral_operations")
-                .set("status = :status")
-                .set("error_message = :errorMessage")
-                .set("metadata = metadata || CAST(:metadata AS jsonb)")
+                .set("status", ":status")
+                .set("error_message", ":errorMessage")
+                .set("metadata", "metadata || CAST(:metadata AS jsonb)")
                 .touchUpdatedAt()
                 .where("reference_id", QueryBuilder.Op.EQ, ":referenceId")
                 .build();
