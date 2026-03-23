@@ -22,6 +22,11 @@ public class ProofPayloadConsistencyValidator {
         JsonNode canonicalPayload = jsonService.readTree(proof.canonicalPayload());
         JsonNode spendingProof = rawPayload.path("spendingProof");
 
+        ValidationResult requiredFieldsValidation = validateRequiredFields(proof, rawPayload, canonicalPayload, spendingProof);
+        if (!requiredFieldsValidation.passed()) {
+            return requiredFieldsValidation;
+        }
+
         if (mismatch(text(rawPayload, "voucherId"), proof.voucherId()) || mismatch(text(canonicalPayload, "voucherId"), proof.voucherId())) {
             return invalid(OfflinePayReasonCode.PAYLOAD_VOUCHER_MISMATCH, proof, "voucherId mismatch");
         }
@@ -51,6 +56,45 @@ public class ProofPayloadConsistencyValidator {
         }
         if (mismatch(longValue(rawPayload, "expiresAt"), proof.expiresAtMs())) {
             return invalid(OfflinePayReasonCode.PAYLOAD_EXPIRY_MISMATCH, proof, "expiry mismatch");
+        }
+        return ValidationResult.success();
+    }
+
+    private ValidationResult validateRequiredFields(
+            OfflinePaymentProof proof,
+            JsonNode rawPayload,
+            JsonNode canonicalPayload,
+            JsonNode spendingProof
+    ) {
+        if (isBlank(text(rawPayload, "voucherId")) || isBlank(text(canonicalPayload, "voucherId"))) {
+            return invalid(OfflinePayReasonCode.PAYLOAD_REQUIRED_FIELD_MISSING, proof, "voucherId missing");
+        }
+        if (isBlank(text(rawPayload, "deviceId")) || isBlank(text(spendingProof, "deviceId"))) {
+            return invalid(OfflinePayReasonCode.PAYLOAD_REQUIRED_FIELD_MISSING, proof, "deviceId missing");
+        }
+        if (isBlank(text(rawPayload, "counterpartyDeviceId")) || isBlank(text(canonicalPayload, "counterpartyDeviceId"))) {
+            return invalid(OfflinePayReasonCode.PAYLOAD_REQUIRED_FIELD_MISSING, proof, "counterpartyDeviceId missing");
+        }
+        if (decimal(rawPayload, "amount") == null || decimal(spendingProof, "amount") == null) {
+            return invalid(OfflinePayReasonCode.PAYLOAD_REQUIRED_FIELD_MISSING, proof, "amount missing");
+        }
+        if (longValue(spendingProof, "monotonicCounter") == null) {
+            return invalid(OfflinePayReasonCode.PAYLOAD_REQUIRED_FIELD_MISSING, proof, "monotonicCounter missing");
+        }
+        if (isBlank(text(spendingProof, "nonce"))) {
+            return invalid(OfflinePayReasonCode.PAYLOAD_REQUIRED_FIELD_MISSING, proof, "nonce missing");
+        }
+        if (isBlank(text(spendingProof, "newStateHash")) || isBlank(text(spendingProof, "prevStateHash"))) {
+            return invalid(OfflinePayReasonCode.PAYLOAD_REQUIRED_FIELD_MISSING, proof, "state hash missing");
+        }
+        if (isBlank(text(spendingProof, "signature"))) {
+            return invalid(OfflinePayReasonCode.PAYLOAD_REQUIRED_FIELD_MISSING, proof, "signature missing");
+        }
+        if (longValue(spendingProof, "timestamp") == null) {
+            return invalid(OfflinePayReasonCode.PAYLOAD_REQUIRED_FIELD_MISSING, proof, "timestamp missing");
+        }
+        if (longValue(rawPayload, "expiresAt") == null) {
+            return invalid(OfflinePayReasonCode.PAYLOAD_REQUIRED_FIELD_MISSING, proof, "expiresAt missing");
         }
         return ValidationResult.success();
     }
@@ -113,6 +157,10 @@ public class ProofPayloadConsistencyValidator {
 
     private boolean mismatch(Long payloadValue, long actualValue) {
         return payloadValue != null && payloadValue != actualValue;
+    }
+
+    private boolean isBlank(String value) {
+        return value == null || value.isBlank();
     }
 
     public record ValidationResult(

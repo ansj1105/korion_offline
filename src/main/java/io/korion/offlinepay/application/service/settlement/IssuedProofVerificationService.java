@@ -41,6 +41,16 @@ public class IssuedProofVerificationService {
         if (issuedProofId == null || issuedProofId.isBlank()) {
             return VerificationResult.invalid(OfflinePayReasonCode.ISSUED_PROOF_REQUIRED, "issuedProof.proofId missing");
         }
+        if (isBlank(text(issuedNode, "issuerKeyId"))
+                || isBlank(text(issuedNode, "issuerPublicKey"))
+                || isBlank(text(issuedNode, "issuerSignature"))
+                || isBlank(text(issuedNode, "issuedPayload"))
+                || isBlank(text(issuedNode, "assetCode"))
+                || decimal(issuedNode, "usableAmount") == null
+                || isBlank(text(issuedNode, "collateralId"))
+                || isBlank(text(issuedNode, "nonce"))) {
+            return VerificationResult.invalid(OfflinePayReasonCode.ISSUED_PROOF_PAYLOAD_MISMATCH, "issued proof required fields missing");
+        }
 
         Optional<IssuedOfflineProof> issuedProofOptional = issuedOfflineProofRepository.findById(issuedProofId);
         if (issuedProofOptional.isEmpty()) {
@@ -136,5 +146,9 @@ public class IssuedProofVerificationService {
 
     private boolean mismatch(BigDecimal left, BigDecimal right) {
         return left != null && right != null && left.compareTo(right) != 0;
+    }
+
+    private boolean isBlank(String value) {
+        return value == null || value.isBlank();
     }
 }

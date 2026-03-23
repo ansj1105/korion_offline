@@ -667,6 +667,85 @@ class SettlementApplicationServiceTest {
     }
 
     @Test
+    void finalizeSettlementRejectsWhenRequiredPayloadFieldMissing() {
+        SettlementRequest request = new SettlementRequest(
+                "settlement-7",
+                "batch-7",
+                "collateral-7",
+                "proof-7",
+                SettlementStatus.VALIDATING,
+                null,
+                false,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        CollateralLock collateral = new CollateralLock(
+                "collateral-7",
+                77L,
+                "device-1",
+                "USDT",
+                new BigDecimal("150"),
+                new BigDecimal("100"),
+                "GENESIS",
+                1,
+                CollateralStatus.LOCKED,
+                "lock-7",
+                OffsetDateTime.now().plusDays(1),
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        long now = System.currentTimeMillis();
+        OfflinePaymentProof proof = new OfflinePaymentProof(
+                "proof-7",
+                "batch-7",
+                "voucher-7",
+                "collateral-7",
+                "device-1",
+                "device-2",
+                1,
+                1,
+                1L,
+                "nonce-7",
+                "hash-7",
+                "GENESIS",
+                "signature",
+                new BigDecimal("10"),
+                now,
+                now + 60_000,
+                "{\"voucherId\":\"voucher-7\",\"counterpartyDeviceId\":\"device-2\"}",
+                "SENDER",
+                "{\"voucherId\":\"voucher-7\",\"deviceId\":\"device-1\",\"counterpartyDeviceId\":\"device-2\",\"amount\":\"10\",\"expiresAt\":\"9999999999999\",\"spendingProof\":{\"deviceId\":\"device-1\",\"amount\":\"10\",\"nonce\":\"nonce-7\",\"newStateHash\":\"hash-7\",\"prevStateHash\":\"GENESIS\",\"signature\":\"signature\",\"timestamp\":\""
+                        + now
+                        + "\"}}",
+                OffsetDateTime.now()
+        );
+
+        when(settlementRepository.findById("settlement-7"))
+                .thenReturn(Optional.of(request))
+                .thenReturn(Optional.of(new SettlementRequest(
+                        "settlement-7",
+                        "batch-7",
+                        "collateral-7",
+                        "proof-7",
+                        SettlementStatus.REJECTED,
+                        "PAYLOAD_REQUIRED_FIELD_MISSING",
+                        false,
+                        "{\"reasonCode\":\"PAYLOAD_REQUIRED_FIELD_MISSING\"}",
+                        OffsetDateTime.now(),
+                        OffsetDateTime.now()
+                )));
+        when(collateralRepository.findById("collateral-7")).thenReturn(Optional.of(collateral));
+        when(proofRepository.findById("proof-7")).thenReturn(Optional.of(proof));
+
+        SettlementRequest result = service.finalizeSettlement("settlement-7");
+
+        assertEquals(SettlementStatus.REJECTED, result.status());
+        assertTrue(result.settlementResultJson().contains("PAYLOAD_REQUIRED_FIELD_MISSING"));
+    }
+
+    @Test
     void recordBatchProcessingFailureCreatesReconciliationCaseWhenDeadLettered() {
         SettlementBatch batch = new SettlementBatch(
                 "batch-dead-1",
