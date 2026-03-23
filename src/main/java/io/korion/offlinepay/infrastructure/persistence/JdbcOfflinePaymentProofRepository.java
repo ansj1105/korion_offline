@@ -2,6 +2,7 @@ package io.korion.offlinepay.infrastructure.persistence;
 
 import io.korion.offlinepay.application.port.OfflinePaymentProofRepository;
 import io.korion.offlinepay.domain.model.OfflinePaymentProof;
+import io.korion.offlinepay.domain.reason.OfflinePayReasonCode;
 import io.korion.offlinepay.domain.status.OfflineProofStatus;
 import io.korion.offlinepay.infrastructure.persistence.mapper.OfflinePaymentProofRowMapper;
 import java.math.BigDecimal;
@@ -97,6 +98,7 @@ public class JdbcOfflinePaymentProofRepository implements OfflinePaymentProofRep
 
     @Override
     public void updateLifecycle(String proofId, OfflineProofStatus status, String reasonCode, boolean consumed, boolean verified, boolean settled) {
+        String normalizedReasonCode = normalizeReasonCode(status, reasonCode);
         String sql = QueryBuilder.update("offline_payment_proofs")
                 .set("status", ":status")
                 .set("reason_code", ":reasonCode")
@@ -109,7 +111,7 @@ public class JdbcOfflinePaymentProofRepository implements OfflinePaymentProofRep
         jdbcClient.sql(sql)
                 .param("id", java.util.UUID.fromString(proofId))
                 .param("status", status.name())
-                .param("reasonCode", reasonCode)
+                .param("reasonCode", normalizedReasonCode)
                 .param("consumed", consumed)
                 .param("verified", verified)
                 .param("settled", settled)
@@ -186,5 +188,20 @@ public class JdbcOfflinePaymentProofRepository implements OfflinePaymentProofRep
             statement.param("channelType", channelType.trim().toUpperCase());
         }
         return statement.query(offlinePaymentProofRowMapper).list();
+    }
+
+    private String normalizeReasonCode(OfflineProofStatus status, String reasonCode) {
+        return switch (status) {
+            case SETTLED -> reasonCode == null || reasonCode.isBlank() ? OfflinePayReasonCode.SETTLED : reasonCode;
+            case REJECTED, CONFLICTED, EXPIRED, FAILED -> requireReasonCode(reasonCode, "offline proof terminal status");
+            case ISSUED, UPLOADED, VALIDATING, VERIFIED_OFFLINE, CONSUMED_PENDING_SETTLEMENT -> reasonCode;
+        };
+    }
+
+    private String requireReasonCode(String reasonCode, String context) {
+        if (reasonCode == null || reasonCode.isBlank()) {
+            throw new IllegalStateException("reasonCode is required for " + context);
+        }
+        return reasonCode;
     }
 }

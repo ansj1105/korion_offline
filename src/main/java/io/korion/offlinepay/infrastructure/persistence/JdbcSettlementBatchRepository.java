@@ -3,6 +3,7 @@ package io.korion.offlinepay.infrastructure.persistence;
 import io.korion.offlinepay.application.port.SettlementBatchRepository;
 import io.korion.offlinepay.domain.model.SettlementBatch;
 import io.korion.offlinepay.domain.model.SettlementStatusMetric;
+import io.korion.offlinepay.domain.reason.OfflinePayReasonCode;
 import io.korion.offlinepay.domain.status.SettlementBatchStatus;
 import io.korion.offlinepay.infrastructure.persistence.mapper.SettlementBatchRowMapper;
 import io.korion.offlinepay.infrastructure.persistence.mapper.SettlementStatusMetricRowMapper;
@@ -30,6 +31,7 @@ public class JdbcSettlementBatchRepository implements SettlementBatchRepository 
 
     @Override
     public SettlementBatch save(String sourceDeviceId, String idempotencyKey, SettlementBatchStatus status, String lastReasonCode, int proofsCount, String summaryJson) {
+        String normalizedReasonCode = normalizeReasonCode(status, lastReasonCode);
         String sql = QueryBuilder
                 .insert("settlement_batches", "source_device_id", "idempotency_key", "status", "last_reason_code", "proofs_count", "summary")
                 .value("summary", "CAST(:summary AS jsonb)")
@@ -38,7 +40,7 @@ public class JdbcSettlementBatchRepository implements SettlementBatchRepository 
                 .param("sourceDeviceId", sourceDeviceId)
                 .param("idempotencyKey", idempotencyKey)
                 .param("status", status.name())
-                .param("lastReasonCode", lastReasonCode)
+                .param("lastReasonCode", normalizedReasonCode)
                 .param("proofsCount", proofsCount)
                 .param("summary", summaryJson)
                 .update();
@@ -70,6 +72,7 @@ public class JdbcSettlementBatchRepository implements SettlementBatchRepository 
 
     @Override
     public void updateStatus(String batchId, SettlementBatchStatus status, String lastReasonCode, String summaryJson) {
+        String normalizedReasonCode = normalizeReasonCode(status, lastReasonCode);
         String sql = QueryBuilder.update("settlement_batches")
                 .set("status", ":status")
                 .set("last_reason_code", ":lastReasonCode")
@@ -80,9 +83,24 @@ public class JdbcSettlementBatchRepository implements SettlementBatchRepository 
         jdbcClient.sql(sql)
                 .param("id", java.util.UUID.fromString(batchId))
                 .param("status", status.name())
-                .param("lastReasonCode", lastReasonCode)
+                .param("lastReasonCode", normalizedReasonCode)
                 .param("summary", summaryJson)
                 .update();
+    }
+
+    private String normalizeReasonCode(SettlementBatchStatus status, String reasonCode) {
+        return switch (status) {
+            case SETTLED -> reasonCode == null || reasonCode.isBlank() ? OfflinePayReasonCode.SETTLED : reasonCode;
+            case FAILED, PARTIALLY_SETTLED, CLOSED -> requireReasonCode(reasonCode, "settlement batch terminal status");
+            case CREATED, UPLOADED, VALIDATING -> reasonCode;
+        };
+    }
+
+    private String requireReasonCode(String reasonCode, String context) {
+        if (reasonCode == null || reasonCode.isBlank()) {
+            throw new IllegalStateException("reasonCode is required for " + context);
+        }
+        return reasonCode;
     }
 
     @Override

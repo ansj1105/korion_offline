@@ -1,6 +1,7 @@
 package io.korion.offlinepay.infrastructure.persistence;
 
 import io.korion.offlinepay.application.port.SettlementRepository;
+import io.korion.offlinepay.domain.reason.OfflinePayReasonCode;
 import io.korion.offlinepay.domain.model.SettlementRequest;
 import io.korion.offlinepay.domain.status.SettlementStatus;
 import io.korion.offlinepay.infrastructure.persistence.mapper.SettlementRequestRowMapper;
@@ -22,6 +23,7 @@ public class JdbcSettlementRepository implements SettlementRepository {
 
     @Override
     public SettlementRequest save(String batchId, String collateralId, String proofId, SettlementStatus status, String reasonCode, boolean conflictDetected, String settlementResultJson) {
+        String normalizedReasonCode = normalizeReasonCode(status, reasonCode, conflictDetected);
         String sql = QueryBuilder
                 .insert("settlement_requests", "batch_id", "collateral_id", "proof_id", "status", "reason_code", "conflict_detected", "settlement_result")
                 .value("settlement_result", "CAST(:settlementResult AS jsonb)")
@@ -31,7 +33,7 @@ public class JdbcSettlementRepository implements SettlementRepository {
                 .param("collateralId", java.util.UUID.fromString(collateralId))
                 .param("proofId", java.util.UUID.fromString(proofId))
                 .param("status", status.name())
-                .param("reasonCode", reasonCode)
+                .param("reasonCode", normalizedReasonCode)
                 .param("conflictDetected", conflictDetected)
                 .param("settlementResult", settlementResultJson)
                 .update();
@@ -72,6 +74,7 @@ public class JdbcSettlementRepository implements SettlementRepository {
 
     @Override
     public void update(String settlementId, SettlementStatus status, String reasonCode, boolean conflictDetected, String settlementResultJson) {
+        String normalizedReasonCode = normalizeReasonCode(status, reasonCode, conflictDetected);
         String sql = QueryBuilder.update("settlement_requests")
                 .set("status", ":status")
                 .set("reason_code", ":reasonCode")
@@ -83,9 +86,28 @@ public class JdbcSettlementRepository implements SettlementRepository {
         jdbcClient.sql(sql)
                 .param("id", java.util.UUID.fromString(settlementId))
                 .param("status", status.name())
-                .param("reasonCode", reasonCode)
+                .param("reasonCode", normalizedReasonCode)
                 .param("conflictDetected", conflictDetected)
                 .param("settlementResult", settlementResultJson)
                 .update();
+    }
+
+    private String normalizeReasonCode(SettlementStatus status, String reasonCode, boolean conflictDetected) {
+        if (conflictDetected || status == SettlementStatus.CONFLICT) {
+            return requireReasonCode(reasonCode, "settlement conflict");
+        }
+        return switch (status) {
+            case SETTLED -> reasonCode == null || reasonCode.isBlank() ? OfflinePayReasonCode.SETTLED : reasonCode;
+            case REJECTED, EXPIRED -> requireReasonCode(reasonCode, "settlement terminal status");
+            case PENDING, VALIDATING -> reasonCode;
+            case CONFLICT -> requireReasonCode(reasonCode, "settlement terminal status");
+        };
+    }
+
+    private String requireReasonCode(String reasonCode, String context) {
+        if (reasonCode == null || reasonCode.isBlank()) {
+            throw new IllegalStateException("reasonCode is required for " + context);
+        }
+        return reasonCode;
     }
 }

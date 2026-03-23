@@ -3,6 +3,7 @@ package io.korion.offlinepay.infrastructure.persistence;
 import io.korion.offlinepay.application.port.SettlementResultRepository;
 import io.korion.offlinepay.domain.model.OfflinePaymentProof;
 import io.korion.offlinepay.domain.model.SettlementResultRecord;
+import io.korion.offlinepay.domain.reason.OfflinePayReasonCode;
 import io.korion.offlinepay.domain.status.SettlementStatus;
 import io.korion.offlinepay.infrastructure.persistence.mapper.SettlementResultRowMapper;
 import java.math.BigDecimal;
@@ -43,6 +44,7 @@ public class JdbcSettlementResultRepository implements SettlementResultRepositor
             String detailJson,
             BigDecimal settledAmount
     ) {
+        String normalizedReasonCode = normalizeReasonCode(status, reasonCode);
         String sql = QueryBuilder.insert(
                         "settlements",
                         "settlement_id",
@@ -66,7 +68,7 @@ public class JdbcSettlementResultRepository implements SettlementResultRepositor
                 .param("senderDeviceId", proof.senderDeviceId())
                 .param("receiverDeviceId", proof.receiverDeviceId())
                 .param("status", status.name())
-                .param("reasonCode", reasonCode)
+                .param("reasonCode", normalizedReasonCode)
                 .param("detail", detailJson)
                 .param("settledAmount", settledAmount)
                 .update();
@@ -75,6 +77,21 @@ public class JdbcSettlementResultRepository implements SettlementResultRepositor
                 .filter(item -> item.voucherId().equals(proof.voucherId()))
                 .findFirst()
                 .orElseThrow();
+    }
+
+    private String normalizeReasonCode(SettlementStatus status, String reasonCode) {
+        return switch (status) {
+            case SETTLED -> reasonCode == null || reasonCode.isBlank() ? OfflinePayReasonCode.SETTLED : reasonCode;
+            case REJECTED, CONFLICT, EXPIRED -> requireReasonCode(reasonCode, "settlement result terminal status");
+            case PENDING, VALIDATING -> reasonCode;
+        };
+    }
+
+    private String requireReasonCode(String reasonCode, String context) {
+        if (reasonCode == null || reasonCode.isBlank()) {
+            throw new IllegalStateException("reasonCode is required for " + context);
+        }
+        return reasonCode;
     }
 
     @Override
