@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -39,9 +40,11 @@ import io.korion.offlinepay.domain.status.IssuedProofStatus;
 import io.korion.offlinepay.domain.model.CollateralLock;
 import io.korion.offlinepay.domain.model.Device;
 import io.korion.offlinepay.domain.model.OfflinePaymentProof;
+import io.korion.offlinepay.domain.model.SettlementBatch;
 import io.korion.offlinepay.domain.model.SettlementRequest;
 import io.korion.offlinepay.domain.status.CollateralStatus;
 import io.korion.offlinepay.domain.status.DeviceStatus;
+import io.korion.offlinepay.domain.status.SettlementBatchStatus;
 import io.korion.offlinepay.domain.status.SettlementStatus;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
@@ -661,5 +664,36 @@ class SettlementApplicationServiceTest {
 
         assertEquals(SettlementStatus.REJECTED, result.status());
         assertTrue(result.settlementResultJson().contains("PAYLOAD_AMOUNT_MISMATCH"));
+    }
+
+    @Test
+    void recordBatchProcessingFailureCreatesReconciliationCaseWhenDeadLettered() {
+        SettlementBatch batch = new SettlementBatch(
+                "batch-dead-1",
+                "device-1",
+                "idem-1",
+                SettlementBatchStatus.UPLOADED,
+                null,
+                1,
+                "{\"attemptCount\":1}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        when(batchRepository.findById("batch-dead-1")).thenReturn(Optional.of(batch));
+
+        SettlementApplicationService.BatchFailureOutcome outcome =
+                service.recordBatchProcessingFailure("batch-dead-1", "sync timeout", 2);
+
+        assertTrue(outcome.deadLettered());
+        verify(reconciliationCaseRepository).save(
+                eq(null),
+                eq("batch-dead-1"),
+                eq(null),
+                eq(null),
+                eq("BATCH_SYNC_FAILED"),
+                eq(io.korion.offlinepay.domain.status.ReconciliationCaseStatus.OPEN),
+                eq("BATCH_SYNC_FAIL"),
+                anyString()
+        );
     }
 }

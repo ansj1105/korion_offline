@@ -97,6 +97,11 @@ public class AdminOperationsService {
     }
 
     @Transactional(readOnly = true)
+    public List<SettlementBatch> listRecentBatches(int size, String networkScope) {
+        return settlementBatchRepository.findRecentBatches(size, normalizeNetworkScope(networkScope));
+    }
+
+    @Transactional(readOnly = true)
     public List<CollateralOperation> listCollateralOperations(
             int size,
             String operationType,
@@ -214,6 +219,12 @@ public class AdminOperationsService {
                         ))
                         .toList()
         );
+    }
+
+    @Transactional(readOnly = true)
+    public BatchOverview getBatchOverview(int days, String networkScope) {
+        OfflinePayOverview overview = getOfflinePayOverview(days, networkScope);
+        return new BatchOverview(overview.summary(), overview.timeline(), overview.recentBatches());
     }
 
     @Transactional(readOnly = true)
@@ -445,6 +456,12 @@ public class AdminOperationsService {
     public record CollateralOperationOverview(
             CollateralOperationOverviewSummary summary,
             List<CollateralOperation> recentOperations
+    ) {}
+
+    public record BatchOverview(
+            OfflinePayOverviewSummary summary,
+            List<OfflinePayDailyMetric> timeline,
+            List<OfflinePayRecentBatch> recentBatches
     ) {}
 
     public record CollateralOperationOverviewSummary(

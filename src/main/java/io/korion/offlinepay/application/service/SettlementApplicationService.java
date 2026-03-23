@@ -244,10 +244,11 @@ public class SettlementApplicationService {
         String batchReasonCode = failedCount > 0
                 ? (settledCount > 0 ? OfflinePayReasonCode.PARTIAL_SETTLEMENT : OfflinePayReasonCode.SERVER_VALIDATION_FAIL)
                 : null;
+        String normalizedBatchReasonCode = normalizeBatchReasonCode(batchStatus, batchReasonCode);
         batchRepository.updateStatus(
                 batch.id(),
                 batchStatus,
-                batchReasonCode,
+                normalizedBatchReasonCode,
                 jsonService.write(Map.of(
                         "acceptedCount", settledCount,
                         "failedCount", failedCount,
@@ -255,6 +256,7 @@ public class SettlementApplicationService {
                         "finalizedAt", OffsetDateTime.now().toString()
                 ))
         );
+        saveBatchReconciliationCase(batch, batchStatus, normalizedBatchReasonCode, settledCount, failedCount, hasConflict);
         SettlementStreamEventFactory.BatchResultEvent batchResultEvent = settlementStreamEventFactory
                 .batchResultEvent(batch.id(), batchStatus, settledCount, failedCount);
         eventBus.publishBatchResult(
@@ -291,11 +293,27 @@ public class SettlementApplicationService {
         batchRepository.updateStatus(
                 batch.id(),
                 deadLettered ? SettlementBatchStatus.FAILED : batch.status(),
-                OfflinePayReasonCode.BATCH_SYNC_FAIL,
+                normalizeBatchReasonCode(deadLettered ? SettlementBatchStatus.FAILED : batch.status(), OfflinePayReasonCode.BATCH_SYNC_FAIL),
                 deadLettered
                         ? settlementBatchFactory.deadLetterSummary(attemptCount, errorMessage, OfflinePayReasonCode.BATCH_SYNC_FAIL)
                         : settlementBatchFactory.failureSummary(attemptCount, errorMessage, OfflinePayReasonCode.BATCH_SYNC_FAIL)
         );
+        if (deadLettered) {
+            reconciliationCaseRepository.save(
+                    null,
+                    batch.id(),
+                    null,
+                    null,
+                    "BATCH_SYNC_FAILED",
+                    ReconciliationCaseStatus.OPEN,
+                    OfflinePayReasonCode.BATCH_SYNC_FAIL,
+                    jsonService.write(Map.of(
+                            "batchId", batch.id(),
+                            "attemptCount", attemptCount,
+                            "errorMessage", errorMessage
+                    ))
+            );
+        }
         return new BatchFailureOutcome(batch.id(), attemptCount, deadLettered);
     }
 
@@ -508,10 +526,13 @@ public class SettlementApplicationService {
         if (evaluation.status() == SettlementStatus.SETTLED && !evaluation.conflictDetected()) {
             return;
         }
-        String caseType = evaluation.conflictDetected() ? "CONFLICT" : "FAILED_SETTLEMENT";
-        String reasonCode = evaluation.reasonCode() == null || evaluation.reasonCode().isBlank()
-                ? OfflinePayReasonCode.SETTLEMENT_FAIL
-                : evaluation.reasonCode();
+        String reasonCode = requireReasonCode(
+                evaluation.reasonCode() == null || evaluation.reasonCode().isBlank()
+                        ? OfflinePayReasonCode.SETTLEMENT_FAIL
+                        : evaluation.reasonCode(),
+                "reconciliation case"
+        );
+        String caseType = resolveReconciliationCaseType(evaluation, reasonCode);
         reconciliationCaseRepository.save(
                 request.id(),
                 request.batchId(),
@@ -574,6 +595,14 @@ public class SettlementApplicationService {
         };
     }
 
+    private String normalizeBatchReasonCode(SettlementBatchStatus status, String reasonCode) {
+        return switch (status) {
+            case FAILED, PARTIALLY_SETTLED, CLOSED -> requireReasonCode(reasonCode, "batch terminal status");
+            case SETTLED -> OfflinePayReasonCode.SETTLED;
+            case CREATED, UPLOADED, VALIDATING -> reasonCode;
+        };
+    }
+
     private String normalizeProofReasonCode(OfflineProofStatus status, String reasonCode) {
         return switch (status) {
             case SETTLED -> OfflinePayReasonCode.SETTLED;
@@ -587,6 +616,44 @@ public class SettlementApplicationService {
             throw new IllegalStateException("reasonCode is required for " + context);
         }
         return reasonCode;
+    }
+
+    private String resolveReconciliationCaseType(SettlementEvaluation evaluation, String reasonCode) {
+        if (OfflinePayReasonCode.DUPLICATE_SETTLEMENT.equals(reasonCode)) {
+            return "DUPLICATE_SETTLEMENT";
+        }
+        if (evaluation.conflictDetected()) {
+            return "CONFLICT";
+        }
+        return "FAILED_SETTLEMENT";
+    }
+
+    private void saveBatchReconciliationCase(
+            SettlementBatch batch,
+            SettlementBatchStatus batchStatus,
+            String reasonCode,
+            int settledCount,
+            int failedCount,
+            boolean hasConflict
+    ) {
+        if (batchStatus != SettlementBatchStatus.PARTIALLY_SETTLED) {
+            return;
+        }
+        reconciliationCaseRepository.save(
+                null,
+                batch.id(),
+                null,
+                null,
+                "PARTIAL_SETTLEMENT",
+                ReconciliationCaseStatus.OPEN,
+                requireReasonCode(reasonCode, "batch reconciliation"),
+                jsonService.write(Map.of(
+                        "batchId", batch.id(),
+                        "settledCount", settledCount,
+                        "failedCount", failedCount,
+                        "hasConflict", hasConflict
+                ))
+        );
     }
 
     private CollateralStatus resolveCollateralStatus(
