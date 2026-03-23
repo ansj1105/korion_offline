@@ -11,15 +11,21 @@ public class DeviceApplicationService {
 
     private final DeviceRepository deviceRepository;
     private final JsonService jsonService;
+    private final OfflineSnapshotStreamService offlineSnapshotStreamService;
 
-    public DeviceApplicationService(DeviceRepository deviceRepository, JsonService jsonService) {
+    public DeviceApplicationService(
+            DeviceRepository deviceRepository,
+            JsonService jsonService,
+            OfflineSnapshotStreamService offlineSnapshotStreamService
+    ) {
         this.deviceRepository = deviceRepository;
         this.jsonService = jsonService;
+        this.offlineSnapshotStreamService = offlineSnapshotStreamService;
     }
 
     @Transactional
     public Device registerDevice(RegisterDeviceCommand command) {
-        return deviceRepository.findByDeviceId(command.deviceId())
+        Device registered = deviceRepository.findByDeviceId(command.deviceId())
                 .orElseGet(() -> deviceRepository.save(
                         command.userId(),
                         command.deviceId(),
@@ -27,6 +33,12 @@ public class DeviceApplicationService {
                         command.keyVersion(),
                         jsonService.write(command.metadata())
                 ));
+        offlineSnapshotStreamService.publishDeviceRegistrationChanged(
+                command.userId(),
+                command.deviceId(),
+                "REGISTERED"
+        );
+        return registered;
     }
 
     @Transactional
@@ -36,8 +48,14 @@ public class DeviceApplicationService {
                 command.keyVersion(),
                 jsonService.write(Map.of("reason", command.reason() == null ? "" : command.reason()))
         );
-        return deviceRepository.findByDeviceId(command.deviceId())
+        Device revoked = deviceRepository.findByDeviceId(command.deviceId())
                 .orElseThrow(() -> new IllegalArgumentException("device not found: " + command.deviceId()));
+        offlineSnapshotStreamService.publishDeviceRegistrationChanged(
+                revoked.userId(),
+                revoked.deviceId(),
+                command.reason() == null ? "REVOKED" : command.reason()
+        );
+        return revoked;
     }
 
     public record RegisterDeviceCommand(

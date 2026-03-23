@@ -19,7 +19,12 @@ class DeviceApplicationServiceTest {
 
     private final DeviceRepository deviceRepository = Mockito.mock(DeviceRepository.class);
     private final JsonService jsonService = new JsonService(new com.fasterxml.jackson.databind.ObjectMapper());
-    private final DeviceApplicationService service = new DeviceApplicationService(deviceRepository, jsonService);
+    private final OfflineSnapshotStreamService offlineSnapshotStreamService = Mockito.mock(OfflineSnapshotStreamService.class);
+    private final DeviceApplicationService service = new DeviceApplicationService(
+            deviceRepository,
+            jsonService,
+            offlineSnapshotStreamService
+    );
 
     @Test
     void returnsExistingDeviceWhenAlreadyRegistered() {
@@ -50,4 +55,3 @@ class DeviceApplicationServiceTest {
         verify(deviceRepository, never()).save(Mockito.anyLong(), Mockito.anyString(), Mockito.anyString(), Mockito.anyInt(), Mockito.anyString());
     }
 }
-

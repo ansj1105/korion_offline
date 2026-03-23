@@ -89,6 +89,23 @@ public class JdbcCollateralRepository implements CollateralRepository {
     }
 
     @Override
+    public Optional<CollateralLock> findLatestByUserIdAndDeviceIdAndAssetCode(long userId, String deviceId, String assetCode) {
+        String sql = QueryBuilder.select("collateral_locks")
+                .where("user_id = :userId")
+                .where("device_id = :deviceId")
+                .where("asset_code = :assetCode")
+                .orderBy("updated_at DESC")
+                .limit(1)
+                .build();
+        return jdbcClient.sql(sql)
+                .param("userId", userId)
+                .param("deviceId", deviceId)
+                .param("assetCode", assetCode)
+                .query(collateralLockRowMapper)
+                .optional();
+    }
+
+    @Override
     public void deductRemainingAmount(String collateralId, BigDecimal amount) {
         String sql = QueryBuilder.update("collateral_locks")
                 .set("remaining_amount = GREATEST(remaining_amount - :amount, 0)")

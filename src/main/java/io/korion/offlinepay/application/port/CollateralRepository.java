@@ -24,6 +24,8 @@ public interface CollateralRepository {
 
     Optional<CollateralLock> findById(String collateralId);
 
+    Optional<CollateralLock> findLatestByUserIdAndDeviceIdAndAssetCode(long userId, String deviceId, String assetCode);
+
     void deductRemainingAmount(String collateralId, BigDecimal amount);
 
     void updateStatus(String collateralId, CollateralStatus status, String metadataJson);

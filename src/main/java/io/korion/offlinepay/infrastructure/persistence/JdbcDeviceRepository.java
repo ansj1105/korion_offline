@@ -31,6 +31,20 @@ public class JdbcDeviceRepository implements DeviceRepository {
     }
 
     @Override
+    public Optional<Device> findByUserIdAndDeviceId(long userId, String deviceId) {
+        String sql = QueryBuilder
+                .select("devices", "id", "device_id", "user_id", "public_key", "key_version", "status", "metadata", "created_at", "updated_at")
+                .where("user_id = :userId")
+                .where("device_id = :deviceId")
+                .build();
+        return jdbcClient.sql(sql)
+                .param("userId", userId)
+                .param("deviceId", deviceId)
+                .query(deviceRowMapper)
+                .optional();
+    }
+
+    @Override
     public Device save(long userId, String deviceId, String publicKey, int keyVersion, String metadataJson) {
         String sql = QueryBuilder
                 .insert("devices", "device_id", "user_id", "public_key", "key_version", "status", "metadata")

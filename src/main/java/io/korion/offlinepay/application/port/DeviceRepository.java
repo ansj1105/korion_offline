@@ -7,6 +7,8 @@ public interface DeviceRepository {
 
     Optional<Device> findByDeviceId(String deviceId);
 
+    Optional<Device> findByUserIdAndDeviceId(long userId, String deviceId);
+
     Device save(long userId, String deviceId, String publicKey, int keyVersion, String metadataJson);
 
     void revoke(String deviceId, Integer keyVersion, String metadataJson);

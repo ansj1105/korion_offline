@@ -26,6 +26,7 @@ public class CollateralApplicationService {
     private final SettlementBatchEventBus settlementBatchEventBus;
     private final JsonService jsonService;
     private final AppProperties properties;
+    private final OfflineSnapshotStreamService offlineSnapshotStreamService;
 
     public CollateralApplicationService(
             DeviceRepository deviceRepository,
@@ -34,7 +35,8 @@ public class CollateralApplicationService {
             CoinManageCollateralPort coinManageCollateralPort,
             SettlementBatchEventBus settlementBatchEventBus,
             JsonService jsonService,
-            AppProperties properties
+            AppProperties properties,
+            OfflineSnapshotStreamService offlineSnapshotStreamService
     ) {
         this.deviceRepository = deviceRepository;
         this.collateralRepository = collateralRepository;
@@ -43,6 +45,7 @@ public class CollateralApplicationService {
         this.settlementBatchEventBus = settlementBatchEventBus;
         this.jsonService = jsonService;
         this.properties = properties;
+        this.offlineSnapshotStreamService = offlineSnapshotStreamService;
     }
 
     @Transactional
@@ -120,6 +123,12 @@ public class CollateralApplicationService {
                     operation.referenceId(),
                     OffsetDateTime.now().toString(),
                     ""
+            );
+            offlineSnapshotStreamService.publishCollateralChanged(
+                    collateral.userId(),
+                    collateral.deviceId(),
+                    collateral.assetCode(),
+                    "TOPUP_COMPLETED"
             );
             return collateral;
         } catch (RuntimeException error) {
@@ -220,6 +229,12 @@ public class CollateralApplicationService {
                     operation.referenceId(),
                     OffsetDateTime.now().toString(),
                     ""
+            );
+            offlineSnapshotStreamService.publishCollateralChanged(
+                    collateral.userId(),
+                    collateral.deviceId(),
+                    collateral.assetCode(),
+                    "RELEASE_COMPLETED"
             );
         } catch (RuntimeException error) {
             collateralOperationRepository.markFailed(
