@@ -24,6 +24,7 @@ class SettlementWorkerTest {
                 24,
                 20,
                 1000,
+                new AppProperties.ProofIssuer("test-proof-issuer", "", ""),
                 new AppProperties.CoinManage("http://localhost:3000", "test-key", 5000),
                 new AppProperties.FoxCoin("http://localhost:3101", "test-key", 5000),
                 new AppProperties.Redis(

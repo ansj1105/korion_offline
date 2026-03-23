@@ -8,11 +8,18 @@ public record AppProperties(
         int defaultCollateralExpiryHours,
         int settlementStreamBatchSize,
         int settlementStreamBlockMs,
+        ProofIssuer proofIssuer,
         CoinManage coinManage,
         FoxCoin foxCoin,
         Redis redis,
         Worker worker
 ) {
+
+    public record ProofIssuer(
+            String keyId,
+            String publicKey,
+            String privateKey
+    ) {}
 
     public record CoinManage(
             String baseUrl,

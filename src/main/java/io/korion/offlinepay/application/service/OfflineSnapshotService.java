@@ -2,9 +2,11 @@ package io.korion.offlinepay.application.service;
 
 import io.korion.offlinepay.application.port.CollateralRepository;
 import io.korion.offlinepay.application.port.DeviceRepository;
+import io.korion.offlinepay.application.port.IssuedOfflineProofRepository;
 import io.korion.offlinepay.config.AppProperties;
 import io.korion.offlinepay.domain.model.CollateralLock;
 import io.korion.offlinepay.domain.model.Device;
+import io.korion.offlinepay.domain.model.IssuedOfflineProof;
 import com.fasterxml.jackson.databind.JsonNode;
 import java.time.OffsetDateTime;
 import org.springframework.stereotype.Service;
@@ -15,17 +17,20 @@ public class OfflineSnapshotService {
 
     private final DeviceRepository deviceRepository;
     private final CollateralRepository collateralRepository;
+    private final IssuedOfflineProofRepository issuedOfflineProofRepository;
     private final AppProperties properties;
     private final JsonService jsonService;
 
     public OfflineSnapshotService(
             DeviceRepository deviceRepository,
             CollateralRepository collateralRepository,
+            IssuedOfflineProofRepository issuedOfflineProofRepository,
             AppProperties properties,
             JsonService jsonService
     ) {
         this.deviceRepository = deviceRepository;
         this.collateralRepository = collateralRepository;
+        this.issuedOfflineProofRepository = issuedOfflineProofRepository;
         this.properties = properties;
         this.jsonService = jsonService;
     }
@@ -39,6 +44,9 @@ public class OfflineSnapshotService {
                 .orElseThrow(() -> new IllegalArgumentException("device binding mismatch: " + deviceId));
         CollateralLock collateral = collateralRepository
                 .findLatestByUserIdAndDeviceIdAndAssetCode(userId, deviceId, normalizedAssetCode)
+                .orElse(null);
+        IssuedOfflineProof issuedProof = issuedOfflineProofRepository
+                .findLatestActiveByUserIdAndDeviceIdAndAssetCode(userId, deviceId, normalizedAssetCode)
                 .orElse(null);
 
         return new CurrentSnapshot(
@@ -72,6 +80,20 @@ public class OfflineSnapshotService {
                         collateral.expiresAt() == null ? "" : collateral.expiresAt().toString(),
                         collateral.updatedAt().toString()
                 ),
+                issuedProof == null ? null : new IssuedProofSnapshot(
+                        issuedProof.id(),
+                        issuedProof.collateralId(),
+                        issuedProof.assetCode(),
+                        issuedProof.usableAmount().toPlainString(),
+                        issuedProof.proofNonce(),
+                        issuedProof.issuerKeyId(),
+                        issuedProof.issuerPublicKey(),
+                        issuedProof.issuerSignature(),
+                        issuedProof.issuedPayloadJson(),
+                        issuedProof.status().name(),
+                        issuedProof.expiresAt().toString(),
+                        issuedProof.createdAt().toString()
+                ),
                 true,
                 OffsetDateTime.now().toString()
         );
@@ -83,6 +105,7 @@ public class OfflineSnapshotService {
             String assetCode,
             DeviceRegistrationSnapshot deviceRegistration,
             CollateralSnapshot collateral,
+            IssuedProofSnapshot issuedProof,
             boolean walletRefreshRequired,
             String refreshedAt
     ) {}
@@ -99,6 +122,21 @@ public class OfflineSnapshotService {
             String status,
             String metadataJson,
             String updatedAt
+    ) {}
+
+    public record IssuedProofSnapshot(
+            String proofId,
+            String collateralId,
+            String assetCode,
+            String usableAmount,
+            String nonce,
+            String issuerKeyId,
+            String issuerPublicKey,
+            String issuerSignature,
+            String issuedPayload,
+            String status,
+            String expiresAt,
+            String issuedAt
     ) {}
 
     public record CollateralSnapshot(
