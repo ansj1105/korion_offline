@@ -9,9 +9,9 @@ public record SettlementRequest(
         String collateralId,
         String proofId,
         SettlementStatus status,
+        String reasonCode,
         boolean conflictDetected,
         String settlementResultJson,
         OffsetDateTime createdAt,
         OffsetDateTime updatedAt
 ) {}
-

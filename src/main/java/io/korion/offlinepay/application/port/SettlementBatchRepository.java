@@ -8,13 +8,13 @@ import java.util.Optional;
 
 public interface SettlementBatchRepository {
 
-    SettlementBatch save(String sourceDeviceId, String idempotencyKey, SettlementBatchStatus status, int proofsCount, String summaryJson);
+    SettlementBatch save(String sourceDeviceId, String idempotencyKey, SettlementBatchStatus status, String lastReasonCode, int proofsCount, String summaryJson);
 
     Optional<SettlementBatch> findById(String batchId);
 
     Optional<SettlementBatch> findByIdempotencyKey(String idempotencyKey);
 
-    void updateStatus(String batchId, SettlementBatchStatus status, String summaryJson);
+    void updateStatus(String batchId, SettlementBatchStatus status, String lastReasonCode, String summaryJson);
 
     List<SettlementBatch> findPendingValidationBatches(int limit);
 

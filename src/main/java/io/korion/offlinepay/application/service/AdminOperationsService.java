@@ -5,12 +5,14 @@ import io.korion.offlinepay.application.factory.SettlementStreamEventFactory;
 import io.korion.offlinepay.application.port.CollateralOperationRepository;
 import io.korion.offlinepay.application.port.OfflineEventLogRepository;
 import io.korion.offlinepay.application.port.OfflinePaymentProofRepository;
+import io.korion.offlinepay.application.port.ReconciliationCaseRepository;
 import io.korion.offlinepay.application.port.SettlementBatchEventBus;
 import io.korion.offlinepay.application.port.SettlementBatchRepository;
 import io.korion.offlinepay.application.port.SettlementConflictRepository;
 import io.korion.offlinepay.domain.model.CollateralOperation;
 import io.korion.offlinepay.domain.model.OfflineEventLog;
 import io.korion.offlinepay.domain.model.OfflinePaymentProof;
+import io.korion.offlinepay.domain.model.ReconciliationCase;
 import io.korion.offlinepay.domain.model.SettlementBatch;
 import io.korion.offlinepay.domain.model.SettlementConflict;
 import io.korion.offlinepay.domain.model.SettlementConflictMetric;
@@ -20,6 +22,7 @@ import io.korion.offlinepay.domain.status.CollateralOperationType;
 import io.korion.offlinepay.domain.status.OfflineEventStatus;
 import io.korion.offlinepay.domain.status.OfflineEventType;
 import io.korion.offlinepay.domain.status.OfflineProofStatus;
+import io.korion.offlinepay.domain.status.ReconciliationCaseStatus;
 import io.korion.offlinepay.domain.status.SettlementBatchStatus;
 import java.time.OffsetDateTime;
 import java.util.LinkedHashMap;
@@ -36,6 +39,7 @@ public class AdminOperationsService {
     private final CollateralOperationRepository collateralOperationRepository;
     private final OfflineEventLogRepository offlineEventLogRepository;
     private final OfflinePaymentProofRepository offlinePaymentProofRepository;
+    private final ReconciliationCaseRepository reconciliationCaseRepository;
     private final SettlementBatchEventBus settlementBatchEventBus;
     private final SettlementBatchFactory settlementBatchFactory;
     private final SettlementStreamEventFactory settlementStreamEventFactory;
@@ -46,6 +50,7 @@ public class AdminOperationsService {
             CollateralOperationRepository collateralOperationRepository,
             OfflineEventLogRepository offlineEventLogRepository,
             OfflinePaymentProofRepository offlinePaymentProofRepository,
+            ReconciliationCaseRepository reconciliationCaseRepository,
             SettlementBatchEventBus settlementBatchEventBus,
             SettlementBatchFactory settlementBatchFactory,
             SettlementStreamEventFactory settlementStreamEventFactory
@@ -55,6 +60,7 @@ public class AdminOperationsService {
         this.collateralOperationRepository = collateralOperationRepository;
         this.offlineEventLogRepository = offlineEventLogRepository;
         this.offlinePaymentProofRepository = offlinePaymentProofRepository;
+        this.reconciliationCaseRepository = reconciliationCaseRepository;
         this.settlementBatchEventBus = settlementBatchEventBus;
         this.settlementBatchFactory = settlementBatchFactory;
         this.settlementStreamEventFactory = settlementStreamEventFactory;
@@ -107,7 +113,8 @@ public class AdminOperationsService {
         settlementBatchRepository.updateStatus(
                 batch.id(),
                 SettlementBatchStatus.UPLOADED,
-                settlementBatchFactory.failureSummary(0, "manual retry requested")
+                null,
+                settlementBatchFactory.failureSummary(0, "manual retry requested", "")
         );
         SettlementStreamEventFactory.RequestedBatchEvent requestedBatchEvent = settlementStreamEventFactory
                 .requestedBatchEvent(batch.id(), "ADMIN_RETRY", batch.sourceDeviceId());
@@ -236,6 +243,21 @@ public class AdminOperationsService {
                 parseOfflineEventType(eventType),
                 parseOfflineEventStatus(eventStatus),
                 assetCode
+        );
+    }
+
+    @Transactional(readOnly = true)
+    public List<ReconciliationCase> listReconciliationCases(
+            int size,
+            String status,
+            String caseType,
+            String reasonCode
+    ) {
+        return reconciliationCaseRepository.findRecent(
+                size,
+                parseReconciliationCaseStatus(status),
+                caseType,
+                reasonCode
         );
     }
 
@@ -470,6 +492,17 @@ public class AdminOperationsService {
         }
         try {
             return OfflineEventType.valueOf(eventType.trim().toUpperCase());
+        } catch (IllegalArgumentException ignored) {
+            return null;
+        }
+    }
+
+    private ReconciliationCaseStatus parseReconciliationCaseStatus(String status) {
+        if (status == null || status.isBlank()) {
+            return null;
+        }
+        try {
+            return ReconciliationCaseStatus.valueOf(status.trim().toUpperCase());
         } catch (IllegalArgumentException ignored) {
             return null;
         }

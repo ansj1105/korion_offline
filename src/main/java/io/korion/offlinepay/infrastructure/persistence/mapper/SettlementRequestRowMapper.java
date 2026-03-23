@@ -19,6 +19,7 @@ public class SettlementRequestRowMapper implements RowMapper<SettlementRequest> 
                 resultSet.getString("collateral_id"),
                 resultSet.getString("proof_id"),
                 SettlementStatus.valueOf(resultSet.getString("status")),
+                resultSet.getString("reason_code"),
                 resultSet.getBoolean("conflict_detected"),
                 resultSet.getString("settlement_result"),
                 resultSet.getObject("created_at", OffsetDateTime.class),
@@ -26,4 +27,3 @@ public class SettlementRequestRowMapper implements RowMapper<SettlementRequest> 
         );
     }
 }
-

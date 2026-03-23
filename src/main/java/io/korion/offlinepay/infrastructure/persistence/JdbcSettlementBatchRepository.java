@@ -29,15 +29,16 @@ public class JdbcSettlementBatchRepository implements SettlementBatchRepository 
     }
 
     @Override
-    public SettlementBatch save(String sourceDeviceId, String idempotencyKey, SettlementBatchStatus status, int proofsCount, String summaryJson) {
+    public SettlementBatch save(String sourceDeviceId, String idempotencyKey, SettlementBatchStatus status, String lastReasonCode, int proofsCount, String summaryJson) {
         String sql = QueryBuilder
-                .insert("settlement_batches", "source_device_id", "idempotency_key", "status", "proofs_count", "summary")
+                .insert("settlement_batches", "source_device_id", "idempotency_key", "status", "last_reason_code", "proofs_count", "summary")
                 .value("summary", "CAST(:summary AS jsonb)")
                 .build();
         jdbcClient.sql(sql)
                 .param("sourceDeviceId", sourceDeviceId)
                 .param("idempotencyKey", idempotencyKey)
                 .param("status", status.name())
+                .param("lastReasonCode", lastReasonCode)
                 .param("proofsCount", proofsCount)
                 .param("summary", summaryJson)
                 .update();
@@ -68,9 +69,10 @@ public class JdbcSettlementBatchRepository implements SettlementBatchRepository 
     }
 
     @Override
-    public void updateStatus(String batchId, SettlementBatchStatus status, String summaryJson) {
+    public void updateStatus(String batchId, SettlementBatchStatus status, String lastReasonCode, String summaryJson) {
         String sql = QueryBuilder.update("settlement_batches")
                 .set("status", ":status")
+                .set("last_reason_code", ":lastReasonCode")
                 .set("summary", "summary || CAST(:summary AS jsonb)")
                 .touchUpdatedAt()
                 .where("id", QueryBuilder.Op.EQ, ":id")
@@ -78,6 +80,7 @@ public class JdbcSettlementBatchRepository implements SettlementBatchRepository 
         jdbcClient.sql(sql)
                 .param("id", java.util.UUID.fromString(batchId))
                 .param("status", status.name())
+                .param("lastReasonCode", lastReasonCode)
                 .param("summary", summaryJson)
                 .update();
     }

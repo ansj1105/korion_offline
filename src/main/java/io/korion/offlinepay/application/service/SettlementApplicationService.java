@@ -10,6 +10,7 @@ import io.korion.offlinepay.application.port.CollateralRepository;
 import io.korion.offlinepay.application.port.DeviceRepository;
 import io.korion.offlinepay.application.port.FoxCoinHistoryPort;
 import io.korion.offlinepay.application.port.OfflinePaymentProofRepository;
+import io.korion.offlinepay.application.port.ReconciliationCaseRepository;
 import io.korion.offlinepay.application.port.SettlementBatchEventBus;
 import io.korion.offlinepay.application.port.SettlementBatchRepository;
 import io.korion.offlinepay.application.port.SettlementConflictRepository;
@@ -32,6 +33,7 @@ import io.korion.offlinepay.domain.model.SettlementRequest;
 import io.korion.offlinepay.domain.reason.OfflinePayReasonCode;
 import io.korion.offlinepay.domain.status.CollateralStatus;
 import io.korion.offlinepay.domain.status.OfflineProofStatus;
+import io.korion.offlinepay.domain.status.ReconciliationCaseStatus;
 import io.korion.offlinepay.domain.status.SettlementBatchStatus;
 import io.korion.offlinepay.domain.status.SettlementStatus;
 import java.math.BigDecimal;
@@ -51,6 +53,7 @@ public class SettlementApplicationService {
     private final SettlementBatchRepository batchRepository;
     private final SettlementRepository settlementRepository;
     private final SettlementResultRepository settlementResultRepository;
+    private final ReconciliationCaseRepository reconciliationCaseRepository;
     private final SettlementConflictRepository settlementConflictRepository;
     private final SettlementBatchEventBus eventBus;
     private final CoinManageSettlementPort coinManageSettlementPort;
@@ -74,6 +77,7 @@ public class SettlementApplicationService {
             SettlementBatchRepository batchRepository,
             SettlementRepository settlementRepository,
             SettlementResultRepository settlementResultRepository,
+            ReconciliationCaseRepository reconciliationCaseRepository,
             SettlementConflictRepository settlementConflictRepository,
             SettlementBatchEventBus eventBus,
             CoinManageSettlementPort coinManageSettlementPort,
@@ -96,6 +100,7 @@ public class SettlementApplicationService {
         this.batchRepository = batchRepository;
         this.settlementRepository = settlementRepository;
         this.settlementResultRepository = settlementResultRepository;
+        this.reconciliationCaseRepository = reconciliationCaseRepository;
         this.settlementConflictRepository = settlementConflictRepository;
         this.eventBus = eventBus;
         this.coinManageSettlementPort = coinManageSettlementPort;
@@ -125,6 +130,7 @@ public class SettlementApplicationService {
                 batchDraft.sourceDeviceId(),
                 batchDraft.idempotencyKey(),
                 batchDraft.status(),
+                null,
                 batchDraft.proofsCount(),
                 batchDraft.summaryJson()
         );
@@ -161,6 +167,7 @@ public class SettlementApplicationService {
                     collateral.id(),
                     proof.id(),
                     SettlementStatus.PENDING,
+                    null,
                     false,
                     settlementRequestFactory.uploadedResult()
             );
@@ -170,6 +177,7 @@ public class SettlementApplicationService {
         batchRepository.updateStatus(
                 batch.id(),
                 SettlementBatchStatus.UPLOADED,
+                null,
                 settlementBatchFactory.uploadedSummary(requestIds)
         );
         SettlementStreamEventFactory.RequestedBatchEvent requestedBatchEvent = settlementStreamEventFactory
@@ -188,12 +196,14 @@ public class SettlementApplicationService {
         batchRepository.updateStatus(
                 batchId,
                 SettlementBatchStatus.VALIDATING,
+                null,
                 settlementBatchFactory.validatingSummary()
         );
         for (SettlementRequest request : settlementRepository.findByBatchId(batchId)) {
             settlementRepository.update(
                     request.id(),
                     SettlementStatus.VALIDATING,
+                    null,
                     false,
                     settlementRequestFactory.validatingResult()
             );
@@ -223,9 +233,13 @@ public class SettlementApplicationService {
         }
 
         SettlementBatchStatus batchStatus = resolveBatchStatus(settledCount, failedCount, hasConflict);
+        String batchReasonCode = failedCount > 0
+                ? (settledCount > 0 ? OfflinePayReasonCode.PARTIAL_SETTLEMENT : OfflinePayReasonCode.SERVER_VALIDATION_FAIL)
+                : null;
         batchRepository.updateStatus(
                 batch.id(),
                 batchStatus,
+                batchReasonCode,
                 jsonService.write(Map.of(
                         "acceptedCount", settledCount,
                         "failedCount", failedCount,
@@ -269,9 +283,10 @@ public class SettlementApplicationService {
         batchRepository.updateStatus(
                 batch.id(),
                 deadLettered ? SettlementBatchStatus.FAILED : batch.status(),
+                OfflinePayReasonCode.BATCH_SYNC_FAIL,
                 deadLettered
-                        ? settlementBatchFactory.deadLetterSummary(attemptCount, errorMessage)
-                        : settlementBatchFactory.failureSummary(attemptCount, errorMessage)
+                        ? settlementBatchFactory.deadLetterSummary(attemptCount, errorMessage, OfflinePayReasonCode.BATCH_SYNC_FAIL)
+                        : settlementBatchFactory.failureSummary(attemptCount, errorMessage, OfflinePayReasonCode.BATCH_SYNC_FAIL)
         );
         return new BatchFailureOutcome(batch.id(), attemptCount, deadLettered);
     }
@@ -298,6 +313,7 @@ public class SettlementApplicationService {
         settlementRepository.update(
                 request.id(),
                 evaluation.status(),
+                evaluation.reasonCode(),
                 evaluation.conflictDetected(),
                 evaluation.resultJson()
         );
@@ -310,6 +326,7 @@ public class SettlementApplicationService {
                 evaluation.resultJson(),
                 evaluation.settledAmount()
         );
+        saveReconciliationCase(request, proof, evaluation);
         collateralRepository.updateStatus(
                 collateral.id(),
                 resolveCollateralStatus(collateral, proof, evaluation),
@@ -424,7 +441,7 @@ public class SettlementApplicationService {
                     .conflictEvent(
                             request,
                             proof,
-                            evaluation.reasonCode() == null ? "UNKNOWN_CONFLICT" : evaluation.reasonCode()
+                            evaluation.reasonCode() == null ? OfflinePayReasonCode.UNKNOWN_CONFLICT : evaluation.reasonCode()
                     );
             eventBus.publishConflict(
                     conflictEvent.batchId(),
@@ -456,6 +473,26 @@ public class SettlementApplicationService {
                         evaluation.status().name(),
                         evaluation.conflictDetected()
                 )
+        );
+    }
+
+    private void saveReconciliationCase(SettlementRequest request, OfflinePaymentProof proof, SettlementEvaluation evaluation) {
+        if (evaluation.status() == SettlementStatus.SETTLED && !evaluation.conflictDetected()) {
+            return;
+        }
+        String caseType = evaluation.conflictDetected() ? "CONFLICT" : "FAILED_SETTLEMENT";
+        String reasonCode = evaluation.reasonCode() == null || evaluation.reasonCode().isBlank()
+                ? OfflinePayReasonCode.SETTLEMENT_FAIL
+                : evaluation.reasonCode();
+        reconciliationCaseRepository.save(
+                request.id(),
+                request.batchId(),
+                proof.id(),
+                proof.voucherId(),
+                caseType,
+                ReconciliationCaseStatus.OPEN,
+                reasonCode,
+                evaluation.resultJson()
         );
     }
 

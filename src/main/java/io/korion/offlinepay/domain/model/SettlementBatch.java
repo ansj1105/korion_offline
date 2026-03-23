@@ -8,9 +8,9 @@ public record SettlementBatch(
         String sourceDeviceId,
         String idempotencyKey,
         SettlementBatchStatus status,
+        String lastReasonCode,
         int proofsCount,
         String summaryJson,
         OffsetDateTime createdAt,
         OffsetDateTime updatedAt
 ) {}
-

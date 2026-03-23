@@ -41,17 +41,19 @@ public class SettlementBatchFactory {
         return jsonService.write(Map.of("finalizedAt", OffsetDateTime.now().toString()));
     }
 
-    public String failureSummary(int attemptCount, String errorMessage) {
+    public String failureSummary(int attemptCount, String errorMessage, String reasonCode) {
         return jsonService.write(Map.of(
                 "attemptCount", attemptCount,
+                "reasonCode", reasonCode == null ? "" : reasonCode,
                 "lastError", errorMessage,
                 "lastFailedAt", OffsetDateTime.now().toString()
         ));
     }
 
-    public String deadLetterSummary(int attemptCount, String errorMessage) {
+    public String deadLetterSummary(int attemptCount, String errorMessage, String reasonCode) {
         return jsonService.write(Map.of(
                 "attemptCount", attemptCount,
+                "reasonCode", reasonCode == null ? "" : reasonCode,
                 "lastError", errorMessage,
                 "deadLetteredAt", OffsetDateTime.now().toString()
         ));

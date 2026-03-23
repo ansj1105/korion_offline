@@ -21,9 +21,9 @@ public class JdbcSettlementRepository implements SettlementRepository {
     }
 
     @Override
-    public SettlementRequest save(String batchId, String collateralId, String proofId, SettlementStatus status, boolean conflictDetected, String settlementResultJson) {
+    public SettlementRequest save(String batchId, String collateralId, String proofId, SettlementStatus status, String reasonCode, boolean conflictDetected, String settlementResultJson) {
         String sql = QueryBuilder
-                .insert("settlement_requests", "batch_id", "collateral_id", "proof_id", "status", "conflict_detected", "settlement_result")
+                .insert("settlement_requests", "batch_id", "collateral_id", "proof_id", "status", "reason_code", "conflict_detected", "settlement_result")
                 .value("settlement_result", "CAST(:settlementResult AS jsonb)")
                 .build();
         jdbcClient.sql(sql)
@@ -31,6 +31,7 @@ public class JdbcSettlementRepository implements SettlementRepository {
                 .param("collateralId", java.util.UUID.fromString(collateralId))
                 .param("proofId", java.util.UUID.fromString(proofId))
                 .param("status", status.name())
+                .param("reasonCode", reasonCode)
                 .param("conflictDetected", conflictDetected)
                 .param("settlementResult", settlementResultJson)
                 .update();
@@ -70,9 +71,10 @@ public class JdbcSettlementRepository implements SettlementRepository {
     }
 
     @Override
-    public void update(String settlementId, SettlementStatus status, boolean conflictDetected, String settlementResultJson) {
+    public void update(String settlementId, SettlementStatus status, String reasonCode, boolean conflictDetected, String settlementResultJson) {
         String sql = QueryBuilder.update("settlement_requests")
                 .set("status", ":status")
+                .set("reason_code", ":reasonCode")
                 .set("conflict_detected", ":conflictDetected")
                 .set("settlement_result", "settlement_result || CAST(:settlementResult AS jsonb)")
                 .touchUpdatedAt()
@@ -81,6 +83,7 @@ public class JdbcSettlementRepository implements SettlementRepository {
         jdbcClient.sql(sql)
                 .param("id", java.util.UUID.fromString(settlementId))
                 .param("status", status.name())
+                .param("reasonCode", reasonCode)
                 .param("conflictDetected", conflictDetected)
                 .param("settlementResult", settlementResultJson)
                 .update();

@@ -2,6 +2,7 @@ package io.korion.offlinepay.application.service.settlement;
 
 import io.korion.offlinepay.application.service.JsonService;
 import io.korion.offlinepay.domain.model.OfflinePaymentProof;
+import io.korion.offlinepay.domain.reason.OfflinePayReasonCode;
 import java.util.List;
 import java.util.Map;
 import org.springframework.stereotype.Component;
@@ -21,7 +22,7 @@ public class ProofConflictDetector {
                     && !existingProof.hashChainHead().equals(incomingProof.hashChainHead())) {
                 return new ConflictDetectionResult(
                         true,
-                        "DUPLICATE_COUNTER",
+                        OfflinePayReasonCode.DUPLICATE_COUNTER,
                         jsonService.write(Map.of(
                                 "existingProofId", existingProof.id(),
                                 "incomingProofId", incomingProof.id() == null ? "" : incomingProof.id(),
@@ -33,7 +34,7 @@ public class ProofConflictDetector {
                     && !existingProof.voucherId().equals(incomingProof.voucherId())) {
                 return new ConflictDetectionResult(
                         true,
-                        "DUPLICATE_NONCE",
+                        OfflinePayReasonCode.DUPLICATE_NONCE,
                         jsonService.write(Map.of(
                                 "existingVoucherId", existingProof.voucherId(),
                                 "incomingVoucherId", incomingProof.voucherId(),

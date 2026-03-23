@@ -7,12 +7,11 @@ import java.util.Optional;
 
 public interface SettlementRepository {
 
-    SettlementRequest save(String batchId, String collateralId, String proofId, SettlementStatus status, boolean conflictDetected, String settlementResultJson);
+    SettlementRequest save(String batchId, String collateralId, String proofId, SettlementStatus status, String reasonCode, boolean conflictDetected, String settlementResultJson);
 
     List<SettlementRequest> findByBatchId(String batchId);
 
     Optional<SettlementRequest> findById(String settlementId);
 
-    void update(String settlementId, SettlementStatus status, boolean conflictDetected, String settlementResultJson);
+    void update(String settlementId, SettlementStatus status, String reasonCode, boolean conflictDetected, String settlementResultJson);
 }
-

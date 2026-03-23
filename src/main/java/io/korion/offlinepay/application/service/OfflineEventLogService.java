@@ -33,6 +33,7 @@ public class OfflineEventLogService {
         deviceRepository.findByDeviceId(command.deviceId())
                 .filter(device -> device.userId() == command.userId())
                 .orElseThrow(() -> new IllegalArgumentException("device binding mismatch: " + command.deviceId()));
+        validateReasonPolicy(command);
 
         return offlineEventLogRepository.save(
                 command.userId(),
@@ -98,6 +99,37 @@ public class OfflineEventLogService {
             return OfflineEventStatus.valueOf(eventStatus.trim().toUpperCase());
         } catch (IllegalArgumentException ignored) {
             return null;
+        }
+    }
+
+    private void validateReasonPolicy(RecordOfflineEventCommand command) {
+        boolean failedStatus = command.eventStatus() == OfflineEventStatus.FAILED;
+        boolean failedType = switch (command.eventType()) {
+            case NFC_CONNECT_FAIL,
+                    BLE_SCAN_FAIL,
+                    BLE_PAIR_FAIL,
+                    QR_PARSE_FAIL,
+                    AUTH_BIOMETRIC_FAIL,
+                    AUTH_PIN_FAIL,
+                    AUTH_CANCELLED,
+                    PROOF_NOT_FOUND,
+                    PROOF_EXPIRED,
+                    PROOF_TAMPERED,
+                    PAYLOAD_BUILD_FAIL,
+                    SEND_TIMEOUT,
+                    SEND_INTERRUPTED,
+                    RECEIVE_REJECTED,
+                    LOCAL_QUEUE_SAVE_FAIL,
+                    BATCH_SYNC_FAIL,
+                    SERVER_VALIDATION_FAIL,
+                    SETTLEMENT_FAIL,
+                    SYNC_FAILED,
+                    SETTLEMENT_FAILED,
+                    TRANSPORT_FAILED -> true;
+            default -> false;
+        };
+        if ((failedStatus || failedType) && (command.reasonCode() == null || command.reasonCode().isBlank())) {
+            throw new IllegalArgumentException("reasonCode is required for failed offline events");
         }
     }
 }

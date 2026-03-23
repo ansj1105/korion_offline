@@ -29,6 +29,16 @@ public final class OfflinePayReasonCode {
     public static final String LOCAL_AVAILABLE_AMOUNT_EXCEEDED = "LOCAL_AVAILABLE_AMOUNT_EXCEEDED";
     public static final String SERVER_AVAILABLE_AMOUNT_EXCEEDED = "SERVER_AVAILABLE_AMOUNT_EXCEEDED";
     public static final String PROOF_EXPIRED = "PROOF_EXPIRED";
+    public static final String COLLATERAL_EXPIRED = "COLLATERAL_EXPIRED";
+    public static final String POLICY_VERSION_MISMATCH = "POLICY_VERSION_MISMATCH";
+    public static final String INSUFFICIENT_REMAINING_AMOUNT = "INSUFFICIENT_REMAINING_AMOUNT";
+    public static final String INVALID_STATE_HASH = "INVALID_STATE_HASH";
+    public static final String INVALID_GENESIS_COUNTER = "INVALID_GENESIS_COUNTER";
+    public static final String INVALID_GENESIS_LINK = "INVALID_GENESIS_LINK";
+    public static final String COUNTER_GAP = "COUNTER_GAP";
+    public static final String INVALID_PREVIOUS_HASH = "INVALID_PREVIOUS_HASH";
+    public static final String DUPLICATE_COUNTER = "DUPLICATE_COUNTER";
+    public static final String DUPLICATE_NONCE = "DUPLICATE_NONCE";
     public static final String NFC_CONNECT_FAIL = "NFC_CONNECT_FAIL";
     public static final String BLE_SCAN_FAIL = "BLE_SCAN_FAIL";
     public static final String BLE_PAIR_FAIL = "BLE_PAIR_FAIL";
@@ -46,5 +56,7 @@ public final class OfflinePayReasonCode {
     public static final String BATCH_SYNC_FAIL = "BATCH_SYNC_FAIL";
     public static final String SERVER_VALIDATION_FAIL = "SERVER_VALIDATION_FAIL";
     public static final String SETTLEMENT_FAIL = "SETTLEMENT_FAIL";
+    public static final String PARTIAL_SETTLEMENT = "PARTIAL_SETTLEMENT";
+    public static final String UNKNOWN_CONFLICT = "UNKNOWN_CONFLICT";
     public static final String SETTLED = "SETTLED";
 }

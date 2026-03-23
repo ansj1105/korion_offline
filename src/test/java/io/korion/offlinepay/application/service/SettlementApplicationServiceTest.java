@@ -18,6 +18,7 @@ import io.korion.offlinepay.application.port.CollateralRepository;
 import io.korion.offlinepay.application.port.DeviceRepository;
 import io.korion.offlinepay.application.port.FoxCoinHistoryPort;
 import io.korion.offlinepay.application.port.OfflinePaymentProofRepository;
+import io.korion.offlinepay.application.port.ReconciliationCaseRepository;
 import io.korion.offlinepay.application.port.SettlementBatchEventBus;
 import io.korion.offlinepay.application.port.SettlementBatchRepository;
 import io.korion.offlinepay.application.port.SettlementConflictRepository;
@@ -54,6 +55,7 @@ class SettlementApplicationServiceTest {
     private final SettlementBatchRepository batchRepository = Mockito.mock(SettlementBatchRepository.class);
     private final SettlementRepository settlementRepository = Mockito.mock(SettlementRepository.class);
     private final SettlementResultRepository settlementResultRepository = Mockito.mock(SettlementResultRepository.class);
+    private final ReconciliationCaseRepository reconciliationCaseRepository = Mockito.mock(ReconciliationCaseRepository.class);
     private final SettlementConflictRepository settlementConflictRepository = Mockito.mock(SettlementConflictRepository.class);
     private final SettlementBatchEventBus eventBus = Mockito.mock(SettlementBatchEventBus.class);
     private final CoinManageSettlementPort coinManageSettlementPort = Mockito.mock(CoinManageSettlementPort.class);
@@ -66,6 +68,7 @@ class SettlementApplicationServiceTest {
             batchRepository,
             settlementRepository,
             settlementResultRepository,
+            reconciliationCaseRepository,
             settlementConflictRepository,
             eventBus,
             coinManageSettlementPort,
@@ -91,6 +94,7 @@ class SettlementApplicationServiceTest {
                 "collateral-1",
                 "proof-1",
                 SettlementStatus.VALIDATING,
+                null,
                 false,
                 "{}",
                 OffsetDateTime.now(),
@@ -118,6 +122,7 @@ class SettlementApplicationServiceTest {
                 "collateral-1",
                 "proof-1",
                 SettlementStatus.SETTLED,
+                null,
                 false,
                 "{\"releaseAction\":\"RELEASE\"}",
                 OffsetDateTime.now(),
@@ -177,7 +182,7 @@ class SettlementApplicationServiceTest {
 
         verify(coinManageSettlementPort).finalizeSettlement(any(CoinManageSettlementPort.SettlementLedgerCommand.class));
         verify(foxCoinHistoryPort).recordSettlementHistory(any(FoxCoinHistoryPort.SettlementHistoryCommand.class));
-        verify(settlementRepository).update(anyString(), any(SettlementStatus.class), anyBoolean(), anyString());
+        verify(settlementRepository).update(anyString(), any(SettlementStatus.class), any(), anyBoolean(), anyString());
         assertEquals(SettlementStatus.SETTLED, result.status());
     }
 
@@ -189,6 +194,7 @@ class SettlementApplicationServiceTest {
                 "collateral-2",
                 "proof-2",
                 SettlementStatus.VALIDATING,
+                null,
                 false,
                 "{}",
                 OffsetDateTime.now(),
@@ -252,6 +258,7 @@ class SettlementApplicationServiceTest {
                         "collateral-2",
                         "proof-2",
                         SettlementStatus.REJECTED,
+                        "INVALID_DEVICE_BINDING",
                         false,
                         "{\"reasonCode\":\"INVALID_DEVICE_BINDING\"}",
                         OffsetDateTime.now(),
@@ -263,7 +270,7 @@ class SettlementApplicationServiceTest {
 
         SettlementRequest result = service.finalizeSettlement("settlement-2");
 
-        verify(settlementRepository).update(anyString(), any(SettlementStatus.class), anyBoolean(), anyString());
+        verify(settlementRepository).update(anyString(), any(SettlementStatus.class), any(), anyBoolean(), anyString());
         assertEquals(SettlementStatus.REJECTED, result.status());
         assertTrue(result.settlementResultJson().contains("INVALID_DEVICE_BINDING"));
     }
@@ -276,6 +283,7 @@ class SettlementApplicationServiceTest {
                 "collateral-3",
                 "proof-3",
                 SettlementStatus.VALIDATING,
+                null,
                 false,
                 "{}",
                 OffsetDateTime.now(),
@@ -339,6 +347,7 @@ class SettlementApplicationServiceTest {
                         "collateral-3",
                         "proof-3",
                         SettlementStatus.REJECTED,
+                        "AMOUNT_CONFLICT_DETECTED",
                         false,
                         "{\"reasonCode\":\"AMOUNT_CONFLICT_DETECTED\"}",
                         OffsetDateTime.now(),
@@ -350,7 +359,7 @@ class SettlementApplicationServiceTest {
 
         SettlementRequest result = service.finalizeSettlement("settlement-3");
 
-        verify(settlementRepository).update(anyString(), any(SettlementStatus.class), anyBoolean(), anyString());
+        verify(settlementRepository).update(anyString(), any(SettlementStatus.class), any(), anyBoolean(), anyString());
         assertEquals(SettlementStatus.REJECTED, result.status());
         assertTrue(result.settlementResultJson().contains("AMOUNT_CONFLICT_DETECTED"));
     }
@@ -363,6 +372,7 @@ class SettlementApplicationServiceTest {
                 "collateral-4",
                 "proof-4",
                 SettlementStatus.VALIDATING,
+                null,
                 false,
                 "{}",
                 OffsetDateTime.now(),
@@ -426,6 +436,7 @@ class SettlementApplicationServiceTest {
                         "collateral-4",
                         "proof-4",
                         SettlementStatus.REJECTED,
+                        "LEDGER_EXECUTION_MODE_INVALID",
                         false,
                         "{\"reasonCode\":\"LEDGER_EXECUTION_MODE_INVALID\"}",
                         OffsetDateTime.now(),
@@ -437,7 +448,7 @@ class SettlementApplicationServiceTest {
 
         SettlementRequest result = service.finalizeSettlement("settlement-4");
 
-        verify(settlementRepository).update(anyString(), any(SettlementStatus.class), anyBoolean(), anyString());
+        verify(settlementRepository).update(anyString(), any(SettlementStatus.class), any(), anyBoolean(), anyString());
         assertEquals(SettlementStatus.REJECTED, result.status());
         assertTrue(result.settlementResultJson().contains("LEDGER_EXECUTION_MODE_INVALID"));
     }
@@ -450,6 +461,7 @@ class SettlementApplicationServiceTest {
                 "collateral-5",
                 "proof-5",
                 SettlementStatus.VALIDATING,
+                null,
                 false,
                 "{}",
                 OffsetDateTime.now(),
@@ -513,6 +525,7 @@ class SettlementApplicationServiceTest {
                         "collateral-5",
                         "proof-5",
                         SettlementStatus.REJECTED,
+                        "PAYMENT_MODE_REQUIRED",
                         false,
                         "{\"reasonCode\":\"PAYMENT_MODE_REQUIRED\"}",
                         OffsetDateTime.now(),
@@ -524,7 +537,7 @@ class SettlementApplicationServiceTest {
 
         SettlementRequest result = service.finalizeSettlement("settlement-5");
 
-        verify(settlementRepository).update(anyString(), any(SettlementStatus.class), anyBoolean(), anyString());
+        verify(settlementRepository).update(anyString(), any(SettlementStatus.class), any(), anyBoolean(), anyString());
         assertEquals(SettlementStatus.REJECTED, result.status());
         assertTrue(result.settlementResultJson().contains("PAYMENT_MODE_REQUIRED"));
     }

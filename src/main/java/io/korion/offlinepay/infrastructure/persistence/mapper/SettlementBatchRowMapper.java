@@ -18,6 +18,7 @@ public class SettlementBatchRowMapper implements RowMapper<SettlementBatch> {
                 resultSet.getString("source_device_id"),
                 resultSet.getString("idempotency_key"),
                 SettlementBatchStatus.valueOf(resultSet.getString("status")),
+                resultSet.getString("last_reason_code"),
                 resultSet.getInt("proofs_count"),
                 resultSet.getString("summary"),
                 resultSet.getObject("created_at", OffsetDateTime.class),
@@ -25,4 +26,3 @@ public class SettlementBatchRowMapper implements RowMapper<SettlementBatch> {
         );
     }
 }
-
