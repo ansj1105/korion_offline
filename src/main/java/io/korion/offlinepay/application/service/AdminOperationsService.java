@@ -3,16 +3,20 @@ package io.korion.offlinepay.application.service;
 import io.korion.offlinepay.application.factory.SettlementBatchFactory;
 import io.korion.offlinepay.application.factory.SettlementStreamEventFactory;
 import io.korion.offlinepay.application.port.CollateralOperationRepository;
+import io.korion.offlinepay.application.port.OfflineEventLogRepository;
 import io.korion.offlinepay.application.port.SettlementBatchEventBus;
 import io.korion.offlinepay.application.port.SettlementBatchRepository;
 import io.korion.offlinepay.application.port.SettlementConflictRepository;
 import io.korion.offlinepay.domain.model.CollateralOperation;
+import io.korion.offlinepay.domain.model.OfflineEventLog;
 import io.korion.offlinepay.domain.model.SettlementBatch;
 import io.korion.offlinepay.domain.model.SettlementConflict;
 import io.korion.offlinepay.domain.model.SettlementConflictMetric;
 import io.korion.offlinepay.domain.model.SettlementStatusMetric;
 import io.korion.offlinepay.domain.status.CollateralOperationStatus;
 import io.korion.offlinepay.domain.status.CollateralOperationType;
+import io.korion.offlinepay.domain.status.OfflineEventStatus;
+import io.korion.offlinepay.domain.status.OfflineEventType;
 import io.korion.offlinepay.domain.status.SettlementBatchStatus;
 import java.time.OffsetDateTime;
 import java.util.LinkedHashMap;
@@ -27,6 +31,7 @@ public class AdminOperationsService {
     private final SettlementBatchRepository settlementBatchRepository;
     private final SettlementConflictRepository settlementConflictRepository;
     private final CollateralOperationRepository collateralOperationRepository;
+    private final OfflineEventLogRepository offlineEventLogRepository;
     private final SettlementBatchEventBus settlementBatchEventBus;
     private final SettlementBatchFactory settlementBatchFactory;
     private final SettlementStreamEventFactory settlementStreamEventFactory;
@@ -35,6 +40,7 @@ public class AdminOperationsService {
             SettlementBatchRepository settlementBatchRepository,
             SettlementConflictRepository settlementConflictRepository,
             CollateralOperationRepository collateralOperationRepository,
+            OfflineEventLogRepository offlineEventLogRepository,
             SettlementBatchEventBus settlementBatchEventBus,
             SettlementBatchFactory settlementBatchFactory,
             SettlementStreamEventFactory settlementStreamEventFactory
@@ -42,6 +48,7 @@ public class AdminOperationsService {
         this.settlementBatchRepository = settlementBatchRepository;
         this.settlementConflictRepository = settlementConflictRepository;
         this.collateralOperationRepository = collateralOperationRepository;
+        this.offlineEventLogRepository = offlineEventLogRepository;
         this.settlementBatchEventBus = settlementBatchEventBus;
         this.settlementBatchFactory = settlementBatchFactory;
         this.settlementStreamEventFactory = settlementStreamEventFactory;
@@ -211,6 +218,44 @@ public class AdminOperationsService {
         );
     }
 
+    @Transactional(readOnly = true)
+    public List<OfflineEventLog> listOfflineEvents(
+            int size,
+            String eventType,
+            String eventStatus,
+            String assetCode
+    ) {
+        return offlineEventLogRepository.findRecent(
+                size,
+                parseOfflineEventType(eventType),
+                parseOfflineEventStatus(eventStatus),
+                assetCode
+        );
+    }
+
+    @Transactional(readOnly = true)
+    public OfflineEventOverview getOfflineEventOverview(int size, String assetCode) {
+        List<OfflineEventLog> recentEvents = offlineEventLogRepository.findRecent(size, null, null, assetCode);
+        long pendingCount = recentEvents.stream().filter(item -> item.eventStatus() == OfflineEventStatus.PENDING).count();
+        long failedCount = recentEvents.stream().filter(item -> item.eventStatus() == OfflineEventStatus.FAILED).count();
+        long acknowledgedCount = recentEvents.stream().filter(item -> item.eventStatus() == OfflineEventStatus.ACKNOWLEDGED).count();
+        long syncFailedCount = recentEvents.stream().filter(item -> item.eventType() == OfflineEventType.SYNC_FAILED).count();
+        long rejectedCount = recentEvents.stream().filter(item -> item.eventType() == OfflineEventType.REQUEST_REJECTED).count();
+        long cancelledCount = recentEvents.stream().filter(item -> item.eventType() == OfflineEventType.REQUEST_CANCELLED).count();
+
+        return new OfflineEventOverview(
+                new OfflineEventOverviewSummary(
+                        pendingCount,
+                        failedCount,
+                        acknowledgedCount,
+                        syncFailedCount,
+                        rejectedCount,
+                        cancelledCount
+                ),
+                recentEvents
+        );
+    }
+
     private String normalizeNetworkScope(String networkScope) {
         if (networkScope == null || networkScope.isBlank()) {
             return null;
@@ -287,6 +332,20 @@ public class AdminOperationsService {
             long releaseCount
     ) {}
 
+    public record OfflineEventOverview(
+            OfflineEventOverviewSummary summary,
+            List<OfflineEventLog> recentEvents
+    ) {}
+
+    public record OfflineEventOverviewSummary(
+            long pendingCount,
+            long failedCount,
+            long acknowledgedCount,
+            long syncFailedCount,
+            long rejectedCount,
+            long cancelledCount
+    ) {}
+
     private CollateralOperationType parseOperationType(String operationType) {
         if (operationType == null || operationType.isBlank()) {
             return null;
@@ -304,6 +363,28 @@ public class AdminOperationsService {
         }
         try {
             return CollateralOperationStatus.valueOf(status.trim().toUpperCase());
+        } catch (IllegalArgumentException ignored) {
+            return null;
+        }
+    }
+
+    private OfflineEventType parseOfflineEventType(String eventType) {
+        if (eventType == null || eventType.isBlank()) {
+            return null;
+        }
+        try {
+            return OfflineEventType.valueOf(eventType.trim().toUpperCase());
+        } catch (IllegalArgumentException ignored) {
+            return null;
+        }
+    }
+
+    private OfflineEventStatus parseOfflineEventStatus(String eventStatus) {
+        if (eventStatus == null || eventStatus.isBlank()) {
+            return null;
+        }
+        try {
+            return OfflineEventStatus.valueOf(eventStatus.trim().toUpperCase());
         } catch (IllegalArgumentException ignored) {
             return null;
         }

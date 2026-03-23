@@ -45,6 +45,24 @@ public class AdminOperationsController {
         return adminOperationsService.getCollateralOperationOverview(size, assetCode);
     }
 
+    @GetMapping("/offline-events")
+    public Object listOfflineEvents(
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String eventType,
+            @RequestParam(required = false) String eventStatus,
+            @RequestParam(required = false) String assetCode
+    ) {
+        return Map.of("items", adminOperationsService.listOfflineEvents(size, eventType, eventStatus, assetCode));
+    }
+
+    @GetMapping("/offline-events/overview")
+    public Object offlineEventOverview(
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String assetCode
+    ) {
+        return adminOperationsService.getOfflineEventOverview(size, assetCode);
+    }
+
     @PostMapping("/dead-letters/{batchId}/retry")
     public Object retryDeadLetter(@PathVariable String batchId) {
         return Map.of(

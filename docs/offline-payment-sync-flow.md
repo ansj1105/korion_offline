@@ -209,3 +209,10 @@
 2. 성공 판정 후 worker가 `coin_manage` 출금/입금 모델과 연결되도록 확장
 3. proof payload를 typed contract로 승격
 4. settlement 결과와 외부 원장 sync 상태를 별도 outbox/state로 승격
+
+## 9. 구현 규칙 메모
+
+- 오프라인 페이 화면과 연동 경로에는 business 의미를 가진 하드코딩 더미 데이터를 기본값으로 두지 않는다.
+- 테스트용 peer/device/amount/operation 예시는 `test mode` 또는 fixture 경계 안에만 둔다.
+- 앱과 연동되는 백엔드는 `foxya_coin_service`, `coin_csms`, `coin_publish`, `offline_pay`, `coin_manage`를 함께 본다.
+- 상태/테이블/API 변경으로 DB가 바뀌면 Flyway 또는 해당 migration 체계를 반드시 같이 반영한다.
