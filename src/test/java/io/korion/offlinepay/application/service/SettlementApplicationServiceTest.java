@@ -994,4 +994,174 @@ class SettlementApplicationServiceTest {
                 anyString()
         );
     }
+
+    @Test
+    void finalizeSettlementMapsDuplicateNonceConflictToDuplicateSendCase() {
+        SettlementRequest request = new SettlementRequest(
+                "settlement-dup-send",
+                "batch-dup-send",
+                "collateral-dup-send",
+                "proof-dup-send",
+                SettlementStatus.VALIDATING,
+                null,
+                false,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        CollateralLock collateral = new CollateralLock(
+                "collateral-dup-send",
+                77L,
+                "device-1",
+                "USDT",
+                new BigDecimal("150"),
+                new BigDecimal("100"),
+                "GENESIS",
+                2,
+                CollateralStatus.LOCKED,
+                "lock-dup-send",
+                OffsetDateTime.now().plusDays(1),
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        String duplicateNonce = "nonce-dup-send";
+        String incomingHash = spendingProofHashService.computeNewStateHash(
+                "GENESIS",
+                new BigDecimal("100"),
+                2L,
+                "device-1",
+                duplicateNonce
+        );
+        long duplicateNow = System.currentTimeMillis();
+        String existingRawPayloadJson = "{\"voucherId\":\"voucher-existing\",\"deviceId\":\"device-1\",\"counterpartyDeviceId\":\"device-2\",\"amount\":\"10\",\"expiresAt\":\""
+                + (duplicateNow + 60_000)
+                + "\",\"spendingProof\":{\"deviceId\":\"device-1\",\"amount\":\"10\",\"monotonicCounter\":\"1\",\"nonce\":\""
+                + duplicateNonce
+                + "\",\"newStateHash\":\""
+                + spendingProofHashService.computeNewStateHash("GENESIS", new BigDecimal("10"), 1L, "device-1", duplicateNonce)
+                + "\",\"prevStateHash\":\"GENESIS\",\"signature\":\"local_sig_existing\",\"timestamp\":\""
+                + (duplicateNow - 1_000)
+                + "\"}}";
+        String incomingRawPayloadJson = "{\"voucherId\":\"voucher-dup-send\",\"deviceId\":\"device-1\",\"counterpartyDeviceId\":\"device-2\",\"amount\":\"100\",\"expiresAt\":\""
+                + (duplicateNow + 60_000)
+                + "\",\"spendingProof\":{\"deviceId\":\"device-1\",\"amount\":\"100\",\"monotonicCounter\":\"2\",\"nonce\":\""
+                + duplicateNonce
+                + "\",\"newStateHash\":\""
+                + incomingHash
+                + "\",\"prevStateHash\":\"GENESIS\",\"signature\":\"local_sig_incoming\",\"timestamp\":\""
+                + duplicateNow
+                + "\"}}";
+        OfflinePaymentProof existingProof = new OfflinePaymentProof(
+                "proof-existing",
+                "batch-existing",
+                "voucher-existing",
+                "collateral-dup-send",
+                "device-1",
+                "device-2",
+                1,
+                1,
+                1L,
+                duplicateNonce,
+                spendingProofHashService.computeNewStateHash("GENESIS", new BigDecimal("10"), 1L, "device-1", duplicateNonce),
+                "GENESIS",
+                "local_sig_existing",
+                new BigDecimal("10"),
+                duplicateNow - 1_000,
+                duplicateNow + 60_000,
+                "{\"voucherId\":\"voucher-existing\"}",
+                "SENDER",
+                existingRawPayloadJson,
+                OffsetDateTime.now()
+        );
+        OfflinePaymentProof incomingProof = new OfflinePaymentProof(
+                "proof-dup-send",
+                "batch-dup-send",
+                "voucher-dup-send",
+                "collateral-dup-send",
+                "device-1",
+                "device-2",
+                1,
+                1,
+                2L,
+                duplicateNonce,
+                incomingHash,
+                "GENESIS",
+                "local_sig_incoming",
+                new BigDecimal("100"),
+                duplicateNow,
+                duplicateNow + 60_000,
+                "{\"voucherId\":\"voucher-dup-send\",\"counterpartyDeviceId\":\"device-2\"}",
+                "SENDER",
+                incomingRawPayloadJson,
+                OffsetDateTime.now()
+        );
+        Device device = new Device(
+                "row-1",
+                "device-1",
+                77L,
+                "public-key",
+                1,
+                DeviceStatus.ACTIVE,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+
+        when(settlementRepository.findById("settlement-dup-send"))
+                .thenReturn(Optional.of(request))
+                .thenReturn(Optional.of(new SettlementRequest(
+                        "settlement-dup-send",
+                        "batch-dup-send",
+                        "collateral-dup-send",
+                        "proof-dup-send",
+                        SettlementStatus.CONFLICT,
+                        "DUPLICATE_NONCE",
+                        true,
+                        "{\"reasonCode\":\"DUPLICATE_NONCE\"}",
+                        OffsetDateTime.now(),
+                        OffsetDateTime.now()
+                )));
+        when(collateralRepository.findById("collateral-dup-send")).thenReturn(Optional.of(collateral));
+        when(proofRepository.findById("proof-dup-send")).thenReturn(Optional.of(incomingProof));
+        when(proofRepository.findByCollateralId("collateral-dup-send")).thenReturn(java.util.List.of(existingProof, incomingProof));
+        when(deviceRepository.findByDeviceId("device-1")).thenReturn(Optional.of(device));
+        when(settlementResultRepository.existsByVoucherId("voucher-dup-send")).thenReturn(false);
+        when(issuedProofVerificationService.verify(any())).thenReturn(
+                IssuedProofVerificationService.VerificationResult.valid(
+                        new IssuedOfflineProof(
+                                "issued-proof-dup-send",
+                                77L,
+                                "device-1",
+                                "collateral-dup-send",
+                                "USDT",
+                                new BigDecimal("1000"),
+                                duplicateNonce,
+                                "issuer-key",
+                                "issuer-public-key",
+                                "issuer-signature",
+                                "{}",
+                                IssuedProofStatus.ACTIVE,
+                                null,
+                                OffsetDateTime.now().plusHours(1),
+                                OffsetDateTime.now(),
+                                OffsetDateTime.now()
+                        )
+                )
+        );
+
+        SettlementRequest result = service.finalizeSettlement("settlement-dup-send");
+
+        assertEquals(SettlementStatus.CONFLICT, result.status());
+        verify(reconciliationCaseRepository).save(
+                eq("settlement-dup-send"),
+                eq("batch-dup-send"),
+                eq("proof-dup-send"),
+                eq("voucher-dup-send"),
+                eq("DUPLICATE_SEND"),
+                eq(io.korion.offlinepay.domain.status.ReconciliationCaseStatus.OPEN),
+                eq("DUPLICATE_NONCE"),
+                anyString()
+        );
+    }
 }

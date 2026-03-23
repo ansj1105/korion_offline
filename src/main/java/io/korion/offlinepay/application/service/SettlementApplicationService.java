@@ -658,6 +658,10 @@ public class SettlementApplicationService {
         if (OfflinePayReasonCode.DUPLICATE_SETTLEMENT.equals(reasonCode)) {
             return "DUPLICATE_SETTLEMENT";
         }
+        if (OfflinePayReasonCode.DUPLICATE_NONCE.equals(reasonCode)
+                || OfflinePayReasonCode.DUPLICATE_COUNTER.equals(reasonCode)) {
+            return "DUPLICATE_SEND";
+        }
         if (evaluation.conflictDetected()) {
             return "CONFLICT";
         }
