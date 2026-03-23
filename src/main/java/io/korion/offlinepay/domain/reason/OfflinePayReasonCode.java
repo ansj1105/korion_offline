@@ -72,6 +72,8 @@ public final class OfflinePayReasonCode {
     public static final String RECEIVE_REJECTED = "RECEIVE_REJECTED";
     public static final String LOCAL_QUEUE_SAVE_FAIL = "LOCAL_QUEUE_SAVE_FAIL";
     public static final String BATCH_SYNC_FAIL = "BATCH_SYNC_FAIL";
+    public static final String LEDGER_SYNC_FAIL = "LEDGER_SYNC_FAIL";
+    public static final String HISTORY_SYNC_FAIL = "HISTORY_SYNC_FAIL";
     public static final String SERVER_VALIDATION_FAIL = "SERVER_VALIDATION_FAIL";
     public static final String SETTLEMENT_FAIL = "SETTLEMENT_FAIL";
     public static final String PARTIAL_SETTLEMENT = "PARTIAL_SETTLEMENT";

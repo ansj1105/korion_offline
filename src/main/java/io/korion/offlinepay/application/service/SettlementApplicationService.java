@@ -499,27 +499,63 @@ public class SettlementApplicationService {
             );
         }
 
-        coinManageSettlementPort.finalizeSettlement(
-                settlementSyncCommandFactory.createLedgerCommand(
-                        collateral,
-                        proof,
-                        proof.amount(),
-                        request,
-                        evaluation.status().name(),
-                        evaluation.releaseAction(),
-                        evaluation.conflictDetected()
-                )
-        );
-        foxCoinHistoryPort.recordSettlementHistory(
-                settlementSyncCommandFactory.createHistoryCommand(
-                        collateral,
-                        proof.id(),
-                        proof.amount(),
-                        request,
-                        evaluation.status().name(),
-                        evaluation.conflictDetected()
-                )
-        );
+        boolean ledgerSynced = false;
+        try {
+            coinManageSettlementPort.finalizeSettlement(
+                    settlementSyncCommandFactory.createLedgerCommand(
+                            collateral,
+                            proof,
+                            proof.amount(),
+                            request,
+                            evaluation.status().name(),
+                            evaluation.releaseAction(),
+                            evaluation.conflictDetected()
+                    )
+            );
+            ledgerSynced = true;
+        } catch (RuntimeException exception) {
+            saveExternalSyncReconciliationCase(
+                    request,
+                    proof,
+                    "LEDGER_SYNC_FAILED",
+                    OfflinePayReasonCode.LEDGER_SYNC_FAIL,
+                    Map.of(
+                            "settlementId", request.id(),
+                            "voucherId", proof.voucherId(),
+                            "ledgerSynced", false,
+                            "historySynced", false,
+                            "errorMessage", exception.getMessage() == null ? "unknown" : exception.getMessage()
+                    )
+            );
+            return;
+        }
+
+        try {
+            foxCoinHistoryPort.recordSettlementHistory(
+                    settlementSyncCommandFactory.createHistoryCommand(
+                            collateral,
+                            proof.id(),
+                            proof.amount(),
+                            request,
+                            evaluation.status().name(),
+                            evaluation.conflictDetected()
+                    )
+            );
+        } catch (RuntimeException exception) {
+            saveExternalSyncReconciliationCase(
+                    request,
+                    proof,
+                    "PARTIAL_SETTLEMENT",
+                    OfflinePayReasonCode.HISTORY_SYNC_FAIL,
+                    Map.of(
+                            "settlementId", request.id(),
+                            "voucherId", proof.voucherId(),
+                            "ledgerSynced", ledgerSynced,
+                            "historySynced", false,
+                            "errorMessage", exception.getMessage() == null ? "unknown" : exception.getMessage()
+                    )
+            );
+        }
     }
 
     private void saveReconciliationCase(SettlementRequest request, OfflinePaymentProof proof, SettlementEvaluation evaluation) {
@@ -653,6 +689,25 @@ public class SettlementApplicationService {
                         "failedCount", failedCount,
                         "hasConflict", hasConflict
                 ))
+        );
+    }
+
+    private void saveExternalSyncReconciliationCase(
+            SettlementRequest request,
+            OfflinePaymentProof proof,
+            String caseType,
+            String reasonCode,
+            Map<String, Object> detail
+    ) {
+        reconciliationCaseRepository.save(
+                request.id(),
+                request.batchId(),
+                proof.id(),
+                proof.voucherId(),
+                caseType,
+                ReconciliationCaseStatus.OPEN,
+                requireReasonCode(reasonCode, "external sync reconciliation"),
+                jsonService.write(detail)
         );
     }
 

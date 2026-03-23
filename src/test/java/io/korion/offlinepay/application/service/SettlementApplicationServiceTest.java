@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -772,6 +773,224 @@ class SettlementApplicationServiceTest {
                 eq("BATCH_SYNC_FAILED"),
                 eq(io.korion.offlinepay.domain.status.ReconciliationCaseStatus.OPEN),
                 eq("BATCH_SYNC_FAIL"),
+                anyString()
+        );
+    }
+
+    @Test
+    void finalizeSettlementCreatesReconciliationCaseWhenLedgerSyncFails() {
+        SettlementRequest request = new SettlementRequest(
+                "settlement-ledger-fail",
+                "batch-ledger-fail",
+                "collateral-ledger-fail",
+                "proof-ledger-fail",
+                SettlementStatus.VALIDATING,
+                null,
+                false,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        CollateralLock collateral = new CollateralLock(
+                "collateral-ledger-fail",
+                77L,
+                "device-1",
+                "USDT",
+                new BigDecimal("150"),
+                new BigDecimal("100"),
+                "GENESIS",
+                1,
+                CollateralStatus.LOCKED,
+                "lock-ledger-fail",
+                OffsetDateTime.now().plusDays(1),
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        String proofHash = spendingProofHashService.computeNewStateHash(
+                "GENESIS",
+                new BigDecimal("100"),
+                1L,
+                "device-1",
+                "nonce-ledger-fail"
+        );
+        OfflinePaymentProof proof = new OfflinePaymentProof(
+                "proof-ledger-fail",
+                "batch-ledger-fail",
+                "voucher-ledger-fail",
+                "collateral-ledger-fail",
+                "device-1",
+                "device-2",
+                1,
+                1,
+                1L,
+                "nonce-ledger-fail",
+                proofHash,
+                "GENESIS",
+                "signature",
+                new BigDecimal("100"),
+                System.currentTimeMillis(),
+                System.currentTimeMillis() + 60_000,
+                "{\"voucherId\":\"voucher-ledger-fail\"}",
+                "SENDER",
+                "{\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"100\",\"uiMode\":\"SEND\",\"connectionType\":\"FAST_CONTACT\",\"paymentFlow\":\"FAST_PAYMENT\",\"senderAuthRequired\":true,\"ledgerExecutionMode\":\"INTERNAL_LEDGER_ONLY\",\"dualAmountEntered\":false}",
+                OffsetDateTime.now()
+        );
+        Device device = new Device(
+                "row-1",
+                "device-1",
+                77L,
+                "public-key",
+                1,
+                DeviceStatus.ACTIVE,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+
+        when(settlementRepository.findById("settlement-ledger-fail"))
+                .thenReturn(Optional.of(request))
+                .thenReturn(Optional.of(new SettlementRequest(
+                        "settlement-ledger-fail",
+                        "batch-ledger-fail",
+                        "collateral-ledger-fail",
+                        "proof-ledger-fail",
+                        SettlementStatus.SETTLED,
+                        null,
+                        false,
+                        "{\"releaseAction\":\"RELEASE\"}",
+                        OffsetDateTime.now(),
+                        OffsetDateTime.now()
+                )));
+        when(collateralRepository.findById("collateral-ledger-fail")).thenReturn(Optional.of(collateral));
+        when(proofRepository.findById("proof-ledger-fail")).thenReturn(Optional.of(proof));
+        when(proofRepository.findByCollateralId("collateral-ledger-fail")).thenReturn(java.util.List.of(proof));
+        when(deviceRepository.findByDeviceId("device-1")).thenReturn(Optional.of(device));
+        when(settlementResultRepository.existsByVoucherId("voucher-ledger-fail")).thenReturn(false);
+        doThrow(new IllegalStateException("ledger unavailable"))
+                .when(coinManageSettlementPort)
+                .finalizeSettlement(any(CoinManageSettlementPort.SettlementLedgerCommand.class));
+
+        SettlementRequest result = service.finalizeSettlement("settlement-ledger-fail");
+
+        assertEquals(SettlementStatus.SETTLED, result.status());
+        verify(reconciliationCaseRepository).save(
+                eq("settlement-ledger-fail"),
+                eq("batch-ledger-fail"),
+                eq("proof-ledger-fail"),
+                eq("voucher-ledger-fail"),
+                eq("LEDGER_SYNC_FAILED"),
+                eq(io.korion.offlinepay.domain.status.ReconciliationCaseStatus.OPEN),
+                eq("LEDGER_SYNC_FAIL"),
+                anyString()
+        );
+    }
+
+    @Test
+    void finalizeSettlementCreatesPartialSettlementCaseWhenHistorySyncFails() {
+        SettlementRequest request = new SettlementRequest(
+                "settlement-history-fail",
+                "batch-history-fail",
+                "collateral-history-fail",
+                "proof-history-fail",
+                SettlementStatus.VALIDATING,
+                null,
+                false,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        CollateralLock collateral = new CollateralLock(
+                "collateral-history-fail",
+                77L,
+                "device-1",
+                "USDT",
+                new BigDecimal("150"),
+                new BigDecimal("100"),
+                "GENESIS",
+                1,
+                CollateralStatus.LOCKED,
+                "lock-history-fail",
+                OffsetDateTime.now().plusDays(1),
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        String proofHash = spendingProofHashService.computeNewStateHash(
+                "GENESIS",
+                new BigDecimal("100"),
+                1L,
+                "device-1",
+                "nonce-history-fail"
+        );
+        OfflinePaymentProof proof = new OfflinePaymentProof(
+                "proof-history-fail",
+                "batch-history-fail",
+                "voucher-history-fail",
+                "collateral-history-fail",
+                "device-1",
+                "device-2",
+                1,
+                1,
+                1L,
+                "nonce-history-fail",
+                proofHash,
+                "GENESIS",
+                "signature",
+                new BigDecimal("100"),
+                System.currentTimeMillis(),
+                System.currentTimeMillis() + 60_000,
+                "{\"voucherId\":\"voucher-history-fail\"}",
+                "SENDER",
+                "{\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"100\",\"uiMode\":\"SEND\",\"connectionType\":\"FAST_CONTACT\",\"paymentFlow\":\"FAST_PAYMENT\",\"senderAuthRequired\":true,\"ledgerExecutionMode\":\"INTERNAL_LEDGER_ONLY\",\"dualAmountEntered\":false}",
+                OffsetDateTime.now()
+        );
+        Device device = new Device(
+                "row-1",
+                "device-1",
+                77L,
+                "public-key",
+                1,
+                DeviceStatus.ACTIVE,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+
+        when(settlementRepository.findById("settlement-history-fail"))
+                .thenReturn(Optional.of(request))
+                .thenReturn(Optional.of(new SettlementRequest(
+                        "settlement-history-fail",
+                        "batch-history-fail",
+                        "collateral-history-fail",
+                        "proof-history-fail",
+                        SettlementStatus.SETTLED,
+                        null,
+                        false,
+                        "{\"releaseAction\":\"RELEASE\"}",
+                        OffsetDateTime.now(),
+                        OffsetDateTime.now()
+                )));
+        when(collateralRepository.findById("collateral-history-fail")).thenReturn(Optional.of(collateral));
+        when(proofRepository.findById("proof-history-fail")).thenReturn(Optional.of(proof));
+        when(proofRepository.findByCollateralId("collateral-history-fail")).thenReturn(java.util.List.of(proof));
+        when(deviceRepository.findByDeviceId("device-1")).thenReturn(Optional.of(device));
+        when(settlementResultRepository.existsByVoucherId("voucher-history-fail")).thenReturn(false);
+        doThrow(new IllegalStateException("history unavailable"))
+                .when(foxCoinHistoryPort)
+                .recordSettlementHistory(any(FoxCoinHistoryPort.SettlementHistoryCommand.class));
+
+        SettlementRequest result = service.finalizeSettlement("settlement-history-fail");
+
+        assertEquals(SettlementStatus.SETTLED, result.status());
+        verify(reconciliationCaseRepository).save(
+                eq("settlement-history-fail"),
+                eq("batch-history-fail"),
+                eq("proof-history-fail"),
+                eq("voucher-history-fail"),
+                eq("PARTIAL_SETTLEMENT"),
+                eq(io.korion.offlinepay.domain.status.ReconciliationCaseStatus.OPEN),
+                eq("HISTORY_SYNC_FAIL"),
                 anyString()
         );
     }
