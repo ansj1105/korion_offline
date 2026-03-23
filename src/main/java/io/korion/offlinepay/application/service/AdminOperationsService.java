@@ -3,6 +3,7 @@ package io.korion.offlinepay.application.service;
 import io.korion.offlinepay.application.factory.SettlementBatchFactory;
 import io.korion.offlinepay.application.factory.SettlementStreamEventFactory;
 import io.korion.offlinepay.application.port.CollateralOperationRepository;
+import io.korion.offlinepay.application.port.DeviceRepository;
 import io.korion.offlinepay.application.port.OfflineEventLogRepository;
 import io.korion.offlinepay.application.port.OfflinePaymentProofRepository;
 import io.korion.offlinepay.application.port.ReconciliationCaseRepository;
@@ -10,6 +11,7 @@ import io.korion.offlinepay.application.port.SettlementBatchEventBus;
 import io.korion.offlinepay.application.port.SettlementBatchRepository;
 import io.korion.offlinepay.application.port.SettlementConflictRepository;
 import io.korion.offlinepay.domain.model.CollateralOperation;
+import io.korion.offlinepay.domain.model.Device;
 import io.korion.offlinepay.domain.model.OfflineEventLog;
 import io.korion.offlinepay.domain.model.OfflinePaymentProof;
 import io.korion.offlinepay.domain.model.ReconciliationCase;
@@ -19,6 +21,7 @@ import io.korion.offlinepay.domain.model.SettlementConflictMetric;
 import io.korion.offlinepay.domain.model.SettlementStatusMetric;
 import io.korion.offlinepay.domain.status.CollateralOperationStatus;
 import io.korion.offlinepay.domain.status.CollateralOperationType;
+import io.korion.offlinepay.domain.status.DeviceStatus;
 import io.korion.offlinepay.domain.status.OfflineEventStatus;
 import io.korion.offlinepay.domain.status.OfflineEventType;
 import io.korion.offlinepay.domain.status.OfflineProofStatus;
@@ -37,6 +40,7 @@ public class AdminOperationsService {
     private final SettlementBatchRepository settlementBatchRepository;
     private final SettlementConflictRepository settlementConflictRepository;
     private final CollateralOperationRepository collateralOperationRepository;
+    private final DeviceRepository deviceRepository;
     private final OfflineEventLogRepository offlineEventLogRepository;
     private final OfflinePaymentProofRepository offlinePaymentProofRepository;
     private final ReconciliationCaseRepository reconciliationCaseRepository;
@@ -48,6 +52,7 @@ public class AdminOperationsService {
             SettlementBatchRepository settlementBatchRepository,
             SettlementConflictRepository settlementConflictRepository,
             CollateralOperationRepository collateralOperationRepository,
+            DeviceRepository deviceRepository,
             OfflineEventLogRepository offlineEventLogRepository,
             OfflinePaymentProofRepository offlinePaymentProofRepository,
             ReconciliationCaseRepository reconciliationCaseRepository,
@@ -58,6 +63,7 @@ public class AdminOperationsService {
         this.settlementBatchRepository = settlementBatchRepository;
         this.settlementConflictRepository = settlementConflictRepository;
         this.collateralOperationRepository = collateralOperationRepository;
+        this.deviceRepository = deviceRepository;
         this.offlineEventLogRepository = offlineEventLogRepository;
         this.offlinePaymentProofRepository = offlinePaymentProofRepository;
         this.reconciliationCaseRepository = reconciliationCaseRepository;
@@ -356,6 +362,23 @@ public class AdminOperationsService {
         );
     }
 
+    @Transactional(readOnly = true)
+    public List<Device> listDevices(int size, String status) {
+        return deviceRepository.findRecent(size, parseDeviceStatus(status));
+    }
+
+    @Transactional(readOnly = true)
+    public DeviceOverview getDeviceOverview(int size) {
+        List<Device> recentDevices = deviceRepository.findRecent(size, null);
+        long activeCount = recentDevices.stream().filter(item -> item.status() == DeviceStatus.ACTIVE).count();
+        long revokedCount = recentDevices.stream().filter(item -> item.status() == DeviceStatus.REVOKED).count();
+        long frozenCount = recentDevices.stream().filter(item -> item.status() == DeviceStatus.FROZEN).count();
+        return new DeviceOverview(
+                new DeviceOverviewSummary(activeCount, revokedCount, frozenCount),
+                recentDevices
+        );
+    }
+
     private String normalizeNetworkScope(String networkScope) {
         if (networkScope == null || networkScope.isBlank()) {
             return null;
@@ -442,6 +465,11 @@ public class AdminOperationsService {
             List<OfflinePaymentProof> recentProofs
     ) {}
 
+    public record DeviceOverview(
+            DeviceOverviewSummary summary,
+            List<Device> recentDevices
+    ) {}
+
     public record OfflineEventOverviewSummary(
             long pendingCount,
             long failedCount,
@@ -462,6 +490,12 @@ public class AdminOperationsService {
             long rejectedCount,
             long conflictedCount,
             long failedCount
+    ) {}
+
+    public record DeviceOverviewSummary(
+            long activeCount,
+            long revokedCount,
+            long frozenCount
     ) {}
 
     private CollateralOperationType parseOperationType(String operationType) {
@@ -525,6 +559,17 @@ public class AdminOperationsService {
         }
         try {
             return OfflineProofStatus.valueOf(status.trim().toUpperCase());
+        } catch (IllegalArgumentException ignored) {
+            return null;
+        }
+    }
+
+    private DeviceStatus parseDeviceStatus(String status) {
+        if (status == null || status.isBlank()) {
+            return null;
+        }
+        try {
+            return DeviceStatus.valueOf(status.trim().toUpperCase());
         } catch (IllegalArgumentException ignored) {
             return null;
         }

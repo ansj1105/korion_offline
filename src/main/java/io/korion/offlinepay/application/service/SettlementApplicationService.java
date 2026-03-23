@@ -21,6 +21,7 @@ import io.korion.offlinepay.application.service.settlement.ConflictDetectionResu
 import io.korion.offlinepay.application.service.settlement.ProofChainValidator;
 import io.korion.offlinepay.application.service.settlement.ProofConflictDetector;
 import io.korion.offlinepay.application.service.settlement.ProofSchemaValidator;
+import io.korion.offlinepay.application.service.settlement.ProofPayloadConsistencyValidator;
 import io.korion.offlinepay.application.service.settlement.SettlementEvaluation;
 import io.korion.offlinepay.application.service.settlement.SettlementPolicyEvaluator;
 import io.korion.offlinepay.application.service.settlement.DeviceSignatureVerificationService;
@@ -64,6 +65,7 @@ public class SettlementApplicationService {
     private final SettlementStreamEventFactory settlementStreamEventFactory;
     private final SettlementSyncCommandFactory settlementSyncCommandFactory;
     private final ProofSchemaValidator proofSchemaValidator;
+    private final ProofPayloadConsistencyValidator proofPayloadConsistencyValidator;
     private final ProofConflictDetector proofConflictDetector;
     private final ProofChainValidator proofChainValidator;
     private final SettlementPolicyEvaluator settlementPolicyEvaluator;
@@ -88,6 +90,7 @@ public class SettlementApplicationService {
             SettlementStreamEventFactory settlementStreamEventFactory,
             SettlementSyncCommandFactory settlementSyncCommandFactory,
             ProofSchemaValidator proofSchemaValidator,
+            ProofPayloadConsistencyValidator proofPayloadConsistencyValidator,
             ProofConflictDetector proofConflictDetector,
             ProofChainValidator proofChainValidator,
             SettlementPolicyEvaluator settlementPolicyEvaluator,
@@ -111,6 +114,7 @@ public class SettlementApplicationService {
         this.settlementStreamEventFactory = settlementStreamEventFactory;
         this.settlementSyncCommandFactory = settlementSyncCommandFactory;
         this.proofSchemaValidator = proofSchemaValidator;
+        this.proofPayloadConsistencyValidator = proofPayloadConsistencyValidator;
         this.proofConflictDetector = proofConflictDetector;
         this.proofChainValidator = proofChainValidator;
         this.settlementPolicyEvaluator = settlementPolicyEvaluator;
@@ -299,10 +303,11 @@ public class SettlementApplicationService {
 
         proofRepository.updateLifecycle(proof.id(), OfflineProofStatus.CONSUMED_PENDING_SETTLEMENT, null, true, false, false);
         SettlementEvaluation evaluation = evaluateProof(proof, collateral);
+        String terminalReasonCode = normalizeSettlementReasonCode(evaluation.status(), evaluation.reasonCode(), evaluation.conflictDetected());
         proofRepository.updateLifecycle(
                 proof.id(),
                 mapProofStatus(evaluation.status(), evaluation.conflictDetected()),
-                evaluation.reasonCode(),
+                normalizeProofReasonCode(mapProofStatus(evaluation.status(), evaluation.conflictDetected()), terminalReasonCode),
                 true,
                 evaluation.status() == SettlementStatus.SETTLED,
                 evaluation.status() == SettlementStatus.SETTLED
@@ -314,7 +319,7 @@ public class SettlementApplicationService {
         settlementRepository.update(
                 request.id(),
                 evaluation.status(),
-                evaluation.reasonCode(),
+                terminalReasonCode,
                 evaluation.conflictDetected(),
                 evaluation.resultJson()
         );
@@ -323,7 +328,7 @@ public class SettlementApplicationService {
                 request.batchId(),
                 proof,
                 evaluation.status(),
-                evaluation.reasonCode(),
+                terminalReasonCode,
                 evaluation.resultJson(),
                 evaluation.settledAmount()
         );
@@ -352,6 +357,10 @@ public class SettlementApplicationService {
             proofSchemaValidator.validate(proof);
         } catch (IllegalArgumentException exception) {
             return rejected(OfflinePayReasonCode.INVALID_PROOF_SCHEMA, proof, exception.getMessage());
+        }
+        ProofPayloadConsistencyValidator.ValidationResult payloadValidation = proofPayloadConsistencyValidator.validate(proof);
+        if (!payloadValidation.passed()) {
+            return rejected(payloadValidation.reasonCode(), proof, payloadValidation.detailJson());
         }
 
         Device device = deviceRepository.findByDeviceId(proof.senderDeviceId())
@@ -443,7 +452,7 @@ public class SettlementApplicationService {
                     proof.voucherId(),
                     collateral.id(),
                     proof.senderDeviceId(),
-                    evaluation.reasonCode() == null ? "UNKNOWN_CONFLICT" : evaluation.reasonCode(),
+                    evaluation.reasonCode() == null ? OfflinePayReasonCode.UNKNOWN_CONFLICT : evaluation.reasonCode(),
                     "HIGH",
                     evaluation.resultJson()
             );
@@ -542,6 +551,33 @@ public class SettlementApplicationService {
             case VALIDATING, PENDING -> OfflineProofStatus.CONSUMED_PENDING_SETTLEMENT;
             default -> OfflineProofStatus.FAILED;
         };
+    }
+
+    private String normalizeSettlementReasonCode(SettlementStatus status, String reasonCode, boolean conflictDetected) {
+        if (conflictDetected || status == SettlementStatus.CONFLICT) {
+            return requireReasonCode(reasonCode, "settlement conflict");
+        }
+        return switch (status) {
+            case SETTLED -> OfflinePayReasonCode.SETTLED;
+            case REJECTED, EXPIRED -> requireReasonCode(reasonCode, "settlement failure");
+            case VALIDATING, PENDING -> reasonCode;
+            default -> requireReasonCode(reasonCode, "settlement terminal status");
+        };
+    }
+
+    private String normalizeProofReasonCode(OfflineProofStatus status, String reasonCode) {
+        return switch (status) {
+            case SETTLED -> OfflinePayReasonCode.SETTLED;
+            case REJECTED, CONFLICTED, EXPIRED, FAILED -> requireReasonCode(reasonCode, "proof lifecycle failure");
+            case ISSUED, UPLOADED, VALIDATING, VERIFIED_OFFLINE, CONSUMED_PENDING_SETTLEMENT -> reasonCode;
+        };
+    }
+
+    private String requireReasonCode(String reasonCode, String context) {
+        if (reasonCode == null || reasonCode.isBlank()) {
+            throw new IllegalStateException("reasonCode is required for " + context);
+        }
+        return reasonCode;
     }
 
     private CollateralStatus resolveCollateralStatus(

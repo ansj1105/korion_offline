@@ -2,6 +2,7 @@ package io.korion.offlinepay.infrastructure.persistence;
 
 import io.korion.offlinepay.application.port.DeviceRepository;
 import io.korion.offlinepay.domain.model.Device;
+import io.korion.offlinepay.domain.status.DeviceStatus;
 import io.korion.offlinepay.infrastructure.persistence.mapper.DeviceRowMapper;
 import java.util.List;
 import java.util.Optional;
@@ -56,6 +57,25 @@ public class JdbcDeviceRepository implements DeviceRepository {
                 .param("userId", userId)
                 .query(deviceRowMapper)
                 .list();
+    }
+
+    @Override
+    public List<Device> findRecent(int size, DeviceStatus status) {
+        QueryBuilder.SelectBuilder builder = QueryBuilder
+                .select("devices", "id", "device_id", "user_id", "public_key", "key_version", "status", "metadata", "created_at", "updated_at");
+        if (status != null) {
+            builder.where("status", QueryBuilder.Op.EQ, ":status");
+        }
+        String sql = builder
+                .orderBy("updated_at DESC")
+                .orderBy("created_at DESC")
+                .limit(size)
+                .build();
+        JdbcClient.StatementSpec statement = jdbcClient.sql(sql);
+        if (status != null) {
+            statement.param("status", status.name());
+        }
+        return statement.query(deviceRowMapper).list();
     }
 
     @Override

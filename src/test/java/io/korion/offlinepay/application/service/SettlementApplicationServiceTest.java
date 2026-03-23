@@ -26,6 +26,7 @@ import io.korion.offlinepay.application.port.SettlementRepository;
 import io.korion.offlinepay.application.port.SettlementResultRepository;
 import io.korion.offlinepay.application.service.settlement.ProofChainValidator;
 import io.korion.offlinepay.application.service.settlement.ProofConflictDetector;
+import io.korion.offlinepay.application.service.settlement.ProofPayloadConsistencyValidator;
 import io.korion.offlinepay.application.service.settlement.ProofSchemaValidator;
 import io.korion.offlinepay.application.service.settlement.ProofFingerprintService;
 import io.korion.offlinepay.application.service.settlement.SpendingProofHashService;
@@ -79,6 +80,7 @@ class SettlementApplicationServiceTest {
             new SettlementStreamEventFactory(),
             new SettlementSyncCommandFactory(new ProofFingerprintService()),
             new ProofSchemaValidator(),
+            new ProofPayloadConsistencyValidator(jsonService),
             new ProofConflictDetector(jsonService),
             new ProofChainValidator(jsonService, spendingProofHashService),
             new SettlementPolicyEvaluator(jsonService),
@@ -540,5 +542,94 @@ class SettlementApplicationServiceTest {
         verify(settlementRepository).update(anyString(), any(SettlementStatus.class), any(), anyBoolean(), anyString());
         assertEquals(SettlementStatus.REJECTED, result.status());
         assertTrue(result.settlementResultJson().contains("PAYMENT_MODE_REQUIRED"));
+    }
+
+    @Test
+    void finalizeSettlementRejectsPayloadAmountMismatch() {
+        SettlementRequest request = new SettlementRequest(
+                "settlement-6",
+                "batch-6",
+                "collateral-6",
+                "proof-6",
+                SettlementStatus.VALIDATING,
+                null,
+                false,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        CollateralLock collateral = new CollateralLock(
+                "collateral-6",
+                77L,
+                "device-1",
+                "USDT",
+                new BigDecimal("150"),
+                new BigDecimal("100"),
+                "GENESIS",
+                1,
+                CollateralStatus.LOCKED,
+                "lock-6",
+                OffsetDateTime.now().plusDays(1),
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        long now = System.currentTimeMillis();
+        String computedHash = spendingProofHashService.computeNewStateHash(
+                "GENESIS",
+                new BigDecimal("10"),
+                1L,
+                "device-1",
+                "nonce-6"
+        );
+        String rawPayloadJson = "{\"voucherId\":\"voucher-6\",\"deviceId\":\"device-1\",\"counterpartyDeviceId\":\"device-2\",\"amount\":\"9.99\",\"expiresAt\":\"9999999999999\",\"spendingProof\":{\"deviceId\":\"device-1\",\"amount\":\"9.99\",\"monotonicCounter\":\"1\",\"nonce\":\"nonce-6\",\"newStateHash\":\""
+                + computedHash
+                + "\",\"prevStateHash\":\"GENESIS\",\"signature\":\"signature\",\"timestamp\":\""
+                + now
+                + "\"}}";
+        OfflinePaymentProof proof = new OfflinePaymentProof(
+                "proof-6",
+                "batch-6",
+                "voucher-6",
+                "collateral-6",
+                "device-1",
+                "device-2",
+                1,
+                1,
+                1L,
+                "nonce-6",
+                computedHash,
+                "GENESIS",
+                "signature",
+                new BigDecimal("10"),
+                now,
+                now + 60_000,
+                "{\"voucherId\":\"voucher-6\",\"counterpartyDeviceId\":\"device-2\"}",
+                "SENDER",
+                rawPayloadJson,
+                OffsetDateTime.now()
+        );
+
+        when(settlementRepository.findById("settlement-6"))
+                .thenReturn(Optional.of(request))
+                .thenReturn(Optional.of(new SettlementRequest(
+                        "settlement-6",
+                        "batch-6",
+                        "collateral-6",
+                        "proof-6",
+                        SettlementStatus.REJECTED,
+                        "PAYLOAD_AMOUNT_MISMATCH",
+                        false,
+                        "{\"reasonCode\":\"PAYLOAD_AMOUNT_MISMATCH\"}",
+                        OffsetDateTime.now(),
+                        OffsetDateTime.now()
+                )));
+        when(collateralRepository.findById("collateral-6")).thenReturn(Optional.of(collateral));
+        when(proofRepository.findById("proof-6")).thenReturn(Optional.of(proof));
+
+        SettlementRequest result = service.finalizeSettlement("settlement-6");
+
+        assertEquals(SettlementStatus.REJECTED, result.status());
+        assertTrue(result.settlementResultJson().contains("PAYLOAD_AMOUNT_MISMATCH"));
     }
 }

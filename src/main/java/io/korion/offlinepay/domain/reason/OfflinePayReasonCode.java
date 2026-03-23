@@ -48,6 +48,15 @@ public final class OfflinePayReasonCode {
     public static final String AUTH_CANCELLED = "AUTH_CANCELLED";
     public static final String PROOF_NOT_FOUND = "PROOF_NOT_FOUND";
     public static final String PROOF_TAMPERED = "PROOF_TAMPERED";
+    public static final String PAYLOAD_VOUCHER_MISMATCH = "PAYLOAD_VOUCHER_MISMATCH";
+    public static final String PAYLOAD_DEVICE_MISMATCH = "PAYLOAD_DEVICE_MISMATCH";
+    public static final String PAYLOAD_AMOUNT_MISMATCH = "PAYLOAD_AMOUNT_MISMATCH";
+    public static final String PAYLOAD_COUNTER_MISMATCH = "PAYLOAD_COUNTER_MISMATCH";
+    public static final String PAYLOAD_NONCE_MISMATCH = "PAYLOAD_NONCE_MISMATCH";
+    public static final String PAYLOAD_HASH_MISMATCH = "PAYLOAD_HASH_MISMATCH";
+    public static final String PAYLOAD_SIGNATURE_MISMATCH = "PAYLOAD_SIGNATURE_MISMATCH";
+    public static final String PAYLOAD_TIMESTAMP_MISMATCH = "PAYLOAD_TIMESTAMP_MISMATCH";
+    public static final String PAYLOAD_EXPIRY_MISMATCH = "PAYLOAD_EXPIRY_MISMATCH";
     public static final String PAYLOAD_BUILD_FAIL = "PAYLOAD_BUILD_FAIL";
     public static final String SEND_TIMEOUT = "SEND_TIMEOUT";
     public static final String SEND_INTERRUPTED = "SEND_INTERRUPTED";
