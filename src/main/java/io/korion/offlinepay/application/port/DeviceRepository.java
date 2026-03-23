@@ -14,5 +14,7 @@ public interface DeviceRepository {
 
     Device save(long userId, String deviceId, String publicKey, int keyVersion, String metadataJson);
 
+    Device updateProfile(long userId, String deviceId, String metadataJson);
+
     void revoke(String deviceId, Integer keyVersion, String metadataJson);
 }

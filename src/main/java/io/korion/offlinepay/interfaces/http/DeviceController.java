@@ -38,4 +38,19 @@ public class DeviceController {
                 request.reason()
         ));
     }
+
+    @PostMapping("/profile")
+    public Object updateProfile(@Valid @RequestBody UpdateDeviceProfileRequest request) {
+        return deviceApplicationService.updateDeviceProfile(new DeviceApplicationService.UpdateDeviceProfileCommand(
+                request.userId(),
+                request.deviceId(),
+                request.metadata()
+        ));
+    }
+
+    public record UpdateDeviceProfileRequest(
+            long userId,
+            String deviceId,
+            java.util.Map<String, Object> metadata
+    ) {}
 }

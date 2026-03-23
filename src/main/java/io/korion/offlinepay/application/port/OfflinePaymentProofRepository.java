@@ -28,7 +28,7 @@ public interface OfflinePaymentProofRepository {
             String rawPayloadJson
     );
 
-    void updateLifecycle(String proofId, OfflineProofStatus status, String reasonCode, boolean verified, boolean settled);
+    void updateLifecycle(String proofId, OfflineProofStatus status, String reasonCode, boolean consumed, boolean verified, boolean settled);
 
     java.util.Optional<OfflinePaymentProof> findById(String proofId);
 

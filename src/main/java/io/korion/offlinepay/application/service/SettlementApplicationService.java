@@ -297,12 +297,13 @@ public class SettlementApplicationService {
         CollateralLock collateral = collateralRepository.findById(request.collateralId())
                 .orElseThrow(() -> new IllegalArgumentException("collateral not found: " + request.collateralId()));
 
-        proofRepository.updateLifecycle(proof.id(), OfflineProofStatus.VALIDATING, null, false, false);
+        proofRepository.updateLifecycle(proof.id(), OfflineProofStatus.CONSUMED_PENDING_SETTLEMENT, null, true, false, false);
         SettlementEvaluation evaluation = evaluateProof(proof, collateral);
         proofRepository.updateLifecycle(
                 proof.id(),
                 mapProofStatus(evaluation.status(), evaluation.conflictDetected()),
                 evaluation.reasonCode(),
+                true,
                 evaluation.status() == SettlementStatus.SETTLED,
                 evaluation.status() == SettlementStatus.SETTLED
         );
@@ -387,6 +388,15 @@ public class SettlementApplicationService {
         if (!chainResult.valid()) {
             return rejected(chainResult.reasonCode(), proof, chainResult.detailJson());
         }
+
+        proofRepository.updateLifecycle(
+                proof.id(),
+                OfflineProofStatus.VERIFIED_OFFLINE,
+                null,
+                true,
+                true,
+                false
+        );
 
         return settlementPolicyEvaluator.evaluate(proof, collateral, device);
     }
@@ -529,7 +539,7 @@ public class SettlementApplicationService {
             case SETTLED -> OfflineProofStatus.SETTLED;
             case EXPIRED -> OfflineProofStatus.EXPIRED;
             case REJECTED -> OfflineProofStatus.REJECTED;
-            case VALIDATING, PENDING -> OfflineProofStatus.VALIDATING;
+            case VALIDATING, PENDING -> OfflineProofStatus.CONSUMED_PENDING_SETTLEMENT;
             default -> OfflineProofStatus.FAILED;
         };
     }

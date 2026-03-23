@@ -77,6 +77,22 @@ public class JdbcDeviceRepository implements DeviceRepository {
     }
 
     @Override
+    public Device updateProfile(long userId, String deviceId, String metadataJson) {
+        String sql = QueryBuilder.update("devices")
+                .set("metadata", "metadata || CAST(:metadata AS jsonb)")
+                .touchUpdatedAt()
+                .where("user_id", QueryBuilder.Op.EQ, ":userId")
+                .where("device_id", QueryBuilder.Op.EQ, ":deviceId")
+                .build();
+        jdbcClient.sql(sql)
+                .param("userId", userId)
+                .param("deviceId", deviceId)
+                .param("metadata", metadataJson)
+                .update();
+        return findByUserIdAndDeviceId(userId, deviceId).orElseThrow();
+    }
+
+    @Override
     public void revoke(String deviceId, Integer keyVersion, String metadataJson) {
         QueryBuilder.UpdateBuilder builder = QueryBuilder
                 .update("devices")

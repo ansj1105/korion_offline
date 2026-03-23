@@ -61,6 +61,18 @@ public class OfflineSnapshotStreamService {
         ));
     }
 
+    public void publishDeviceProfileChanged(long userId, String deviceId, String reason) {
+        publish(userId, deviceId, new SnapshotEvent(
+                UUID.randomUUID().toString(),
+                "DEVICE_PROFILE_CHANGED",
+                userId,
+                deviceId,
+                "",
+                reason == null ? "" : reason,
+                OffsetDateTime.now().toString()
+        ));
+    }
+
     public void publishWalletRefreshRequired(long userId, String deviceId, String assetCode, String reason) {
         publish(userId, deviceId, new SnapshotEvent(
                 UUID.randomUUID().toString(),

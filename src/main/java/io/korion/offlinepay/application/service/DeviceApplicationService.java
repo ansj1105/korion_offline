@@ -58,6 +58,21 @@ public class DeviceApplicationService {
         return revoked;
     }
 
+    @Transactional
+    public Device updateDeviceProfile(UpdateDeviceProfileCommand command) {
+        Device updated = deviceRepository.updateProfile(
+                command.userId(),
+                command.deviceId(),
+                jsonService.write(command.metadata())
+        );
+        offlineSnapshotStreamService.publishDeviceProfileChanged(
+                updated.userId(),
+                updated.deviceId(),
+                "PROFILE_UPDATED"
+        );
+        return updated;
+    }
+
     public record RegisterDeviceCommand(
             long userId,
             String deviceId,
@@ -70,5 +85,11 @@ public class DeviceApplicationService {
             String deviceId,
             Integer keyVersion,
             String reason
+    ) {}
+
+    public record UpdateDeviceProfileCommand(
+            long userId,
+            String deviceId,
+            Map<String, Object> metadata
     ) {}
 }

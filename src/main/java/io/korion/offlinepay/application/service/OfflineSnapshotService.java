@@ -5,6 +5,7 @@ import io.korion.offlinepay.application.port.DeviceRepository;
 import io.korion.offlinepay.config.AppProperties;
 import io.korion.offlinepay.domain.model.CollateralLock;
 import io.korion.offlinepay.domain.model.Device;
+import com.fasterxml.jackson.databind.JsonNode;
 import java.time.OffsetDateTime;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -15,15 +16,18 @@ public class OfflineSnapshotService {
     private final DeviceRepository deviceRepository;
     private final CollateralRepository collateralRepository;
     private final AppProperties properties;
+    private final JsonService jsonService;
 
     public OfflineSnapshotService(
             DeviceRepository deviceRepository,
             CollateralRepository collateralRepository,
-            AppProperties properties
+            AppProperties properties,
+            JsonService jsonService
     ) {
         this.deviceRepository = deviceRepository;
         this.collateralRepository = collateralRepository;
         this.properties = properties;
+        this.jsonService = jsonService;
     }
 
     @Transactional(readOnly = true)
@@ -47,7 +51,11 @@ public class OfflineSnapshotService {
                         device.userId(),
                         device.publicKey(),
                         device.keyVersion(),
+                        readMetadataText(device, "nickname"),
+                        readMetadataText(device, "deviceModel"),
+                        readMetadataText(device, "platform"),
                         device.status().name(),
+                        device.metadataJson(),
                         device.updatedAt().toString()
                 ),
                 collateral == null ? null : new CollateralSnapshot(
@@ -85,7 +93,11 @@ public class OfflineSnapshotService {
             long userId,
             String publicKey,
             int keyVersion,
+            String nickname,
+            String deviceModel,
+            String platform,
             String status,
+            String metadataJson,
             String updatedAt
     ) {}
 
@@ -103,4 +115,17 @@ public class OfflineSnapshotService {
             String expiresAt,
             String updatedAt
     ) {}
+
+    private String readMetadataText(Device device, String fieldName) {
+        try {
+            JsonNode root = jsonService.readTree(device.metadataJson());
+            JsonNode node = root.path(fieldName);
+            if (node.isMissingNode() || node.isNull()) {
+                return "";
+            }
+            return node.asText("");
+        } catch (Exception ignored) {
+            return "";
+        }
+    }
 }

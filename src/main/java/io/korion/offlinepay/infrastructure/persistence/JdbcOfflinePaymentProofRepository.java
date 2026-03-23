@@ -63,6 +63,7 @@ public class JdbcOfflinePaymentProofRepository implements OfflinePaymentProofRep
                         "uploader_type",
                         "channel_type",
                         "status",
+                        "issued_at",
                         "raw_payload"
                 )
                 .value("raw_payload", "CAST(:rawPayload AS jsonb)")
@@ -87,6 +88,7 @@ public class JdbcOfflinePaymentProofRepository implements OfflinePaymentProofRep
                 .param("uploaderType", uploaderType)
                 .param("channelType", channelType == null || channelType.isBlank() ? "UNKNOWN" : channelType)
                 .param("status", OfflineProofStatus.UPLOADED.name())
+                .param("issuedAt", java.time.OffsetDateTime.ofInstant(java.time.Instant.ofEpochMilli(timestampMs), java.time.ZoneOffset.UTC))
                 .param("rawPayload", rawPayloadJson)
                 .update();
 
@@ -94,10 +96,11 @@ public class JdbcOfflinePaymentProofRepository implements OfflinePaymentProofRep
     }
 
     @Override
-    public void updateLifecycle(String proofId, OfflineProofStatus status, String reasonCode, boolean verified, boolean settled) {
+    public void updateLifecycle(String proofId, OfflineProofStatus status, String reasonCode, boolean consumed, boolean verified, boolean settled) {
         String sql = QueryBuilder.update("offline_payment_proofs")
                 .set("status", ":status")
                 .set("reason_code", ":reasonCode")
+                .set("consumed_at", "CASE WHEN :consumed THEN COALESCE(consumed_at, NOW()) ELSE consumed_at END")
                 .set("verified_at", "CASE WHEN :verified THEN COALESCE(verified_at, NOW()) ELSE verified_at END")
                 .set("settled_at", "CASE WHEN :settled THEN COALESCE(settled_at, NOW()) ELSE settled_at END")
                 .touchUpdatedAt()
@@ -107,6 +110,7 @@ public class JdbcOfflinePaymentProofRepository implements OfflinePaymentProofRep
                 .param("id", java.util.UUID.fromString(proofId))
                 .param("status", status.name())
                 .param("reasonCode", reasonCode)
+                .param("consumed", consumed)
                 .param("verified", verified)
                 .param("settled", settled)
                 .update();
