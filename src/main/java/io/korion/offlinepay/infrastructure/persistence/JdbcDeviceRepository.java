@@ -3,6 +3,7 @@ package io.korion.offlinepay.infrastructure.persistence;
 import io.korion.offlinepay.application.port.DeviceRepository;
 import io.korion.offlinepay.domain.model.Device;
 import io.korion.offlinepay.infrastructure.persistence.mapper.DeviceRowMapper;
+import java.util.List;
 import java.util.Optional;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
@@ -42,6 +43,19 @@ public class JdbcDeviceRepository implements DeviceRepository {
                 .param("deviceId", deviceId)
                 .query(deviceRowMapper)
                 .optional();
+    }
+
+    @Override
+    public List<Device> findActiveByUserId(long userId) {
+        String sql = QueryBuilder
+                .select("devices", "id", "device_id", "user_id", "public_key", "key_version", "status", "metadata", "created_at", "updated_at")
+                .where("user_id = :userId")
+                .where("status = 'ACTIVE'")
+                .build();
+        return jdbcClient.sql(sql)
+                .param("userId", userId)
+                .query(deviceRowMapper)
+                .list();
     }
 
     @Override

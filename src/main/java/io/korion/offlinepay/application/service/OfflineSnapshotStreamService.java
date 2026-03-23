@@ -61,6 +61,18 @@ public class OfflineSnapshotStreamService {
         ));
     }
 
+    public void publishWalletRefreshRequired(long userId, String deviceId, String assetCode, String reason) {
+        publish(userId, deviceId, new SnapshotEvent(
+                UUID.randomUUID().toString(),
+                "WALLET_REFRESH_REQUIRED",
+                userId,
+                deviceId,
+                assetCode == null ? "" : assetCode,
+                reason == null ? "" : reason,
+                OffsetDateTime.now().toString()
+        ));
+    }
+
     private void publish(long userId, String deviceId, SnapshotEvent event) {
         List<SseEmitter> subscribers = emitters.get(subscriberKey(userId, deviceId));
         if (subscribers == null || subscribers.isEmpty()) {
