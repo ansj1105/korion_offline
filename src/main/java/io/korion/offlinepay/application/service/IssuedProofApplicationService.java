@@ -59,9 +59,10 @@ public class IssuedProofApplicationService {
         OffsetDateTime expiresAt = collateral.expiresAt() != null
                 ? collateral.expiresAt()
                 : issuedAt.plusHours(properties.defaultCollateralExpiryHours());
+        String proofId = UUID.randomUUID().toString();
         String nonce = "proof_" + UUID.randomUUID().toString().replace("-", "");
         Map<String, Object> payloadMap = new LinkedHashMap<>();
-        payloadMap.put("proofId", UUID.randomUUID().toString());
+        payloadMap.put("proofId", proofId);
         payloadMap.put("userId", command.userId());
         payloadMap.put("deviceId", command.deviceId());
         payloadMap.put("collateralLockId", collateral.id());
@@ -75,6 +76,7 @@ public class IssuedProofApplicationService {
         String payload = jsonService.write(payloadMap);
         String signature = proofIssuerSignatureService.sign(payload);
         IssuedOfflineProof issued = issuedOfflineProofRepository.save(
+                proofId,
                 command.userId(),
                 command.deviceId(),
                 collateral.id(),

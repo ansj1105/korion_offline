@@ -33,6 +33,9 @@ import io.korion.offlinepay.application.service.settlement.SpendingProofHashServ
 import io.korion.offlinepay.application.service.settlement.SettlementPolicyEvaluator;
 import io.korion.offlinepay.application.service.settlement.DeviceSignatureVerificationService;
 import io.korion.offlinepay.application.service.settlement.DeviceBindingVerificationService;
+import io.korion.offlinepay.application.service.settlement.IssuedProofVerificationService;
+import io.korion.offlinepay.domain.model.IssuedOfflineProof;
+import io.korion.offlinepay.domain.status.IssuedProofStatus;
 import io.korion.offlinepay.domain.model.CollateralLock;
 import io.korion.offlinepay.domain.model.Device;
 import io.korion.offlinepay.domain.model.OfflinePaymentProof;
@@ -61,6 +64,7 @@ class SettlementApplicationServiceTest {
     private final SettlementBatchEventBus eventBus = Mockito.mock(SettlementBatchEventBus.class);
     private final CoinManageSettlementPort coinManageSettlementPort = Mockito.mock(CoinManageSettlementPort.class);
     private final FoxCoinHistoryPort foxCoinHistoryPort = Mockito.mock(FoxCoinHistoryPort.class);
+    private final IssuedProofVerificationService issuedProofVerificationService = Mockito.mock(IssuedProofVerificationService.class);
     private final JsonService jsonService = new JsonService(new ObjectMapper());
     private final SettlementApplicationService service = new SettlementApplicationService(
             collateralRepository,
@@ -85,8 +89,34 @@ class SettlementApplicationServiceTest {
             new ProofChainValidator(jsonService, spendingProofHashService),
             new SettlementPolicyEvaluator(jsonService),
             new DeviceSignatureVerificationService(),
-            new DeviceBindingVerificationService(jsonService)
+            new DeviceBindingVerificationService(jsonService),
+            issuedProofVerificationService
     );
+
+    {
+        when(issuedProofVerificationService.verify(any())).thenReturn(
+                IssuedProofVerificationService.VerificationResult.valid(
+                        new IssuedOfflineProof(
+                                "issued-proof-1",
+                                77L,
+                                "device-1",
+                                "collateral-1",
+                                "USDT",
+                                new BigDecimal("1000"),
+                                "proof_nonce",
+                                "issuer-key",
+                                "issuer-public-key",
+                                "issuer-signature",
+                                "{}",
+                                IssuedProofStatus.ACTIVE,
+                                null,
+                                OffsetDateTime.now().plusHours(1),
+                                OffsetDateTime.now(),
+                                OffsetDateTime.now()
+                        )
+                )
+        );
+    }
 
     @Test
     void finalizeSettlementSyncsCoinManageLedgerAndFoxCoinHistory() {

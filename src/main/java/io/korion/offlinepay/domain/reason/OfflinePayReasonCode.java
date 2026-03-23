@@ -48,6 +48,14 @@ public final class OfflinePayReasonCode {
     public static final String AUTH_CANCELLED = "AUTH_CANCELLED";
     public static final String PROOF_NOT_FOUND = "PROOF_NOT_FOUND";
     public static final String PROOF_TAMPERED = "PROOF_TAMPERED";
+    public static final String ISSUED_PROOF_REQUIRED = "ISSUED_PROOF_REQUIRED";
+    public static final String ISSUED_PROOF_NOT_FOUND = "ISSUED_PROOF_NOT_FOUND";
+    public static final String ISSUED_PROOF_EXPIRED = "ISSUED_PROOF_EXPIRED";
+    public static final String ISSUED_PROOF_STATUS_INVALID = "ISSUED_PROOF_STATUS_INVALID";
+    public static final String ISSUED_PROOF_PAYLOAD_MISMATCH = "ISSUED_PROOF_PAYLOAD_MISMATCH";
+    public static final String ISSUED_PROOF_DEVICE_MISMATCH = "ISSUED_PROOF_DEVICE_MISMATCH";
+    public static final String ISSUED_PROOF_AMOUNT_EXCEEDED = "ISSUED_PROOF_AMOUNT_EXCEEDED";
+    public static final String ISSUED_PROOF_NONCE_MISMATCH = "ISSUED_PROOF_NONCE_MISMATCH";
     public static final String PAYLOAD_VOUCHER_MISMATCH = "PAYLOAD_VOUCHER_MISMATCH";
     public static final String PAYLOAD_DEVICE_MISMATCH = "PAYLOAD_DEVICE_MISMATCH";
     public static final String PAYLOAD_AMOUNT_MISMATCH = "PAYLOAD_AMOUNT_MISMATCH";

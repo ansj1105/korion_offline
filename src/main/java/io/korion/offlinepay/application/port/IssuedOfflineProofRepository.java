@@ -9,6 +9,7 @@ import java.util.Optional;
 public interface IssuedOfflineProofRepository {
 
     IssuedOfflineProof save(
+            String proofId,
             long userId,
             String deviceId,
             String collateralId,
@@ -23,5 +24,9 @@ public interface IssuedOfflineProofRepository {
             OffsetDateTime expiresAt
     );
 
+    Optional<IssuedOfflineProof> findById(String proofId);
+
     Optional<IssuedOfflineProof> findLatestActiveByUserIdAndDeviceIdAndAssetCode(long userId, String deviceId, String assetCode);
+
+    void updateStatus(String proofId, IssuedProofStatus status, String consumedByProofId);
 }

@@ -23,6 +23,7 @@ public class JdbcIssuedOfflineProofRepository implements IssuedOfflineProofRepos
 
     @Override
     public IssuedOfflineProof save(
+            String proofId,
             long userId,
             String deviceId,
             String collateralId,
@@ -36,8 +37,9 @@ public class JdbcIssuedOfflineProofRepository implements IssuedOfflineProofRepos
             IssuedProofStatus status,
             OffsetDateTime expiresAt
     ) {
-        String sql = QueryBuilder.insert(
+                String sql = QueryBuilder.insert(
                         "issued_offline_proofs",
+                        "id",
                         "user_id",
                         "device_id",
                         "collateral_id",
@@ -54,6 +56,7 @@ public class JdbcIssuedOfflineProofRepository implements IssuedOfflineProofRepos
                 .value("issued_payload", "CAST(:issuedPayload AS jsonb)")
                 .build();
         jdbcClient.sql(sql)
+                .param("id", java.util.UUID.fromString(proofId))
                 .param("userId", userId)
                 .param("deviceId", deviceId)
                 .param("collateralId", java.util.UUID.fromString(collateralId))
@@ -67,7 +70,19 @@ public class JdbcIssuedOfflineProofRepository implements IssuedOfflineProofRepos
                 .param("status", status.name())
                 .param("expiresAt", expiresAt)
                 .update();
-        return findLatestActiveByUserIdAndDeviceIdAndAssetCode(userId, deviceId, assetCode).orElseThrow();
+        return findById(proofId).orElseThrow();
+    }
+
+    @Override
+    public Optional<IssuedOfflineProof> findById(String proofId) {
+        String sql = QueryBuilder.select("issued_offline_proofs")
+                .where("id", QueryBuilder.Op.EQ, ":id")
+                .limit(1)
+                .build();
+        return jdbcClient.sql(sql)
+                .param("id", java.util.UUID.fromString(proofId))
+                .query(rowMapper)
+                .optional();
     }
 
     @Override
@@ -87,5 +102,22 @@ public class JdbcIssuedOfflineProofRepository implements IssuedOfflineProofRepos
                 .param("status", IssuedProofStatus.ACTIVE.name())
                 .query(rowMapper)
                 .optional();
+    }
+
+    @Override
+    public void updateStatus(String proofId, IssuedProofStatus status, String consumedByProofId) {
+        String sql = QueryBuilder.update("issued_offline_proofs")
+                .set("status", ":status")
+                .set("consumed_by_proof_id", consumedByProofId == null ? "NULL" : "CAST(:consumedByProofId AS uuid)")
+                .set("updated_at", "NOW()")
+                .where("id", QueryBuilder.Op.EQ, ":id")
+                .build();
+        JdbcClient.StatementSpec spec = jdbcClient.sql(sql)
+                .param("id", java.util.UUID.fromString(proofId))
+                .param("status", status.name());
+        if (consumedByProofId != null) {
+            spec.param("consumedByProofId", consumedByProofId);
+        }
+        spec.update();
     }
 }

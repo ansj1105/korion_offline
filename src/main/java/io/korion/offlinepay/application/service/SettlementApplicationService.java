@@ -26,6 +26,7 @@ import io.korion.offlinepay.application.service.settlement.SettlementEvaluation;
 import io.korion.offlinepay.application.service.settlement.SettlementPolicyEvaluator;
 import io.korion.offlinepay.application.service.settlement.DeviceSignatureVerificationService;
 import io.korion.offlinepay.application.service.settlement.DeviceBindingVerificationService;
+import io.korion.offlinepay.application.service.settlement.IssuedProofVerificationService;
 import io.korion.offlinepay.domain.model.CollateralLock;
 import io.korion.offlinepay.domain.model.Device;
 import io.korion.offlinepay.domain.model.OfflinePaymentProof;
@@ -71,6 +72,7 @@ public class SettlementApplicationService {
     private final SettlementPolicyEvaluator settlementPolicyEvaluator;
     private final DeviceSignatureVerificationService deviceSignatureVerificationService;
     private final DeviceBindingVerificationService deviceBindingVerificationService;
+    private final IssuedProofVerificationService issuedProofVerificationService;
 
     public SettlementApplicationService(
             CollateralRepository collateralRepository,
@@ -95,7 +97,8 @@ public class SettlementApplicationService {
             ProofChainValidator proofChainValidator,
             SettlementPolicyEvaluator settlementPolicyEvaluator,
             DeviceSignatureVerificationService deviceSignatureVerificationService,
-            DeviceBindingVerificationService deviceBindingVerificationService
+            DeviceBindingVerificationService deviceBindingVerificationService,
+            IssuedProofVerificationService issuedProofVerificationService
     ) {
         this.collateralRepository = collateralRepository;
         this.deviceRepository = deviceRepository;
@@ -120,6 +123,7 @@ public class SettlementApplicationService {
         this.settlementPolicyEvaluator = settlementPolicyEvaluator;
         this.deviceSignatureVerificationService = deviceSignatureVerificationService;
         this.deviceBindingVerificationService = deviceBindingVerificationService;
+        this.issuedProofVerificationService = issuedProofVerificationService;
     }
 
     @Transactional
@@ -314,6 +318,7 @@ public class SettlementApplicationService {
         );
         if (evaluation.status() == SettlementStatus.SETTLED) {
             collateralRepository.deductRemainingAmount(collateral.id(), proof.amount());
+            issuedProofVerificationService.markConsumed(proof);
         }
 
         settlementRepository.update(
@@ -361,6 +366,10 @@ public class SettlementApplicationService {
         ProofPayloadConsistencyValidator.ValidationResult payloadValidation = proofPayloadConsistencyValidator.validate(proof);
         if (!payloadValidation.passed()) {
             return rejected(payloadValidation.reasonCode(), proof, payloadValidation.detailJson());
+        }
+        IssuedProofVerificationService.VerificationResult issuedProofVerification = issuedProofVerificationService.verify(proof);
+        if (!issuedProofVerification.valid()) {
+            return rejected(issuedProofVerification.reasonCode(), proof, issuedProofVerification.detail());
         }
 
         Device device = deviceRepository.findByDeviceId(proof.senderDeviceId())
