@@ -193,3 +193,35 @@ enum PaymentState {
 6. 오프라인 상태에서는 큐 적재, 온라인 복귀 후 서버 배치 처리로 정합성을 보장한다.
 7. 테스트용 peer / 사용자 / 기기 / 금액 데이터는 기본 사용자 화면에 하드코딩하지 않는다.
 8. 테스트 데이터가 필요하면 `test mode`로만 노출하고, 실제 기본 동작은 최근 peer / 로컬 캐시 / 실제 서버 스냅샷을 사용한다.
+
+## 13. 실패 분류 체계
+
+- 연결 단계
+  - `NFC_CONNECT_FAIL`
+  - `BLE_SCAN_FAIL`
+  - `BLE_PAIR_FAIL`
+  - `QR_PARSE_FAIL`
+- 인증 단계
+  - `AUTH_BIOMETRIC_FAIL`
+  - `AUTH_PIN_FAIL`
+  - `AUTH_CANCELLED`
+- 거래 생성 단계
+  - `PROOF_NOT_FOUND`
+  - `PROOF_EXPIRED`
+  - `PROOF_TAMPERED`
+  - `PAYLOAD_BUILD_FAIL`
+- 전송 단계
+  - `SEND_TIMEOUT`
+  - `SEND_INTERRUPTED`
+  - `RECEIVE_REJECTED`
+- 저장/동기화 단계
+  - `LOCAL_QUEUE_SAVE_FAIL`
+  - `BATCH_SYNC_FAIL`
+  - `SERVER_VALIDATION_FAIL`
+  - `SETTLEMENT_FAIL`
+
+## 14. 운영 정책 메모
+
+- 재전송 시 가능하면 동일 `transactionId/requestId/sessionId`를 유지한다.
+- sender/receiver 인지 불일치와 partial success는 reconciliation 대상으로 남긴다.
+- 성공/실패/취소 이벤트는 모두 관리자에서 추적 가능해야 한다.

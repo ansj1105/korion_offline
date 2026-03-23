@@ -38,3 +38,14 @@
 - `foxya_coin_service`는 자체 Postgres/Redis와 `db-proxy`를 가진 별도 Compose 스택이다.
 - `coin_manage`도 자체 Postgres/Redis를 가진 별도 Compose 스택이다.
 - 따라서 현재 운영 구조는 “개별 인스턴스 + 개별 DB”에 가깝고, `offline_pay`도 같은 원칙으로 가야 한다.
+
+## Offline Pay Policy Rules
+- 오프라인 페이 요구사항 구현 시 UI 데모용 하드코딩 business 데이터를 기본 동작에 남기지 않는다.
+- 테스트용 peer, 사용자, 기기, 금액 샘플이 필요하면 `test mode` 또는 fixture 경계 안으로 격리한다.
+- 오프라인 결제는 `원장 기반 pay`이며, 자동 실출금이 아니라 내부원장/정합성 검증/배치 처리 구조를 유지한다.
+- `online/offline` 상태와 무관하게 오프라인 페이 화면 진입은 가능해야 하고, 최종 정합성은 온라인 복귀 후 서버가 판정한다.
+
+## Cross Repo Change Rules
+- 오프라인 페이 변경은 `offline_pay`만 보지 말고 `coin_manage`, `foxya_coin_service`, `coin_csms`, `coin_publish`, `coin_front`까지 영향 범위를 같이 본다.
+- API contract, 상태값, reason code, worker 흐름이 바뀌면 연동 서비스와 관리자 화면도 함께 갱신한다.
+- DB 스키마가 바뀌면 반드시 Flyway 또는 해당 저장소의 migration 체계를 같은 작업에서 반영한다.
