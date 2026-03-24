@@ -93,4 +93,26 @@ public class OfflineSagaService {
                 jsonService.write(payload)
         );
     }
+
+    public void markCompensating(OfflineSagaType sagaType, String referenceId, String currentStep, Map<String, Object> payload) {
+        offlineSagaRepository.updateStatus(
+                sagaType,
+                referenceId,
+                OfflineSagaStatus.COMPENSATING,
+                currentStep,
+                null,
+                jsonService.write(payload)
+        );
+    }
+
+    public void markCompensated(OfflineSagaType sagaType, String referenceId, String currentStep, Map<String, Object> payload) {
+        offlineSagaRepository.updateStatus(
+                sagaType,
+                referenceId,
+                OfflineSagaStatus.COMPENSATED,
+                currentStep,
+                null,
+                jsonService.write(payload)
+        );
+    }
 }

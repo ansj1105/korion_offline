@@ -66,6 +66,7 @@ class SettlementApplicationServiceTest {
     private final ReconciliationCaseRepository reconciliationCaseRepository = Mockito.mock(ReconciliationCaseRepository.class);
     private final SettlementConflictRepository settlementConflictRepository = Mockito.mock(SettlementConflictRepository.class);
     private final SettlementBatchEventBus eventBus = Mockito.mock(SettlementBatchEventBus.class);
+    private final OfflineSagaService offlineSagaService = Mockito.mock(OfflineSagaService.class);
     private final CoinManageSettlementPort coinManageSettlementPort = Mockito.mock(CoinManageSettlementPort.class);
     private final FoxCoinHistoryPort foxCoinHistoryPort = Mockito.mock(FoxCoinHistoryPort.class);
     private final IssuedProofVerificationService issuedProofVerificationService = Mockito.mock(IssuedProofVerificationService.class);
@@ -80,6 +81,7 @@ class SettlementApplicationServiceTest {
             reconciliationCaseRepository,
             settlementConflictRepository,
             eventBus,
+            offlineSagaService,
             coinManageSettlementPort,
             foxCoinHistoryPort,
             jsonService,

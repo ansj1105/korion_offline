@@ -6,6 +6,8 @@ public interface CoinManageSettlementPort {
 
     void finalizeSettlement(SettlementLedgerCommand command);
 
+    void compensateSettlement(SettlementCompensationCommand command);
+
     record SettlementLedgerCommand(
             String settlementId,
             String batchId,
@@ -24,5 +26,19 @@ public interface CoinManageSettlementPort {
             long monotonicCounter,
             String nonce,
             String signature
+    ) {}
+
+    record SettlementCompensationCommand(
+            String settlementId,
+            String batchId,
+            String collateralId,
+            String proofId,
+            long userId,
+            String deviceId,
+            String assetCode,
+            BigDecimal amount,
+            String releaseAction,
+            String proofFingerprint,
+            String compensationReason
     ) {}
 }

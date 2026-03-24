@@ -36,4 +36,21 @@ public class CircuitBreakingCoinManageSettlementAdapter implements CoinManageSet
             throw exception;
         }
     }
+
+    @Override
+    public void compensateSettlement(SettlementCompensationCommand command) {
+        try {
+            circuitBreaker.assertCallable();
+            delegate.compensateSettlement(command);
+            if (circuitBreaker.onSuccess()) {
+                alertService.notifyCircuitRecovered("offline_pay -> coin_manage");
+            }
+        } catch (RuntimeException exception) {
+            boolean opened = circuitBreaker.onFailure();
+            if (opened) {
+                alertService.notifyCircuitOpened("offline_pay -> coin_manage", exception.getMessage());
+            }
+            throw exception;
+        }
+    }
 }

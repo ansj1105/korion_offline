@@ -1,6 +1,7 @@
 package io.korion.offlinepay.infrastructure.adapter;
 
 import io.korion.offlinepay.application.port.CoinManageSettlementPort;
+import io.korion.offlinepay.contracts.internal.CoinManageCompensateSettlementContract;
 import io.korion.offlinepay.contracts.internal.CoinManageFinalizeSettlementContract;
 import io.korion.offlinepay.contracts.internal.InternalAckResponseContract;
 import java.math.RoundingMode;
@@ -44,6 +45,31 @@ public class CoinManageSettlementAdapter implements CoinManageSettlementPort {
                 .body(InternalAckResponseContract.class);
         if (response == null) {
             throw new IllegalStateException("coin_manage settlement finalize response is empty");
+        }
+    }
+
+    @Override
+    public void compensateSettlement(SettlementCompensationCommand command) {
+        InternalAckResponseContract response = restClient.post()
+                .uri("/api/internal/offline-pay/settlements/compensate")
+                .header("x-internal-api-key", apiKey)
+                .body(new CoinManageCompensateSettlementContract(
+                        command.settlementId(),
+                        command.batchId(),
+                        command.collateralId(),
+                        command.proofId(),
+                        String.valueOf(command.userId()),
+                        command.deviceId(),
+                        command.assetCode(),
+                        command.amount().setScale(6, RoundingMode.HALF_UP).toPlainString(),
+                        command.releaseAction(),
+                        command.proofFingerprint(),
+                        command.compensationReason()
+                ))
+                .retrieve()
+                .body(InternalAckResponseContract.class);
+        if (response == null) {
+            throw new IllegalStateException("coin_manage settlement compensate response is empty");
         }
     }
 }

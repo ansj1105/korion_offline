@@ -100,12 +100,14 @@ class SettlementWorkerTest {
                 Mockito.mock(io.korion.offlinepay.application.port.FoxCoinHistoryPort.class);
         io.korion.offlinepay.application.port.ReconciliationCaseRepository reconciliationCaseRepository =
                 Mockito.mock(io.korion.offlinepay.application.port.ReconciliationCaseRepository.class);
+        OfflineSagaService offlineSagaService = Mockito.mock(OfflineSagaService.class);
         JsonService jsonService = new JsonService(new com.fasterxml.jackson.databind.ObjectMapper());
         SettlementExternalSyncWorker worker = new SettlementExternalSyncWorker(
                 eventBus,
                 coinManageSettlementPort,
                 foxCoinHistoryPort,
                 reconciliationCaseRepository,
+                offlineSagaService,
                 jsonService,
                 properties
         );
@@ -303,6 +305,7 @@ class SettlementWorkerTest {
         io.korion.offlinepay.application.port.ReconciliationCaseRepository reconciliationCaseRepository =
                 Mockito.mock(io.korion.offlinepay.application.port.ReconciliationCaseRepository.class);
         OfflineSnapshotStreamService snapshotStreamService = Mockito.mock(OfflineSnapshotStreamService.class);
+        OfflineSagaService offlineSagaService = Mockito.mock(OfflineSagaService.class);
         TelegramAlertService telegramAlertService = Mockito.mock(TelegramAlertService.class);
         JsonService jsonService = new JsonService(new com.fasterxml.jackson.databind.ObjectMapper());
         CollateralExternalSyncWorker worker = new CollateralExternalSyncWorker(
@@ -312,6 +315,7 @@ class SettlementWorkerTest {
                 coinManageCollateralPort,
                 reconciliationCaseRepository,
                 snapshotStreamService,
+                offlineSagaService,
                 jsonService,
                 telegramAlertService,
                 properties
