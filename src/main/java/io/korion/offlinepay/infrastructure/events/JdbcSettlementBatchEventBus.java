@@ -417,7 +417,8 @@ public class JdbcSettlementBatchEventBus implements SettlementBatchEventBus {
             String assetCode,
             String referenceId,
             String processedAt,
-            String errorMessage
+            String errorMessage,
+            String reasonCode
     ) {
         insertEvent(
                 EVENT_COLLATERAL_RESULT,
@@ -438,7 +439,7 @@ public class JdbcSettlementBatchEventBus implements SettlementBatchEventBus {
                         "processedAt", processedAt,
                         "errorMessage", normalize(errorMessage)
                 )),
-                null,
+                reasonCode,
                 errorMessage
         );
     }

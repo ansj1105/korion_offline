@@ -30,6 +30,8 @@ public final class OfflinePayReasonCode {
     public static final String SERVER_AVAILABLE_AMOUNT_EXCEEDED = "SERVER_AVAILABLE_AMOUNT_EXCEEDED";
     public static final String PROOF_EXPIRED = "PROOF_EXPIRED";
     public static final String COLLATERAL_EXPIRED = "COLLATERAL_EXPIRED";
+    public static final String COLLATERAL_LOCK_FAIL = "COLLATERAL_LOCK_FAIL";
+    public static final String COLLATERAL_RELEASE_FAIL = "COLLATERAL_RELEASE_FAIL";
     public static final String POLICY_VERSION_MISMATCH = "POLICY_VERSION_MISMATCH";
     public static final String INSUFFICIENT_REMAINING_AMOUNT = "INSUFFICIENT_REMAINING_AMOUNT";
     public static final String INVALID_STATE_HASH = "INVALID_STATE_HASH";

@@ -228,7 +228,8 @@ public class RedisSettlementBatchEventBus implements SettlementBatchEventBus {
             String assetCode,
             String referenceId,
             String processedAt,
-            String errorMessage
+            String errorMessage,
+            String reasonCode
     ) {
         redisTemplate.opsForStream().add(
                 StringRecord.of(
@@ -239,7 +240,8 @@ public class RedisSettlementBatchEventBus implements SettlementBatchEventBus {
                                 "assetCode", assetCode,
                                 "referenceId", referenceId,
                                 "processedAt", processedAt,
-                                "errorMessage", errorMessage == null ? "" : errorMessage
+                                "errorMessage", errorMessage == null ? "" : errorMessage,
+                                "reasonCode", reasonCode == null ? "" : reasonCode
                         )
                 ).withStreamKey(properties.redis().collateralResultStream())
         );

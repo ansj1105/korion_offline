@@ -62,7 +62,8 @@ public interface SettlementBatchEventBus {
             String assetCode,
             String referenceId,
             String processedAt,
-            String errorMessage
+            String errorMessage,
+            String reasonCode
     );
 
     void acknowledgeRequested(String messageId);

@@ -9,6 +9,7 @@ import io.korion.offlinepay.domain.model.CollateralOperation;
 import io.korion.offlinepay.domain.status.CollateralOperationType;
 import io.korion.offlinepay.config.AppProperties;
 import io.korion.offlinepay.domain.model.CollateralLock;
+import io.korion.offlinepay.domain.reason.OfflinePayReasonCode;
 import io.korion.offlinepay.domain.status.CollateralStatus;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
@@ -122,7 +123,8 @@ public class CollateralApplicationService {
                     operation.assetCode(),
                     operation.referenceId(),
                     OffsetDateTime.now().toString(),
-                    ""
+                    "",
+                    null
             );
             offlineSnapshotStreamService.publishCollateralChanged(
                     collateral.userId(),
@@ -144,7 +146,8 @@ public class CollateralApplicationService {
                     operation.assetCode(),
                     operation.referenceId(),
                     OffsetDateTime.now().toString(),
-                    error.getMessage() == null ? "" : error.getMessage()
+                    error.getMessage() == null ? "" : error.getMessage(),
+                    OfflinePayReasonCode.COLLATERAL_LOCK_FAIL
             );
             throw error;
         }
@@ -228,7 +231,8 @@ public class CollateralApplicationService {
                     operation.assetCode(),
                     operation.referenceId(),
                     OffsetDateTime.now().toString(),
-                    ""
+                    "",
+                    null
             );
             offlineSnapshotStreamService.publishCollateralChanged(
                     collateral.userId(),
@@ -249,7 +253,8 @@ public class CollateralApplicationService {
                     operation.assetCode(),
                     operation.referenceId(),
                     OffsetDateTime.now().toString(),
-                    error.getMessage() == null ? "" : error.getMessage()
+                    error.getMessage() == null ? "" : error.getMessage(),
+                    OfflinePayReasonCode.COLLATERAL_RELEASE_FAIL
             );
             throw error;
         }

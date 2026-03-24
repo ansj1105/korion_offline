@@ -50,14 +50,14 @@ public class JdbcCollateralOperationRepository implements CollateralOperationRep
                 .build();
 
         jdbcClient.sql(sql)
-                .param("collateralId", collateralId == null || collateralId.isBlank() ? null : UUID.fromString(collateralId))
-                .param("userId", userId)
-                .param("deviceId", deviceId)
-                .param("assetCode", assetCode)
-                .param("operationType", operationType.name())
+                .param("collateral_id", collateralId == null || collateralId.isBlank() ? null : UUID.fromString(collateralId))
+                .param("user_id", userId)
+                .param("device_id", deviceId)
+                .param("asset_code", assetCode)
+                .param("operation_type", operationType.name())
                 .param("amount", amount)
                 .param("status", CollateralOperationStatus.REQUESTED.name())
-                .param("referenceId", referenceId)
+                .param("reference_id", referenceId)
                 .param("metadata", metadataJson)
                 .update();
 
