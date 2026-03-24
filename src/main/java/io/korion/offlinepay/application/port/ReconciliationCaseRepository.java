@@ -28,6 +28,8 @@ public interface ReconciliationCaseRepository {
 
     Optional<ReconciliationCase> findOpenByBatchIdAndCaseType(String batchId, String caseType);
 
+    Optional<ReconciliationCase> findOpenByVoucherIdAndCaseType(String voucherId, String caseType);
+
     void resolve(String caseId, String detailJson);
 
     void updateDetail(String caseId, String detailJson);

@@ -271,14 +271,14 @@ public class CollateralExternalSyncWorker {
             String errorMessage
     ) {
         String caseType = resolveFailureCaseType(operation.operationType());
-        if (reconciliationCaseRepository.findOpenByBatchIdAndCaseType(operation.id(), caseType).isPresent()) {
+        if (reconciliationCaseRepository.findOpenByVoucherIdAndCaseType(operation.id(), caseType).isPresent()) {
             return;
         }
         reconciliationCaseRepository.save(
                 null,
-                operation.id(),
                 null,
-                operation.collateralId(),
+                null,
+                operation.id(),
                 caseType,
                 ReconciliationCaseStatus.OPEN,
                 reasonCode,
@@ -298,7 +298,7 @@ public class CollateralExternalSyncWorker {
     }
 
     private void resolveReconciliation(CollateralOperation operation, String caseType, String resolutionType) {
-        reconciliationCaseRepository.findOpenByBatchIdAndCaseType(operation.id(), caseType)
+        reconciliationCaseRepository.findOpenByVoucherIdAndCaseType(operation.id(), caseType)
                 .ifPresent(existing -> reconciliationCaseRepository.resolve(
                         existing.id(),
                         jsonService.write(Map.of(

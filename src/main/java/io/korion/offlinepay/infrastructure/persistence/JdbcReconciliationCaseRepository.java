@@ -32,7 +32,6 @@ public class JdbcReconciliationCaseRepository implements ReconciliationCaseRepos
             String reasonCode,
             String detailJson
     ) {
-        requireNonBlank(batchId, "batchId");
         requireNonBlank(caseType, "caseType");
         requireNonNull(status, "status");
         requireNonBlank(detailJson, "detailJson");
@@ -52,7 +51,7 @@ public class JdbcReconciliationCaseRepository implements ReconciliationCaseRepos
                 .build();
         jdbcClient.sql(sql)
                 .param("settlement_id", settlementId == null ? null : java.util.UUID.fromString(settlementId))
-                .param("batch_id", java.util.UUID.fromString(batchId))
+                .param("batch_id", batchId == null || batchId.isBlank() ? null : java.util.UUID.fromString(batchId))
                 .param("proof_id", proofId == null ? null : java.util.UUID.fromString(proofId))
                 .param("voucher_id", voucherId)
                 .param("case_type", caseType)
@@ -61,13 +60,26 @@ public class JdbcReconciliationCaseRepository implements ReconciliationCaseRepos
                 .param("detail", detailJson)
                 .update();
 
+        if (batchId != null && !batchId.isBlank()) {
+            String selectSql = QueryBuilder.select("reconciliation_cases")
+                    .where("batch_id", QueryBuilder.Op.EQ, ":batchId")
+                    .orderBy("created_at DESC")
+                    .limit(1)
+                    .build();
+            return jdbcClient.sql(selectSql)
+                    .param("batchId", java.util.UUID.fromString(batchId))
+                    .query(rowMapper)
+                    .single();
+        }
         String selectSql = QueryBuilder.select("reconciliation_cases")
-                .where("batch_id", QueryBuilder.Op.EQ, ":batchId")
+                .where("voucher_id", QueryBuilder.Op.EQ, ":voucherId")
+                .where("case_type", QueryBuilder.Op.EQ, ":caseType")
                 .orderBy("created_at DESC")
                 .limit(1)
                 .build();
         return jdbcClient.sql(selectSql)
-                .param("batchId", java.util.UUID.fromString(batchId))
+                .param("voucherId", voucherId)
+                .param("caseType", caseType)
                 .query(rowMapper)
                 .single();
     }
@@ -160,6 +172,26 @@ public class JdbcReconciliationCaseRepository implements ReconciliationCaseRepos
                 .build();
         List<ReconciliationCase> cases = jdbcClient.sql(sql)
                 .param("batchId", java.util.UUID.fromString(batchId))
+                .param("caseType", caseType)
+                .param("status", ReconciliationCaseStatus.OPEN.name())
+                .query(rowMapper)
+                .list();
+        return cases.stream().findFirst();
+    }
+
+    @Override
+    public Optional<ReconciliationCase> findOpenByVoucherIdAndCaseType(String voucherId, String caseType) {
+        requireNonBlank(voucherId, "voucherId");
+        requireNonBlank(caseType, "caseType");
+        String sql = QueryBuilder.select("reconciliation_cases")
+                .where("voucher_id", Op.EQ, ":voucherId")
+                .where("case_type", Op.EQ, ":caseType")
+                .where("status", Op.EQ, ":status")
+                .orderBy("created_at DESC")
+                .limit(1)
+                .build();
+        List<ReconciliationCase> cases = jdbcClient.sql(sql)
+                .param("voucherId", voucherId)
                 .param("caseType", caseType)
                 .param("status", ReconciliationCaseStatus.OPEN.name())
                 .query(rowMapper)
