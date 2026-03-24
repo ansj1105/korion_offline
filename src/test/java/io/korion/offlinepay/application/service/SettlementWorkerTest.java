@@ -8,6 +8,9 @@ import static org.mockito.Mockito.when;
 
 import io.korion.offlinepay.application.port.SettlementBatchEventBus;
 import io.korion.offlinepay.config.AppProperties;
+import io.korion.offlinepay.domain.model.ReconciliationCase;
+import io.korion.offlinepay.domain.status.ReconciliationCaseStatus;
+import java.time.OffsetDateTime;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -133,5 +136,69 @@ class SettlementWorkerTest {
                 anyString()
         );
         verify(eventBus).acknowledgeExternalSync("sync-1");
+    }
+
+    @Test
+    void reconciliationFollowUpWorkerRequeuesRetryableExternalSync() {
+        AppProperties properties = new AppProperties(
+                "USDT",
+                24,
+                20,
+                1000,
+                new AppProperties.ProofIssuer("test-proof-issuer", "", ""),
+                new AppProperties.CoinManage("http://localhost:3000", "test-key", 5000),
+                new AppProperties.FoxCoin("http://localhost:3101", "test-key", 5000),
+                new AppProperties.Alerts(
+                        new AppProperties.Telegram("", ""),
+                        new AppProperties.CircuitBreaker(3, 60000)
+                ),
+                new AppProperties.Redis(
+                        "offlinepay",
+                        "stream:settlement:requested",
+                        "stream:settlement:result",
+                        "stream:settlement:conflict",
+                        "stream:settlement:dead-letter",
+                        "stream:collateral:requested",
+                        "stream:collateral:result",
+                        "offlinepay:settlement-group"
+                ),
+                new AppProperties.Worker(true, "worker-1", 60000, 3)
+        );
+        io.korion.offlinepay.application.port.ReconciliationCaseRepository reconciliationCaseRepository =
+                Mockito.mock(io.korion.offlinepay.application.port.ReconciliationCaseRepository.class);
+        JsonService jsonService = new JsonService(new com.fasterxml.jackson.databind.ObjectMapper());
+        ReconciliationFollowUpWorker worker = new ReconciliationFollowUpWorker(
+                reconciliationCaseRepository,
+                eventBus,
+                jsonService,
+                properties
+        );
+        ReconciliationCase reconciliationCase = new ReconciliationCase(
+                "case-1",
+                "settlement-1",
+                "batch-1",
+                "proof-1",
+                "voucher-1",
+                "LEDGER_SYNC_FAILED",
+                ReconciliationCaseStatus.OPEN,
+                "LEDGER_SYNC_FAIL",
+                "{\"retryable\":true,\"nextAction\":\"RETRY_EXTERNAL_SYNC\",\"eventType\":\"LEDGER_SYNC_REQUESTED\",\"payloadJson\":\"{\\\"ledgerCommand\\\":{\\\"settlementId\\\":\\\"settlement-1\\\",\\\"batchId\\\":\\\"batch-1\\\",\\\"collateralId\\\":\\\"collateral-1\\\",\\\"proofId\\\":\\\"proof-1\\\",\\\"userId\\\":1,\\\"deviceId\\\":\\\"device-1\\\",\\\"assetCode\\\":\\\"USDT\\\",\\\"amount\\\":10,\\\"settlementStatus\\\":\\\"SETTLED\\\",\\\"releaseAction\\\":\\\"RELEASE\\\",\\\"conflictDetected\\\":false,\\\"proofFingerprint\\\":\\\"fp\\\",\\\"newStateHash\\\":\\\"hash\\\",\\\"previousHash\\\":\\\"prev\\\",\\\"monotonicCounter\\\":1,\\\"nonce\\\":\\\"nonce\\\",\\\"signature\\\":\\\"sig\\\"},\\\"historyCommand\\\":{\\\"settlementId\\\":\\\"settlement-1\\\",\\\"batchId\\\":\\\"batch-1\\\",\\\"collateralId\\\":\\\"collateral-1\\\",\\\"proofId\\\":\\\"proof-1\\\",\\\"userId\\\":1,\\\"deviceId\\\":\\\"device-1\\\",\\\"assetCode\\\":\\\"USDT\\\",\\\"amount\\\":10,\\\"settlementStatus\\\":\\\"SETTLED\\\",\\\"historyType\\\":\\\"OFFLINE_PAY_SETTLEMENT\\\"}}\",\"nextRetryAt\":\"2020-01-01T00:00:00Z\",\"retryCount\":0}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now(),
+                null
+        );
+        when(reconciliationCaseRepository.findOpenRetryable(20)).thenReturn(List.of(reconciliationCase));
+
+        worker.poll();
+
+        verify(eventBus).publishExternalSyncRequested(
+                eq("LEDGER_SYNC_REQUESTED"),
+                eq("settlement-1"),
+                eq("batch-1"),
+                eq("proof-1"),
+                anyString(),
+                anyString()
+        );
+        verify(reconciliationCaseRepository).updateDetail(eq("case-1"), anyString());
     }
 }

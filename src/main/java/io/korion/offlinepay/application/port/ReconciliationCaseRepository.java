@@ -20,7 +20,11 @@ public interface ReconciliationCaseRepository {
 
     List<ReconciliationCase> findRecent(int size, ReconciliationCaseStatus status, String caseType, String reasonCode);
 
+    List<ReconciliationCase> findOpenRetryable(int size);
+
     Optional<ReconciliationCase> findOpenBySettlementIdAndCaseType(String settlementId, String caseType);
 
     void resolve(String caseId, String detailJson);
+
+    void updateDetail(String caseId, String detailJson);
 }

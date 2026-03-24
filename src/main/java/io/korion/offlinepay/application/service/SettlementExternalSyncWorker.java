@@ -145,14 +145,21 @@ public class SettlementExternalSyncWorker {
                 caseType,
                 io.korion.offlinepay.domain.status.ReconciliationCaseStatus.OPEN,
                 reasonCode,
-                jsonService.write(Map.of(
-                        "settlementId", message.settlementId(),
-                        "batchId", message.batchId(),
-                        "proofId", message.proofId(),
-                        "retryable", true,
-                        "nextAction", "RETRY_EXTERNAL_SYNC",
-                        "syncTarget", resolveSyncTarget(message.eventType()),
-                        "errorMessage", exception.getMessage() == null ? "unknown external sync failure" : exception.getMessage()
+                jsonService.write(Map.ofEntries(
+                        Map.entry("settlementId", message.settlementId()),
+                        Map.entry("batchId", message.batchId()),
+                        Map.entry("proofId", message.proofId()),
+                        Map.entry("retryable", true),
+                        Map.entry("nextAction", "RETRY_EXTERNAL_SYNC"),
+                        Map.entry("syncTarget", resolveSyncTarget(message.eventType())),
+                        Map.entry("eventType", message.eventType()),
+                        Map.entry("payloadJson", message.payloadJson()),
+                        Map.entry("retryCount", message.attempts()),
+                        Map.entry("nextRetryAt", OffsetDateTime.now().plusMinutes(5).toString()),
+                        Map.entry(
+                                "errorMessage",
+                                exception.getMessage() == null ? "unknown external sync failure" : exception.getMessage()
+                        )
                 ))
         );
     }

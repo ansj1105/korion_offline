@@ -101,6 +101,21 @@ public class JdbcReconciliationCaseRepository implements ReconciliationCaseRepos
     }
 
     @Override
+    public List<ReconciliationCase> findOpenRetryable(int size) {
+        String sql = QueryBuilder.select("reconciliation_cases")
+                .where("status", Op.EQ, ":status")
+                .where("detail @> CAST(:retryableFilter AS jsonb)")
+                .orderBy("updated_at ASC")
+                .limit(size)
+                .build();
+        return jdbcClient.sql(sql)
+                .param("status", ReconciliationCaseStatus.OPEN.name())
+                .param("retryableFilter", "{\"retryable\":true}")
+                .query(rowMapper)
+                .list();
+    }
+
+    @Override
     public Optional<ReconciliationCase> findOpenBySettlementIdAndCaseType(String settlementId, String caseType) {
         requireNonBlank(settlementId, "settlementId");
         requireNonBlank(caseType, "caseType");
@@ -133,6 +148,21 @@ public class JdbcReconciliationCaseRepository implements ReconciliationCaseRepos
                 .build();
         jdbcClient.sql(sql)
                 .param("status", ReconciliationCaseStatus.RESOLVED.name())
+                .param("detail", detailJson)
+                .param("id", java.util.UUID.fromString(caseId))
+                .update();
+    }
+
+    @Override
+    public void updateDetail(String caseId, String detailJson) {
+        requireNonBlank(caseId, "caseId");
+        requireNonBlank(detailJson, "detailJson");
+        String sql = QueryBuilder.update("reconciliation_cases")
+                .set("detail", "CAST(:detail AS jsonb)")
+                .touchUpdatedAt()
+                .where("id", Op.EQ, ":id")
+                .build();
+        jdbcClient.sql(sql)
                 .param("detail", detailJson)
                 .param("id", java.util.UUID.fromString(caseId))
                 .update();

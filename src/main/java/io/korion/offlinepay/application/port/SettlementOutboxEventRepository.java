@@ -8,4 +8,6 @@ public interface SettlementOutboxEventRepository {
     List<SettlementOutboxEvent> findRecent(int limit, String eventType, String status);
 
     long countByStatus(String status);
+
+    long countByEventType(String eventType);
 }

@@ -150,11 +150,19 @@ public class AdminOperationsService {
 
     @Transactional(readOnly = true)
     public Map<String, Long> getOutboxOverview() {
-        return Map.of(
-                "pending", settlementOutboxEventRepository.countByStatus("PENDING"),
-                "processing", settlementOutboxEventRepository.countByStatus("PROCESSING"),
-                "completed", settlementOutboxEventRepository.countByStatus("COMPLETED"),
-                "deadLetter", settlementOutboxEventRepository.countByStatus("DEAD_LETTER")
+        return Map.ofEntries(
+                Map.entry("pending", settlementOutboxEventRepository.countByStatus("PENDING")),
+                Map.entry("processing", settlementOutboxEventRepository.countByStatus("PROCESSING")),
+                Map.entry("completed", settlementOutboxEventRepository.countByStatus("COMPLETED")),
+                Map.entry("deadLetter", settlementOutboxEventRepository.countByStatus("DEAD_LETTER")),
+                Map.entry("batchRequested", settlementOutboxEventRepository.countByEventType("BATCH_REQUESTED")),
+                Map.entry("batchResult", settlementOutboxEventRepository.countByEventType("BATCH_RESULT")),
+                Map.entry("conflict", settlementOutboxEventRepository.countByEventType("CONFLICT")),
+                Map.entry("collateralRequested", settlementOutboxEventRepository.countByEventType("COLLATERAL_REQUESTED")),
+                Map.entry("collateralResult", settlementOutboxEventRepository.countByEventType("COLLATERAL_RESULT")),
+                Map.entry("ledgerSyncRequested", settlementOutboxEventRepository.countByEventType("LEDGER_SYNC_REQUESTED")),
+                Map.entry("historySyncRequested", settlementOutboxEventRepository.countByEventType("HISTORY_SYNC_REQUESTED")),
+                Map.entry("externalSyncDeadLetter", settlementOutboxEventRepository.countByEventType("EXTERNAL_SYNC_DEAD_LETTER"))
         );
     }
 
