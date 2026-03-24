@@ -68,18 +68,19 @@ public class InfrastructureFactoryConfig {
     }
 
     @Bean
-    public CoinManageCollateralPort coinManageCollateralPort(RestClient coinManageRestClient) {
-        return new CoinManageCollateralAdapter(coinManageRestClient);
+    public CoinManageCollateralPort coinManageCollateralPort(RestClient coinManageRestClient, AppProperties properties) {
+        return new CoinManageCollateralAdapter(coinManageRestClient, properties.coinManage().apiKey());
     }
 
     @Bean
     public CoinManageSettlementPort coinManageSettlementPort(
             RestClient coinManageRestClient,
+            AppProperties properties,
             SimpleCircuitBreaker coinManageSettlementCircuitBreaker,
             TelegramAlertService telegramAlertService
     ) {
         return new CircuitBreakingCoinManageSettlementAdapter(
-                new CoinManageSettlementAdapter(coinManageRestClient),
+                new CoinManageSettlementAdapter(coinManageRestClient, properties.coinManage().apiKey()),
                 coinManageSettlementCircuitBreaker,
                 telegramAlertService
         );
@@ -88,11 +89,12 @@ public class InfrastructureFactoryConfig {
     @Bean
     public FoxCoinHistoryPort foxCoinHistoryPort(
             RestClient foxCoinRestClient,
+            AppProperties properties,
             SimpleCircuitBreaker foxCoinHistoryCircuitBreaker,
             TelegramAlertService telegramAlertService
     ) {
         return new CircuitBreakingFoxCoinHistoryAdapter(
-                new FoxCoinHistoryAdapter(foxCoinRestClient),
+                new FoxCoinHistoryAdapter(foxCoinRestClient, properties.foxCoin().apiKey()),
                 foxCoinHistoryCircuitBreaker,
                 telegramAlertService
         );

@@ -8,15 +8,18 @@ import org.springframework.web.client.RestClient;
 public class CoinManageSettlementAdapter implements CoinManageSettlementPort {
 
     private final RestClient restClient;
+    private final String apiKey;
 
-    public CoinManageSettlementAdapter(RestClient restClient) {
+    public CoinManageSettlementAdapter(RestClient restClient, String apiKey) {
         this.restClient = restClient;
+        this.apiKey = apiKey;
     }
 
     @Override
     public void finalizeSettlement(SettlementLedgerCommand command) {
         InternalAckResponseContract response = restClient.post()
                 .uri("/api/internal/offline-pay/settlements/finalize")
+                .header("x-internal-api-key", apiKey)
                 .body(new CoinManageFinalizeSettlementContract(
                         command.settlementId(),
                         command.batchId(),

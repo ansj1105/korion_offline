@@ -11,15 +11,18 @@ import org.springframework.web.client.RestClient;
 public class CoinManageCollateralAdapter implements CoinManageCollateralPort {
 
     private final RestClient restClient;
+    private final String apiKey;
 
-    public CoinManageCollateralAdapter(RestClient restClient) {
+    public CoinManageCollateralAdapter(RestClient restClient, String apiKey) {
         this.restClient = restClient;
+        this.apiKey = apiKey;
     }
 
     @Override
     public LockCollateralResult lockCollateral(long userId, String deviceId, String assetCode, BigDecimal amount, String referenceId, int policyVersion) {
         CoinManageLockCollateralResponseContract response = restClient.post()
                 .uri("/api/internal/offline-pay/collateral/lock")
+                .header("x-internal-api-key", apiKey)
                 .body(new CoinManageLockCollateralContract(
                         userId,
                         deviceId,
@@ -40,6 +43,7 @@ public class CoinManageCollateralAdapter implements CoinManageCollateralPort {
     public ReleaseCollateralResult releaseCollateral(long userId, String deviceId, String collateralId, String assetCode, BigDecimal amount, String referenceId) {
         CoinManageReleaseCollateralResponseContract response = restClient.post()
                 .uri("/api/internal/offline-pay/collateral/release")
+                .header("x-internal-api-key", apiKey)
                 .body(new CoinManageReleaseCollateralContract(
                         userId,
                         deviceId,
