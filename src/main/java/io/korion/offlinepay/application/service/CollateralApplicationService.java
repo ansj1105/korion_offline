@@ -87,9 +87,8 @@ public class CollateralApplicationService {
     public CollateralOperation releaseCollateral(String collateralId, ReleaseCollateralCommand command) {
         CollateralLock collateral = collateralRepository.findById(collateralId)
                 .orElseThrow(() -> new IllegalArgumentException("collateral not found: " + collateralId));
-        CollateralLock aggregate = collateralRepository.findAggregateByUserIdAndDeviceIdAndAssetCode(
+        CollateralLock aggregate = collateralRepository.findAggregateByUserIdAndAssetCode(
                         collateral.userId(),
-                        collateral.deviceId(),
                         collateral.assetCode()
                 )
                 .orElseThrow(() -> new IllegalArgumentException("collateral remaining amount is empty: " + collateralId));
@@ -97,14 +96,8 @@ public class CollateralApplicationService {
         if (collateral.userId() != command.userId()) {
             throw new IllegalArgumentException("collateral user mismatch: " + collateralId);
         }
-        if (!collateral.deviceId().equals(command.deviceId())) {
-            throw new IllegalArgumentException("collateral device mismatch: " + collateralId);
-        }
         if (collateral.status() == CollateralStatus.RELEASED) {
             throw new IllegalArgumentException("collateral already released: " + collateralId);
-        }
-        if (collateral.remainingAmount().signum() <= 0) {
-            throw new IllegalArgumentException("collateral remaining amount is empty: " + collateralId);
         }
         if (command.amount() == null || command.amount().signum() <= 0) {
             throw new IllegalArgumentException("release amount is required");

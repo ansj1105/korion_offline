@@ -144,6 +144,41 @@ public class JdbcCollateralRepository implements CollateralRepository {
     }
 
     @Override
+    public Optional<CollateralLock> findAggregateByUserIdAndAssetCode(long userId, String assetCode) {
+        String sql = """
+                SELECT
+                    MIN(id::text) AS id,
+                    user_id,
+                    :snapshotDeviceId AS device_id,
+                    asset_code,
+                    COALESCE(SUM(locked_amount), 0) AS locked_amount,
+                    COALESCE(SUM(remaining_amount), 0) AS remaining_amount,
+                    'AGGREGATED' AS initial_state_root,
+                    COALESCE(MAX(policy_version), 1) AS policy_version,
+                    CASE
+                        WHEN BOOL_OR(status = 'LOCKED') THEN 'LOCKED'
+                        ELSE COALESCE(MAX(status), 'RELEASED')
+                    END AS status,
+                    STRING_AGG(external_lock_id, ',' ORDER BY created_at) AS external_lock_id,
+                    MAX(expires_at) AS expires_at,
+                    '{}'::text AS metadata,
+                    MIN(created_at) AS created_at,
+                    MAX(updated_at) AS updated_at
+                FROM collateral_locks
+                WHERE user_id = :userId
+                  AND asset_code = :assetCode
+                  AND remaining_amount > 0
+                GROUP BY user_id, asset_code
+                """;
+        return jdbcClient.sql(sql)
+                .param("userId", userId)
+                .param("assetCode", assetCode)
+                .param("snapshotDeviceId", "AGGREGATED")
+                .query(collateralLockRowMapper)
+                .optional();
+    }
+
+    @Override
     public List<CollateralLock> findActiveByUserIdAndDeviceIdAndAssetCode(long userId, String deviceId, String assetCode) {
         String sql = QueryBuilder.select("collateral_locks")
                 .where("user_id", QueryBuilder.Op.EQ, ":userId")
@@ -155,6 +190,22 @@ public class JdbcCollateralRepository implements CollateralRepository {
         return jdbcClient.sql(sql)
                 .param("userId", userId)
                 .param("deviceId", deviceId)
+                .param("assetCode", assetCode)
+                .param("zero", BigDecimal.ZERO)
+                .query(collateralLockRowMapper)
+                .list();
+    }
+
+    @Override
+    public List<CollateralLock> findActiveByUserIdAndAssetCode(long userId, String assetCode) {
+        String sql = QueryBuilder.select("collateral_locks")
+                .where("user_id", QueryBuilder.Op.EQ, ":userId")
+                .where("asset_code", QueryBuilder.Op.EQ, ":assetCode")
+                .where("remaining_amount", QueryBuilder.Op.GT, ":zero")
+                .orderBy("created_at ASC")
+                .build();
+        return jdbcClient.sql(sql)
+                .param("userId", userId)
                 .param("assetCode", assetCode)
                 .param("zero", BigDecimal.ZERO)
                 .query(collateralLockRowMapper)

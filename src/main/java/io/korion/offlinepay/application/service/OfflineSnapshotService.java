@@ -43,7 +43,7 @@ public class OfflineSnapshotService {
         Device device = deviceRepository.findByUserIdAndDeviceId(userId, deviceId)
                 .orElseThrow(() -> new IllegalArgumentException("device binding mismatch: " + deviceId));
         CollateralLock collateral = collateralRepository
-                .findAggregateByUserIdAndDeviceIdAndAssetCode(userId, deviceId, normalizedAssetCode)
+                .findAggregateByUserIdAndAssetCode(userId, normalizedAssetCode)
                 .orElse(null);
         IssuedOfflineProof issuedProof = issuedOfflineProofRepository
                 .findLatestActiveByUserIdAndDeviceIdAndAssetCode(userId, deviceId, normalizedAssetCode)
@@ -69,7 +69,7 @@ public class OfflineSnapshotService {
                 collateral == null ? null : new CollateralSnapshot(
                         collateral.id(),
                         collateral.userId(),
-                        collateral.deviceId(),
+                        deviceId,
                         collateral.assetCode(),
                         collateral.lockedAmount().toPlainString(),
                         collateral.remainingAmount().toPlainString(),

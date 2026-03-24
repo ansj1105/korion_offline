@@ -29,7 +29,11 @@ public interface CollateralRepository {
 
     Optional<CollateralLock> findAggregateByUserIdAndDeviceIdAndAssetCode(long userId, String deviceId, String assetCode);
 
+    Optional<CollateralLock> findAggregateByUserIdAndAssetCode(long userId, String assetCode);
+
     List<CollateralLock> findActiveByUserIdAndDeviceIdAndAssetCode(long userId, String deviceId, String assetCode);
+
+    List<CollateralLock> findActiveByUserIdAndAssetCode(long userId, String assetCode);
 
     void deductRemainingAmount(String collateralId, BigDecimal amount);
 

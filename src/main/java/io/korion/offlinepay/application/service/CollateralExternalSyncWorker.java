@@ -161,9 +161,8 @@ public class CollateralExternalSyncWorker {
     }
 
     private void processRelease(SettlementBatchEventBus.QueuedCollateralMessage message, CollateralOperation operation) {
-        List<CollateralLock> activeLocks = new ArrayList<>(collateralRepository.findActiveByUserIdAndDeviceIdAndAssetCode(
+        List<CollateralLock> activeLocks = new ArrayList<>(collateralRepository.findActiveByUserIdAndAssetCode(
                 operation.userId(),
-                operation.deviceId(),
                 operation.assetCode()
         ));
         if (activeLocks.isEmpty()) {
