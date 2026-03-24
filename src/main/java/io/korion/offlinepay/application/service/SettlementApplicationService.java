@@ -33,6 +33,7 @@ import io.korion.offlinepay.domain.model.OfflinePaymentProof;
 import io.korion.offlinepay.domain.model.SettlementBatch;
 import io.korion.offlinepay.domain.model.SettlementRequest;
 import io.korion.offlinepay.domain.reason.OfflinePayReasonCode;
+import io.korion.offlinepay.domain.status.OfflineSagaType;
 import io.korion.offlinepay.domain.status.CollateralStatus;
 import io.korion.offlinepay.domain.status.OfflineProofStatus;
 import io.korion.offlinepay.domain.status.ReconciliationCaseStatus;
@@ -58,6 +59,7 @@ public class SettlementApplicationService {
     private final ReconciliationCaseRepository reconciliationCaseRepository;
     private final SettlementConflictRepository settlementConflictRepository;
     private final SettlementBatchEventBus eventBus;
+    private final OfflineSagaService offlineSagaService;
     private final JsonService jsonService;
     private final SettlementBatchFactory settlementBatchFactory;
     private final SettlementRequestFactory settlementRequestFactory;
@@ -82,6 +84,7 @@ public class SettlementApplicationService {
             ReconciliationCaseRepository reconciliationCaseRepository,
             SettlementConflictRepository settlementConflictRepository,
             SettlementBatchEventBus eventBus,
+            OfflineSagaService offlineSagaService,
             CoinManageSettlementPort coinManageSettlementPort,
             FoxCoinHistoryPort foxCoinHistoryPort,
             JsonService jsonService,
@@ -107,6 +110,7 @@ public class SettlementApplicationService {
         this.reconciliationCaseRepository = reconciliationCaseRepository;
         this.settlementConflictRepository = settlementConflictRepository;
         this.eventBus = eventBus;
+        this.offlineSagaService = offlineSagaService;
         this.jsonService = jsonService;
         this.settlementBatchFactory = settlementBatchFactory;
         this.settlementRequestFactory = settlementRequestFactory;
@@ -176,6 +180,17 @@ public class SettlementApplicationService {
                     settlementRequestFactory.uploadedResult()
             );
             requestIds.add(request.id());
+            offlineSagaService.start(
+                    OfflineSagaType.SETTLEMENT,
+                    request.id(),
+                    "SETTLEMENT_ACCEPTED",
+                    Map.of(
+                            "settlementId", request.id(),
+                            "batchId", batch.id(),
+                            "proofId", proof.id(),
+                            "collateralId", collateral.id()
+                    )
+            );
         }
 
         batchRepository.updateStatus(

@@ -11,6 +11,7 @@ import io.korion.offlinepay.domain.model.CollateralOperation;
 import io.korion.offlinepay.domain.policy.OfflineFailureClass;
 import io.korion.offlinepay.domain.policy.OfflineFailurePolicy;
 import io.korion.offlinepay.domain.reason.OfflinePayReasonCode;
+import io.korion.offlinepay.domain.status.OfflineSagaType;
 import io.korion.offlinepay.domain.status.CollateralOperationStatus;
 import io.korion.offlinepay.domain.status.CollateralOperationType;
 import io.korion.offlinepay.domain.status.CollateralStatus;
@@ -33,6 +34,7 @@ public class CollateralExternalSyncWorker {
     private final CoinManageCollateralPort coinManageCollateralPort;
     private final ReconciliationCaseRepository reconciliationCaseRepository;
     private final OfflineSnapshotStreamService offlineSnapshotStreamService;
+    private final OfflineSagaService offlineSagaService;
     private final JsonService jsonService;
     private final TelegramAlertService telegramAlertService;
     private final AppProperties properties;
@@ -44,6 +46,7 @@ public class CollateralExternalSyncWorker {
             CoinManageCollateralPort coinManageCollateralPort,
             ReconciliationCaseRepository reconciliationCaseRepository,
             OfflineSnapshotStreamService offlineSnapshotStreamService,
+            OfflineSagaService offlineSagaService,
             JsonService jsonService,
             TelegramAlertService telegramAlertService,
             AppProperties properties
@@ -54,6 +57,7 @@ public class CollateralExternalSyncWorker {
         this.coinManageCollateralPort = coinManageCollateralPort;
         this.reconciliationCaseRepository = reconciliationCaseRepository;
         this.offlineSnapshotStreamService = offlineSnapshotStreamService;
+        this.offlineSagaService = offlineSagaService;
         this.jsonService = jsonService;
         this.telegramAlertService = telegramAlertService;
         this.properties = properties;
@@ -97,6 +101,17 @@ public class CollateralExternalSyncWorker {
         if (operation.status() == CollateralOperationStatus.COMPLETED) {
             return;
         }
+        offlineSagaService.markProcessing(
+                resolveSagaType(operation),
+                operation.id(),
+                "SERVER_ACCEPTED",
+                Map.of(
+                        "operationId", operation.id(),
+                        "operationType", operation.operationType().name(),
+                        "assetCode", operation.assetCode(),
+                        "referenceId", operation.referenceId()
+                )
+        );
 
         if (operation.operationType() == CollateralOperationType.TOPUP) {
             processTopup(message, operation);
@@ -154,6 +169,17 @@ public class CollateralExternalSyncWorker {
                 null
         );
         resolveReconciliation(operation, "COLLATERAL_LOCK_FAILED", "COLLATERAL_RESYNC_RESOLVED");
+        offlineSagaService.markCompleted(
+                OfflineSagaType.COLLATERAL_TOPUP,
+                operation.id(),
+                "COLLATERAL_LOCKED",
+                Map.of(
+                        "operationId", operation.id(),
+                        "referenceId", operation.referenceId(),
+                        "collateralId", collateral.id(),
+                        "assetCode", operation.assetCode()
+                )
+        );
         offlineSnapshotStreamService.publishCollateralChanged(
                 operation.userId(),
                 operation.deviceId(),
@@ -245,6 +271,17 @@ public class CollateralExternalSyncWorker {
                 null
         );
         resolveReconciliation(operation, "COLLATERAL_RELEASE_FAILED", "COLLATERAL_RESYNC_RESOLVED");
+        offlineSagaService.markCompleted(
+                OfflineSagaType.COLLATERAL_RELEASE,
+                operation.id(),
+                "COLLATERAL_RELEASED",
+                Map.of(
+                        "operationId", operation.id(),
+                        "referenceId", operation.referenceId(),
+                        "assetCode", operation.assetCode(),
+                        "releasedSegments", releasedSegments
+                )
+        );
         offlineSnapshotStreamService.publishCollateralChanged(
                 operation.userId(),
                 operation.deviceId(),
@@ -278,6 +315,36 @@ public class CollateralExternalSyncWorker {
         );
         ensureReconciliation(operation, message, reasonCode, errorMessage);
         OfflineFailureClass failureClass = OfflineFailurePolicy.classify(reasonCode, errorMessage);
+        if (failureClass == OfflineFailureClass.TRANSPORT
+                || failureClass == OfflineFailureClass.AUTH
+                || failureClass == OfflineFailureClass.SYSTEM
+                || failureClass == OfflineFailureClass.PARTIAL) {
+            offlineSagaService.markDeadLettered(
+                    resolveSagaType(operation),
+                    operation.id(),
+                    "DEAD_LETTERED",
+                    reasonCode,
+                    Map.of(
+                            "operationId", operation.id(),
+                            "operationType", operation.operationType().name(),
+                            "reasonCode", reasonCode,
+                            "errorMessage", errorMessage
+                    )
+            );
+        } else {
+            offlineSagaService.markFailed(
+                    resolveSagaType(operation),
+                    operation.id(),
+                    "FAILED",
+                    reasonCode,
+                    Map.of(
+                            "operationId", operation.id(),
+                            "operationType", operation.operationType().name(),
+                            "reasonCode", reasonCode,
+                            "errorMessage", errorMessage
+                    )
+            );
+        }
         String alertReason = "operationId=" + operation.id()
                 + ", operationType=" + operation.operationType().name()
                 + ", failureClass=" + failureClass.name()
@@ -424,5 +491,11 @@ public class CollateralExternalSyncWorker {
         return operationType == CollateralOperationType.RELEASE
                 ? "COLLATERAL_RELEASE_FAILED"
                 : "COLLATERAL_LOCK_FAILED";
+    }
+
+    private OfflineSagaType resolveSagaType(CollateralOperation operation) {
+        return operation.operationType() == CollateralOperationType.RELEASE
+                ? OfflineSagaType.COLLATERAL_RELEASE
+                : OfflineSagaType.COLLATERAL_TOPUP;
     }
 }

@@ -10,6 +10,7 @@ import io.korion.offlinepay.domain.model.ReconciliationCase;
 import io.korion.offlinepay.domain.policy.OfflineFailureClass;
 import io.korion.offlinepay.domain.policy.OfflineFailurePolicy;
 import io.korion.offlinepay.domain.reason.OfflinePayReasonCode;
+import io.korion.offlinepay.domain.status.OfflineSagaType;
 import io.korion.offlinepay.domain.status.OfflineWorkflowEventType;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
@@ -25,6 +26,7 @@ public class SettlementExternalSyncWorker {
     private final CoinManageSettlementPort coinManageSettlementPort;
     private final FoxCoinHistoryPort foxCoinHistoryPort;
     private final ReconciliationCaseRepository reconciliationCaseRepository;
+    private final OfflineSagaService offlineSagaService;
     private final JsonService jsonService;
     private final AppProperties properties;
 
@@ -33,6 +35,7 @@ public class SettlementExternalSyncWorker {
             CoinManageSettlementPort coinManageSettlementPort,
             FoxCoinHistoryPort foxCoinHistoryPort,
             ReconciliationCaseRepository reconciliationCaseRepository,
+            OfflineSagaService offlineSagaService,
             JsonService jsonService,
             AppProperties properties
     ) {
@@ -40,6 +43,7 @@ public class SettlementExternalSyncWorker {
         this.coinManageSettlementPort = coinManageSettlementPort;
         this.foxCoinHistoryPort = foxCoinHistoryPort;
         this.reconciliationCaseRepository = reconciliationCaseRepository;
+        this.offlineSagaService = offlineSagaService;
         this.jsonService = jsonService;
         this.properties = properties;
     }
@@ -90,6 +94,17 @@ public class SettlementExternalSyncWorker {
         if (OfflineWorkflowEventType.LEDGER_SYNC_REQUESTED.name().equals(message.eventType())) {
             CoinManageSettlementPort.SettlementLedgerCommand command = toLedgerCommand(payload.path("ledgerCommand"));
             coinManageSettlementPort.finalizeSettlement(command);
+            offlineSagaService.markPartiallyApplied(
+                    OfflineSagaType.SETTLEMENT,
+                    message.settlementId(),
+                    "LEDGER_SYNCED",
+                    Map.of(
+                            "settlementId", message.settlementId(),
+                            "batchId", message.batchId(),
+                            "proofId", message.proofId(),
+                            "eventType", message.eventType()
+                    )
+            );
             resolveReconciliationCases(
                     message.settlementId(),
                     List.of("LEDGER_SYNC_FAILED", "LEDGER_CIRCUIT_OPEN"),
@@ -116,6 +131,17 @@ public class SettlementExternalSyncWorker {
         if (OfflineWorkflowEventType.HISTORY_SYNC_REQUESTED.name().equals(message.eventType())) {
             FoxCoinHistoryPort.SettlementHistoryCommand command = toHistoryCommand(payload.path("historyCommand"));
             foxCoinHistoryPort.recordSettlementHistory(command);
+            offlineSagaService.markCompleted(
+                    OfflineSagaType.SETTLEMENT,
+                    message.settlementId(),
+                    "HISTORY_SYNCED",
+                    Map.of(
+                            "settlementId", message.settlementId(),
+                            "batchId", message.batchId(),
+                            "proofId", message.proofId(),
+                            "eventType", message.eventType()
+                    )
+            );
             resolveReconciliationCases(
                     message.settlementId(),
                     List.of("HISTORY_SYNC_FAILED", "HISTORY_CIRCUIT_OPEN"),
@@ -140,6 +166,49 @@ public class SettlementExternalSyncWorker {
         String errorMessage = exception.getMessage() == null ? "unknown external sync failure" : exception.getMessage();
         OfflineFailureClass failureClass = OfflineFailurePolicy.classify(reasonCode, errorMessage);
         boolean retryable = OfflineFailurePolicy.isRetryable(failureClass);
+        if (OfflineWorkflowEventType.HISTORY_SYNC_REQUESTED.name().equals(message.eventType())) {
+            offlineSagaService.markCompensationRequired(
+                    OfflineSagaType.SETTLEMENT,
+                    message.settlementId(),
+                    "COMPENSATION_REQUIRED",
+                    reasonCode,
+                    Map.of(
+                            "settlementId", message.settlementId(),
+                            "batchId", message.batchId(),
+                            "proofId", message.proofId(),
+                            "errorMessage", errorMessage,
+                            "eventType", message.eventType()
+                    )
+            );
+        } else if (retryable) {
+            offlineSagaService.markDeadLettered(
+                    OfflineSagaType.SETTLEMENT,
+                    message.settlementId(),
+                    "DEAD_LETTERED",
+                    reasonCode,
+                    Map.of(
+                            "settlementId", message.settlementId(),
+                            "batchId", message.batchId(),
+                            "proofId", message.proofId(),
+                            "errorMessage", errorMessage,
+                            "eventType", message.eventType()
+                    )
+            );
+        } else {
+            offlineSagaService.markFailed(
+                    OfflineSagaType.SETTLEMENT,
+                    message.settlementId(),
+                    "FAILED",
+                    reasonCode,
+                    Map.of(
+                            "settlementId", message.settlementId(),
+                            "batchId", message.batchId(),
+                            "proofId", message.proofId(),
+                            "errorMessage", errorMessage,
+                            "eventType", message.eventType()
+                    )
+            );
+        }
         reconciliationCaseRepository.save(
                 message.settlementId(),
                 message.batchId(),

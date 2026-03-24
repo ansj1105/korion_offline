@@ -5,6 +5,7 @@ import io.korion.offlinepay.application.port.CollateralRepository;
 import io.korion.offlinepay.application.port.DeviceRepository;
 import io.korion.offlinepay.application.port.SettlementBatchEventBus;
 import io.korion.offlinepay.domain.model.CollateralOperation;
+import io.korion.offlinepay.domain.status.OfflineSagaType;
 import io.korion.offlinepay.domain.status.CollateralOperationType;
 import io.korion.offlinepay.config.AppProperties;
 import io.korion.offlinepay.domain.model.CollateralLock;
@@ -21,6 +22,7 @@ public class CollateralApplicationService {
     private final CollateralRepository collateralRepository;
     private final CollateralOperationRepository collateralOperationRepository;
     private final SettlementBatchEventBus settlementBatchEventBus;
+    private final OfflineSagaService offlineSagaService;
     private final JsonService jsonService;
     private final AppProperties properties;
 
@@ -29,6 +31,7 @@ public class CollateralApplicationService {
             CollateralRepository collateralRepository,
             CollateralOperationRepository collateralOperationRepository,
             SettlementBatchEventBus settlementBatchEventBus,
+            OfflineSagaService offlineSagaService,
             JsonService jsonService,
             AppProperties properties
     ) {
@@ -36,6 +39,7 @@ public class CollateralApplicationService {
         this.collateralRepository = collateralRepository;
         this.collateralOperationRepository = collateralOperationRepository;
         this.settlementBatchEventBus = settlementBatchEventBus;
+        this.offlineSagaService = offlineSagaService;
         this.jsonService = jsonService;
         this.properties = properties;
     }
@@ -73,6 +77,17 @@ public class CollateralApplicationService {
                 operation.assetCode(),
                 operation.referenceId(),
                 operation.createdAt().toString()
+        );
+        offlineSagaService.start(
+                OfflineSagaType.COLLATERAL_TOPUP,
+                operation.id(),
+                "SERVER_ACCEPTED",
+                Map.of(
+                        "operationId", operation.id(),
+                        "assetCode", operation.assetCode(),
+                        "referenceId", operation.referenceId(),
+                        "amount", operation.amount().toPlainString()
+                )
         );
         return operation;
     }
@@ -127,6 +142,17 @@ public class CollateralApplicationService {
                 operation.assetCode(),
                 operation.referenceId(),
                 operation.createdAt().toString()
+        );
+        offlineSagaService.start(
+                OfflineSagaType.COLLATERAL_RELEASE,
+                operation.id(),
+                "SERVER_ACCEPTED",
+                Map.of(
+                        "operationId", operation.id(),
+                        "assetCode", operation.assetCode(),
+                        "referenceId", operation.referenceId(),
+                        "amount", operation.amount().toPlainString()
+                )
         );
         return operation;
     }
