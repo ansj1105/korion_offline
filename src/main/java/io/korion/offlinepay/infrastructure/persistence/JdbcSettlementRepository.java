@@ -29,12 +29,12 @@ public class JdbcSettlementRepository implements SettlementRepository {
                 .value("settlement_result", "CAST(:settlementResult AS jsonb)")
                 .build();
         jdbcClient.sql(sql)
-                .param("batchId", java.util.UUID.fromString(batchId))
-                .param("collateralId", java.util.UUID.fromString(collateralId))
-                .param("proofId", java.util.UUID.fromString(proofId))
+                .param("batch_id", java.util.UUID.fromString(batchId))
+                .param("collateral_id", java.util.UUID.fromString(collateralId))
+                .param("proof_id", java.util.UUID.fromString(proofId))
                 .param("status", status.name())
-                .param("reasonCode", normalizedReasonCode)
-                .param("conflictDetected", conflictDetected)
+                .param("reason_code", normalizedReasonCode)
+                .param("conflict_detected", conflictDetected)
                 .param("settlementResult", settlementResultJson)
                 .update();
 

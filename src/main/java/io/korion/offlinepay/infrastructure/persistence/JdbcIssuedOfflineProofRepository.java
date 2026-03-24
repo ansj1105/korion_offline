@@ -57,18 +57,18 @@ public class JdbcIssuedOfflineProofRepository implements IssuedOfflineProofRepos
                 .build();
         jdbcClient.sql(sql)
                 .param("id", java.util.UUID.fromString(proofId))
-                .param("userId", userId)
-                .param("deviceId", deviceId)
-                .param("collateralId", java.util.UUID.fromString(collateralId))
-                .param("assetCode", assetCode)
-                .param("usableAmount", usableAmount)
-                .param("proofNonce", proofNonce)
-                .param("issuerKeyId", issuerKeyId)
-                .param("issuerPublicKey", issuerPublicKey)
-                .param("issuerSignature", issuerSignature)
+                .param("user_id", userId)
+                .param("device_id", deviceId)
+                .param("collateral_id", java.util.UUID.fromString(collateralId))
+                .param("asset_code", assetCode)
+                .param("usable_amount", usableAmount)
+                .param("proof_nonce", proofNonce)
+                .param("issuer_key_id", issuerKeyId)
+                .param("issuer_public_key", issuerPublicKey)
+                .param("issuer_signature", issuerSignature)
                 .param("issuedPayload", issuedPayloadJson)
                 .param("status", status.name())
-                .param("expiresAt", expiresAt)
+                .param("expires_at", expiresAt)
                 .update();
         return findById(proofId).orElseThrow();
     }

@@ -51,11 +51,11 @@ public class JdbcSettlementConflictRepository implements SettlementConflictRepos
                 .value("detail", "CAST(:detail AS jsonb)")
                 .build();
         jdbcClient.sql(sql)
-                .param("settlementId", java.util.UUID.fromString(settlementId))
-                .param("voucherId", voucherId)
-                .param("collateralId", java.util.UUID.fromString(collateralId))
-                .param("deviceId", deviceId)
-                .param("conflictType", conflictType)
+                .param("settlement_id", java.util.UUID.fromString(settlementId))
+                .param("voucher_id", voucherId)
+                .param("collateral_id", java.util.UUID.fromString(collateralId))
+                .param("device_id", deviceId)
+                .param("conflict_type", conflictType)
                 .param("severity", severity)
                 .param("detail", detailJson)
                 .update();

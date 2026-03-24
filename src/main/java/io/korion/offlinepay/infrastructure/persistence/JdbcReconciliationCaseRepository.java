@@ -51,13 +51,13 @@ public class JdbcReconciliationCaseRepository implements ReconciliationCaseRepos
                 .value("detail", "CAST(:detail AS jsonb)")
                 .build();
         jdbcClient.sql(sql)
-                .param("settlementId", settlementId == null ? null : java.util.UUID.fromString(settlementId))
-                .param("batchId", java.util.UUID.fromString(batchId))
-                .param("proofId", proofId == null ? null : java.util.UUID.fromString(proofId))
-                .param("voucherId", voucherId)
-                .param("caseType", caseType)
+                .param("settlement_id", settlementId == null ? null : java.util.UUID.fromString(settlementId))
+                .param("batch_id", java.util.UUID.fromString(batchId))
+                .param("proof_id", proofId == null ? null : java.util.UUID.fromString(proofId))
+                .param("voucher_id", voucherId)
+                .param("case_type", caseType)
                 .param("status", status.name())
-                .param("reasonCode", normalizedReasonCode)
+                .param("reason_code", normalizedReasonCode)
                 .param("detail", detailJson)
                 .update();
 

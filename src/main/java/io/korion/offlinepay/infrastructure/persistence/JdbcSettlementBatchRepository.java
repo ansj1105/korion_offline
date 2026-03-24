@@ -37,11 +37,11 @@ public class JdbcSettlementBatchRepository implements SettlementBatchRepository 
                 .value("summary", "CAST(:summary AS jsonb)")
                 .build();
         jdbcClient.sql(sql)
-                .param("sourceDeviceId", sourceDeviceId)
-                .param("idempotencyKey", idempotencyKey)
+                .param("source_device_id", sourceDeviceId)
+                .param("idempotency_key", idempotencyKey)
                 .param("status", status.name())
-                .param("lastReasonCode", normalizedReasonCode)
-                .param("proofsCount", proofsCount)
+                .param("last_reason_code", normalizedReasonCode)
+                .param("proofs_count", proofsCount)
                 .param("summary", summaryJson)
                 .update();
 
