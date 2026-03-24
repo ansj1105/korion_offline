@@ -22,6 +22,14 @@ public class TelegramAlertService {
         send("[KORION] " + serviceName + " circuit recovered");
     }
 
+    public void notifyDeadLetter(String serviceName, String reason) {
+        send("[KORION] " + serviceName + " dead letter\nreason=" + normalize(reason));
+    }
+
+    public void notifyOperationalIssue(String serviceName, String reason) {
+        send("[KORION] " + serviceName + " operational issue\nreason=" + normalize(reason));
+    }
+
     private void send(String text) {
         AppProperties.Alerts alerts = properties.alerts();
         if (alerts == null || alerts.telegram() == null) {

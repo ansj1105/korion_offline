@@ -277,13 +277,21 @@ public class CollateralExternalSyncWorker {
                 reasonCode
         );
         ensureReconciliation(operation, message, reasonCode, errorMessage);
-        telegramAlertService.notifyCircuitOpened(
-                "offline_pay.collateral.dead_letter",
-                "operationId=" + operation.id()
-                        + ", operationType=" + operation.operationType().name()
-                        + ", reason=" + reasonCode
-                        + ", error=" + errorMessage
-        );
+        OfflineFailureClass failureClass = OfflineFailurePolicy.classify(reasonCode, errorMessage);
+        String alertReason = "operationId=" + operation.id()
+                + ", operationType=" + operation.operationType().name()
+                + ", failureClass=" + failureClass.name()
+                + ", reason=" + reasonCode
+                + ", error=" + errorMessage;
+        if (failureClass == OfflineFailureClass.TRANSPORT || failureClass == OfflineFailureClass.AUTH) {
+            telegramAlertService.notifyCircuitOpened("offline_pay.collateral.dead_letter", alertReason);
+            return;
+        }
+        if (failureClass == OfflineFailureClass.SYSTEM || failureClass == OfflineFailureClass.PARTIAL) {
+            telegramAlertService.notifyOperationalIssue("offline_pay.collateral.dead_letter", alertReason);
+            return;
+        }
+        telegramAlertService.notifyDeadLetter("offline_pay.collateral.dead_letter", alertReason);
     }
 
     private boolean isTerminalFailure(RuntimeException exception) {
