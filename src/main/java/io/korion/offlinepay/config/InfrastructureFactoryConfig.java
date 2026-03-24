@@ -49,10 +49,6 @@ public class InfrastructureFactoryConfig {
     public RestClient coinManageRestClient(RestClient.Builder builder, AppProperties properties) {
         return builder
                 .baseUrl(properties.coinManage().baseUrl())
-                .requestInterceptor((request, body, execution) -> {
-                    request.getHeaders().set("x-internal-api-key", properties.coinManage().apiKey());
-                    return execution.execute(request, body);
-                })
                 .build();
     }
 
@@ -60,10 +56,6 @@ public class InfrastructureFactoryConfig {
     public RestClient foxCoinRestClient(RestClient.Builder builder, AppProperties properties) {
         return builder
                 .baseUrl(properties.foxCoin().baseUrl())
-                .requestInterceptor((request, body, execution) -> {
-                    request.getHeaders().set("x-internal-api-key", properties.foxCoin().apiKey());
-                    return execution.execute(request, body);
-                })
                 .build();
     }
 
