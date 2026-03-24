@@ -42,6 +42,20 @@ public class JdbcOfflinePaymentProofRepository implements OfflinePaymentProofRep
             String channelType,
             String rawPayloadJson
     ) {
+        requireNonBlank(batchId, "batchId");
+        requireNonBlank(voucherId, "voucherId");
+        requireNonBlank(collateralId, "collateralId");
+        requireNonBlank(senderDeviceId, "senderDeviceId");
+        requireNonBlank(receiverDeviceId, "receiverDeviceId");
+        requireNonBlank(nonce, "nonce");
+        requireNonBlank(hashChainHead, "hashChainHead");
+        requireNonBlank(signature, "signature");
+        requirePositive(amount, "amount");
+        requirePositive(timestampMs, "timestampMs");
+        requireExpiresAfterTimestamp(timestampMs, expiresAtMs);
+        requireNonBlank(canonicalPayload, "canonicalPayload");
+        requireNonBlank(uploaderType, "uploaderType");
+        requireNonBlank(rawPayloadJson, "rawPayloadJson");
         String sql = QueryBuilder
                 .insert(
                         "offline_payment_proofs",
@@ -203,5 +217,29 @@ public class JdbcOfflinePaymentProofRepository implements OfflinePaymentProofRep
             throw new IllegalStateException("reasonCode is required for " + context);
         }
         return reasonCode;
+    }
+
+    private void requireNonBlank(String value, String fieldName) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException(fieldName + " is required");
+        }
+    }
+
+    private void requirePositive(BigDecimal value, String fieldName) {
+        if (value == null || value.signum() <= 0) {
+            throw new IllegalArgumentException(fieldName + " must be positive");
+        }
+    }
+
+    private void requirePositive(long value, String fieldName) {
+        if (value <= 0) {
+            throw new IllegalArgumentException(fieldName + " must be positive");
+        }
+    }
+
+    private void requireExpiresAfterTimestamp(long timestampMs, long expiresAtMs) {
+        if (expiresAtMs <= timestampMs) {
+            throw new IllegalArgumentException("expiresAtMs must be greater than timestampMs");
+        }
     }
 }

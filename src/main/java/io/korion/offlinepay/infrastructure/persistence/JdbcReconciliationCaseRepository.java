@@ -30,6 +30,10 @@ public class JdbcReconciliationCaseRepository implements ReconciliationCaseRepos
             String reasonCode,
             String detailJson
     ) {
+        requireNonBlank(batchId, "batchId");
+        requireNonBlank(caseType, "caseType");
+        requireNonNull(status, "status");
+        requireNonBlank(detailJson, "detailJson");
         String normalizedReasonCode = requireReasonCode(reasonCode, "reconciliation case");
         String sql = QueryBuilder.insert(
                         "reconciliation_cases",
@@ -99,5 +103,17 @@ public class JdbcReconciliationCaseRepository implements ReconciliationCaseRepos
             throw new IllegalStateException("reasonCode is required for " + context);
         }
         return reasonCode;
+    }
+
+    private void requireNonBlank(String value, String fieldName) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException(fieldName + " is required");
+        }
+    }
+
+    private void requireNonNull(Object value, String fieldName) {
+        if (value == null) {
+            throw new IllegalArgumentException(fieldName + " is required");
+        }
     }
 }
