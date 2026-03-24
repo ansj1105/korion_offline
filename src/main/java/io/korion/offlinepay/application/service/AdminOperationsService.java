@@ -10,6 +10,7 @@ import io.korion.offlinepay.application.port.ReconciliationCaseRepository;
 import io.korion.offlinepay.application.port.SettlementBatchEventBus;
 import io.korion.offlinepay.application.port.SettlementBatchRepository;
 import io.korion.offlinepay.application.port.SettlementConflictRepository;
+import io.korion.offlinepay.application.port.SettlementOutboxEventRepository;
 import io.korion.offlinepay.domain.model.CollateralOperation;
 import io.korion.offlinepay.domain.model.Device;
 import io.korion.offlinepay.domain.model.OfflineEventLog;
@@ -18,6 +19,7 @@ import io.korion.offlinepay.domain.model.ReconciliationCase;
 import io.korion.offlinepay.domain.model.SettlementBatch;
 import io.korion.offlinepay.domain.model.SettlementConflict;
 import io.korion.offlinepay.domain.model.SettlementConflictMetric;
+import io.korion.offlinepay.domain.model.SettlementOutboxEvent;
 import io.korion.offlinepay.domain.model.SettlementStatusMetric;
 import io.korion.offlinepay.domain.status.CollateralOperationStatus;
 import io.korion.offlinepay.domain.status.CollateralOperationType;
@@ -44,6 +46,7 @@ public class AdminOperationsService {
     private final OfflineEventLogRepository offlineEventLogRepository;
     private final OfflinePaymentProofRepository offlinePaymentProofRepository;
     private final ReconciliationCaseRepository reconciliationCaseRepository;
+    private final SettlementOutboxEventRepository settlementOutboxEventRepository;
     private final SettlementBatchEventBus settlementBatchEventBus;
     private final SettlementBatchFactory settlementBatchFactory;
     private final SettlementStreamEventFactory settlementStreamEventFactory;
@@ -56,6 +59,7 @@ public class AdminOperationsService {
             OfflineEventLogRepository offlineEventLogRepository,
             OfflinePaymentProofRepository offlinePaymentProofRepository,
             ReconciliationCaseRepository reconciliationCaseRepository,
+            SettlementOutboxEventRepository settlementOutboxEventRepository,
             SettlementBatchEventBus settlementBatchEventBus,
             SettlementBatchFactory settlementBatchFactory,
             SettlementStreamEventFactory settlementStreamEventFactory
@@ -67,6 +71,7 @@ public class AdminOperationsService {
         this.offlineEventLogRepository = offlineEventLogRepository;
         this.offlinePaymentProofRepository = offlinePaymentProofRepository;
         this.reconciliationCaseRepository = reconciliationCaseRepository;
+        this.settlementOutboxEventRepository = settlementOutboxEventRepository;
         this.settlementBatchEventBus = settlementBatchEventBus;
         this.settlementBatchFactory = settlementBatchFactory;
         this.settlementStreamEventFactory = settlementStreamEventFactory;
@@ -136,6 +141,21 @@ public class AdminOperationsService {
                 requestedBatchEvent.requestedAt()
         );
         return settlementBatchRepository.findById(batch.id()).orElseThrow();
+    }
+
+    @Transactional(readOnly = true)
+    public List<SettlementOutboxEvent> listOutboxEvents(int size, String eventType, String status) {
+        return settlementOutboxEventRepository.findRecent(size, eventType, status);
+    }
+
+    @Transactional(readOnly = true)
+    public Map<String, Long> getOutboxOverview() {
+        return Map.of(
+                "pending", settlementOutboxEventRepository.countByStatus("PENDING"),
+                "processing", settlementOutboxEventRepository.countByStatus("PROCESSING"),
+                "completed", settlementOutboxEventRepository.countByStatus("COMPLETED"),
+                "deadLetter", settlementOutboxEventRepository.countByStatus("DEAD_LETTER")
+        );
     }
 
     @Transactional(readOnly = true)

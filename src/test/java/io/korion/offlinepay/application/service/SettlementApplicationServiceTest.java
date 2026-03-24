@@ -252,6 +252,9 @@ class SettlementApplicationServiceTest {
                 OffsetDateTime.now(),
                 OffsetDateTime.now()
         );
+        long now = System.currentTimeMillis();
+        long expiresAt = now + 60_000;
+        String hash = spendingProofHashService.computeNewStateHash("GENESIS", new BigDecimal("10"), 1L, "device-1", "nonce-2");
         OfflinePaymentProof proof = new OfflinePaymentProof(
                 "proof-2",
                 "batch-2",
@@ -263,15 +266,25 @@ class SettlementApplicationServiceTest {
                 1,
                 1L,
                 "nonce-2",
-                spendingProofHashService.computeNewStateHash("GENESIS", new BigDecimal("10"), 1L, "device-1", "nonce-2"),
+                hash,
                 "GENESIS",
                 "local_sig_fake",
                 new BigDecimal("10"),
-                System.currentTimeMillis(),
-                System.currentTimeMillis() + 60_000,
-                "{}",
+                now,
+                expiresAt,
+                "{\"voucherId\":\"voucher-2\",\"deviceId\":\"device-1\",\"counterpartyDeviceId\":\"device-2\",\"amount\":\"10\",\"expiresAt\":\"9999999999999\",\"spendingProof\":{\"deviceId\":\"device-1\",\"amount\":\"10\",\"monotonicCounter\":\"1\",\"nonce\":\"nonce-2\",\"newStateHash\":\""
+                        + hash
+                        + "\",\"prevStateHash\":\"GENESIS\",\"signature\":\"local_sig_fake\",\"timestamp\":\""
+                        + now
+                        + "\"}}",
                 "SENDER",
-                "{\"deviceRegistrationId\":\"other-row\",\"signedUserId\":77,\"authMethod\":\"PIN\",\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"100\",\"uiMode\":\"SEND\",\"connectionType\":\"FAST_CONTACT\",\"paymentFlow\":\"FAST_PAYMENT\",\"senderAuthRequired\":true,\"ledgerExecutionMode\":\"INTERNAL_LEDGER_ONLY\",\"dualAmountEntered\":false}",
+                "{\"voucherId\":\"voucher-2\",\"deviceId\":\"device-1\",\"counterpartyDeviceId\":\"device-2\",\"amount\":\"10\",\"expiresAt\":\""
+                        + expiresAt
+                        + "\",\"spendingProof\":{\"deviceId\":\"device-1\",\"amount\":\"10\",\"monotonicCounter\":\"1\",\"nonce\":\"nonce-2\",\"newStateHash\":\""
+                        + hash
+                        + "\",\"prevStateHash\":\"GENESIS\",\"signature\":\"local_sig_fake\",\"timestamp\":\""
+                        + now
+                        + "\"},\"deviceRegistrationId\":\"other-row\",\"signedUserId\":77,\"authMethod\":\"PIN\",\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"100\",\"uiMode\":\"SEND\",\"connectionType\":\"FAST_CONTACT\",\"paymentFlow\":\"FAST_PAYMENT\",\"senderAuthRequired\":true,\"ledgerExecutionMode\":\"INTERNAL_LEDGER_ONLY\",\"dualAmountEntered\":false}",
                 OffsetDateTime.now()
         );
         Device device = new Device(
@@ -309,6 +322,16 @@ class SettlementApplicationServiceTest {
         verify(settlementRepository).update(anyString(), any(SettlementStatus.class), any(), anyBoolean(), anyString());
         assertEquals(SettlementStatus.REJECTED, result.status());
         assertTrue(result.settlementResultJson().contains("INVALID_DEVICE_BINDING"));
+        verify(reconciliationCaseRepository).save(
+                eq("settlement-2"),
+                eq("batch-2"),
+                eq("proof-2"),
+                eq("voucher-2"),
+                eq("DEVICE_INVALID"),
+                eq(io.korion.offlinepay.domain.status.ReconciliationCaseStatus.OPEN),
+                eq("INVALID_DEVICE_BINDING"),
+                anyString()
+        );
     }
 
     @Test

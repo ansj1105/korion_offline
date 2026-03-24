@@ -684,6 +684,22 @@ public class SettlementApplicationService {
         if (reasonCode != null && reasonCode.startsWith("PAYLOAD_")) {
             return "PAYLOAD_INVALID";
         }
+        if (OfflinePayReasonCode.DEVICE_NOT_FOUND.equals(reasonCode)
+                || OfflinePayReasonCode.INVALID_DEVICE_BINDING.equals(reasonCode)
+                || OfflinePayReasonCode.INVALID_DEVICE_SIGNATURE.equals(reasonCode)
+                || OfflinePayReasonCode.DEVICE_NOT_ACTIVE.equals(reasonCode)
+                || OfflinePayReasonCode.KEY_VERSION_MISMATCH.equals(reasonCode)) {
+            return "DEVICE_INVALID";
+        }
+        if (OfflinePayReasonCode.INVALID_STATE_HASH.equals(reasonCode)
+                || OfflinePayReasonCode.INVALID_GENESIS_COUNTER.equals(reasonCode)
+                || OfflinePayReasonCode.INVALID_GENESIS_LINK.equals(reasonCode)
+                || OfflinePayReasonCode.COUNTER_GAP.equals(reasonCode)
+                || OfflinePayReasonCode.INVALID_PREVIOUS_HASH.equals(reasonCode)
+                || OfflinePayReasonCode.PROOF_EXPIRED.equals(reasonCode)
+                || OfflinePayReasonCode.COLLATERAL_EXPIRED.equals(reasonCode)) {
+            return "CHAIN_INVALID";
+        }
         if (evaluation.conflictDetected()) {
             return "CONFLICT";
         }

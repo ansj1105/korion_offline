@@ -37,6 +37,20 @@ public class AdminSyncController {
         return adminOperationsService.getOfflineEventOverview(size, assetCode);
     }
 
+    @GetMapping("/outbox")
+    public Object listOutbox(
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String eventType,
+            @RequestParam(required = false) String status
+    ) {
+        return Map.of("items", adminOperationsService.listOutboxEvents(size, eventType, status));
+    }
+
+    @GetMapping("/outbox/overview")
+    public Object outboxOverview() {
+        return adminOperationsService.getOutboxOverview();
+    }
+
     @GetMapping("/batches/dead-letters")
     public Object listDeadLetters(
             @RequestParam(defaultValue = "20") int size,
