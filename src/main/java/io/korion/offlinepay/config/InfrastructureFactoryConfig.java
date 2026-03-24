@@ -11,10 +11,10 @@ import io.korion.offlinepay.infrastructure.adapter.CoinManageSettlementAdapter;
 import io.korion.offlinepay.infrastructure.adapter.CircuitBreakingCoinManageSettlementAdapter;
 import io.korion.offlinepay.infrastructure.adapter.CircuitBreakingFoxCoinHistoryAdapter;
 import io.korion.offlinepay.infrastructure.adapter.FoxCoinHistoryAdapter;
-import io.korion.offlinepay.infrastructure.events.RedisSettlementBatchEventBus;
+import io.korion.offlinepay.infrastructure.events.JdbcSettlementBatchEventBus;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.web.client.RestClient;
 
 @Configuration
@@ -99,8 +99,12 @@ public class InfrastructureFactoryConfig {
     }
 
     @Bean
-    public SettlementBatchEventBus settlementBatchEventBus(StringRedisTemplate redisTemplate, AppProperties properties) {
-        return new RedisSettlementBatchEventBus(redisTemplate, properties);
+    public SettlementBatchEventBus settlementBatchEventBus(
+            JdbcClient jdbcClient,
+            AppProperties properties,
+            TelegramAlertService telegramAlertService
+    ) {
+        return new JdbcSettlementBatchEventBus(jdbcClient, properties, telegramAlertService);
     }
 
     private int resolveFailureThreshold(AppProperties properties) {
