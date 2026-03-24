@@ -4,6 +4,8 @@ import io.korion.offlinepay.application.port.SettlementBatchEventBus;
 import io.korion.offlinepay.application.service.TelegramAlertService;
 import io.korion.offlinepay.config.AppProperties;
 import io.korion.offlinepay.domain.reason.OfflinePayReasonCode;
+import io.korion.offlinepay.domain.status.OfflineWorkflowEventType;
+import io.korion.offlinepay.domain.status.OfflineWorkflowStage;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -13,16 +15,6 @@ import java.util.Map;
 import org.springframework.jdbc.core.simple.JdbcClient;
 
 public class JdbcSettlementBatchEventBus implements SettlementBatchEventBus {
-
-    private static final String EVENT_BATCH_REQUESTED = "BATCH_REQUESTED";
-    private static final String EVENT_BATCH_RESULT = "BATCH_RESULT";
-    private static final String EVENT_CONFLICT = "CONFLICT";
-    private static final String EVENT_BATCH_DEAD_LETTER = "BATCH_DEAD_LETTER";
-    private static final String EVENT_LEDGER_SYNC_REQUESTED = "LEDGER_SYNC_REQUESTED";
-    private static final String EVENT_HISTORY_SYNC_REQUESTED = "HISTORY_SYNC_REQUESTED";
-    private static final String EVENT_EXTERNAL_SYNC_DEAD_LETTER = "EXTERNAL_SYNC_DEAD_LETTER";
-    private static final String EVENT_COLLATERAL_REQUESTED = "COLLATERAL_REQUESTED";
-    private static final String EVENT_COLLATERAL_RESULT = "COLLATERAL_RESULT";
 
     private static final String STATUS_PENDING = "PENDING";
     private static final String STATUS_PROCESSING = "PROCESSING";
@@ -46,7 +38,7 @@ public class JdbcSettlementBatchEventBus implements SettlementBatchEventBus {
     @Override
     public void publishBatchRequested(String batchId, String uploaderType, String uploaderDeviceId, String requestedAt) {
         insertEvent(
-                EVENT_BATCH_REQUESTED,
+                OfflineWorkflowEventType.BATCH_REQUESTED.name(),
                 STATUS_PENDING,
                 batchId,
                 uploaderType,
@@ -59,7 +51,8 @@ public class JdbcSettlementBatchEventBus implements SettlementBatchEventBus {
                         "batchId", batchId,
                         "uploaderType", uploaderType,
                         "uploaderDeviceId", uploaderDeviceId,
-                        "requestedAt", requestedAt
+                        "requestedAt", requestedAt,
+                        "workflowStage", OfflineWorkflowStage.SETTLEMENT_ACCEPTED.name()
                 )),
                 null,
                 null
@@ -89,7 +82,7 @@ public class JdbcSettlementBatchEventBus implements SettlementBatchEventBus {
                 RETURNING event.id, event.batch_id, event.uploader_type, event.uploader_device_id
                 """;
         return jdbcClient.sql(sql)
-                .param("eventType", EVENT_BATCH_REQUESTED)
+                .param("eventType", OfflineWorkflowEventType.BATCH_REQUESTED.name())
                 .param("pendingStatus", STATUS_PENDING)
                 .param("processingStatus", STATUS_PROCESSING)
                 .param("lockOwner", properties.worker().consumerName())
@@ -128,7 +121,7 @@ public class JdbcSettlementBatchEventBus implements SettlementBatchEventBus {
                 """;
         Timestamp reclaimBefore = Timestamp.from(Instant.now().minusMillis(minIdleMillis));
         return jdbcClient.sql(sql)
-                .param("eventType", EVENT_BATCH_REQUESTED)
+                .param("eventType", OfflineWorkflowEventType.BATCH_REQUESTED.name())
                 .param("processingStatus", STATUS_PROCESSING)
                 .param("lockOwner", properties.worker().consumerName())
                 .param("reclaimBefore", reclaimBefore)
@@ -145,7 +138,7 @@ public class JdbcSettlementBatchEventBus implements SettlementBatchEventBus {
     @Override
     public void publishBatchResult(String batchId, String status, int settledCount, int failedCount, String processedAt) {
         insertEvent(
-                EVENT_BATCH_RESULT,
+                OfflineWorkflowEventType.BATCH_RESULT.name(),
                 STATUS_COMPLETED,
                 batchId,
                 null,
@@ -159,7 +152,10 @@ public class JdbcSettlementBatchEventBus implements SettlementBatchEventBus {
                         "status", status,
                         "settledCount", settledCount,
                         "failedCount", failedCount,
-                        "processedAt", processedAt
+                        "processedAt", processedAt,
+                        "workflowStage", STATUS_COMPLETED.equals(status)
+                                ? OfflineWorkflowStage.LEDGER_SYNCED.name()
+                                : OfflineWorkflowStage.FAILED.name()
                 )),
                 null,
                 null
@@ -186,7 +182,13 @@ public class JdbcSettlementBatchEventBus implements SettlementBatchEventBus {
                 null,
                 settlementId,
                 payloadJson == null || payloadJson.isBlank()
-                        ? json(Map.of("settlementId", settlementId, "batchId", batchId, "proofId", proofId, "requestedAt", requestedAt))
+                        ? json(Map.of(
+                                "settlementId", settlementId,
+                                "batchId", batchId,
+                                "proofId", proofId,
+                                "requestedAt", requestedAt,
+                                "workflowStage", OfflineWorkflowStage.SERVER_ACCEPTED.name()
+                        ))
                         : payloadJson,
                 null,
                 null
@@ -216,8 +218,8 @@ public class JdbcSettlementBatchEventBus implements SettlementBatchEventBus {
                 RETURNING event.id, event.event_type, event.reference_id, event.batch_id, event.operation_id, event.payload, event.attempts
                 """;
         return jdbcClient.sql(sql)
-                .param("ledgerEventType", EVENT_LEDGER_SYNC_REQUESTED)
-                .param("historyEventType", EVENT_HISTORY_SYNC_REQUESTED)
+                .param("ledgerEventType", OfflineWorkflowEventType.LEDGER_SYNC_REQUESTED.name())
+                .param("historyEventType", OfflineWorkflowEventType.HISTORY_SYNC_REQUESTED.name())
                 .param("pendingStatus", STATUS_PENDING)
                 .param("processingStatus", STATUS_PROCESSING)
                 .param("lockOwner", properties.worker().consumerName())
@@ -259,8 +261,8 @@ public class JdbcSettlementBatchEventBus implements SettlementBatchEventBus {
                 """;
         Timestamp reclaimBefore = Timestamp.from(Instant.now().minusMillis(minIdleMillis));
         return jdbcClient.sql(sql)
-                .param("ledgerEventType", EVENT_LEDGER_SYNC_REQUESTED)
-                .param("historyEventType", EVENT_HISTORY_SYNC_REQUESTED)
+                .param("ledgerEventType", OfflineWorkflowEventType.LEDGER_SYNC_REQUESTED.name())
+                .param("historyEventType", OfflineWorkflowEventType.HISTORY_SYNC_REQUESTED.name())
                 .param("processingStatus", STATUS_PROCESSING)
                 .param("lockOwner", properties.worker().consumerName())
                 .param("reclaimBefore", reclaimBefore)
@@ -289,7 +291,7 @@ public class JdbcSettlementBatchEventBus implements SettlementBatchEventBus {
             String failedAt
     ) {
         insertEvent(
-                EVENT_EXTERNAL_SYNC_DEAD_LETTER,
+                OfflineWorkflowEventType.EXTERNAL_SYNC_DEAD_LETTER.name(),
                 STATUS_DEAD_LETTER,
                 batchId,
                 null,
@@ -305,7 +307,8 @@ public class JdbcSettlementBatchEventBus implements SettlementBatchEventBus {
                         "proofId", proofId,
                         "attemptCount", attemptCount,
                         "failedAt", failedAt,
-                        "errorMessage", normalize(errorMessage)
+                        "errorMessage", normalize(errorMessage),
+                        "workflowStage", OfflineWorkflowStage.DEAD_LETTERED.name()
                 )),
                 reasonCode,
                 errorMessage
@@ -330,7 +333,7 @@ public class JdbcSettlementBatchEventBus implements SettlementBatchEventBus {
             String createdAt
     ) {
         insertEvent(
-                EVENT_CONFLICT,
+                OfflineWorkflowEventType.CONFLICT.name(),
                 STATUS_COMPLETED,
                 batchId,
                 null,
@@ -345,7 +348,8 @@ public class JdbcSettlementBatchEventBus implements SettlementBatchEventBus {
                         "collateralId", collateralId,
                         "conflictType", conflictType,
                         "severity", severity,
-                        "createdAt", createdAt
+                        "createdAt", createdAt,
+                        "workflowStage", OfflineWorkflowStage.FAILED.name()
                 )),
                 null,
                 null
@@ -355,7 +359,7 @@ public class JdbcSettlementBatchEventBus implements SettlementBatchEventBus {
     @Override
     public void publishDeadLetter(String batchId, int attemptCount, String errorMessage, String failedAt) {
         insertEvent(
-                EVENT_BATCH_DEAD_LETTER,
+                OfflineWorkflowEventType.BATCH_DEAD_LETTER.name(),
                 STATUS_DEAD_LETTER,
                 batchId,
                 null,
@@ -368,7 +372,8 @@ public class JdbcSettlementBatchEventBus implements SettlementBatchEventBus {
                         "batchId", batchId,
                         "attemptCount", attemptCount,
                         "errorMessage", errorMessage,
-                        "failedAt", failedAt
+                        "failedAt", failedAt,
+                        "workflowStage", OfflineWorkflowStage.DEAD_LETTERED.name()
                 )),
                 OfflinePayReasonCode.BATCH_SYNC_FAIL,
                 errorMessage
@@ -388,7 +393,7 @@ public class JdbcSettlementBatchEventBus implements SettlementBatchEventBus {
             String requestedAt
     ) {
         insertEvent(
-                EVENT_COLLATERAL_REQUESTED,
+                OfflineWorkflowEventType.COLLATERAL_REQUESTED.name(),
                 STATUS_PENDING,
                 null,
                 null,
@@ -402,7 +407,8 @@ public class JdbcSettlementBatchEventBus implements SettlementBatchEventBus {
                         "operationType", operationType,
                         "assetCode", assetCode,
                         "referenceId", referenceId,
-                        "requestedAt", requestedAt
+                        "requestedAt", requestedAt,
+                        "workflowStage", OfflineWorkflowStage.SERVER_ACCEPTED.name()
                 )),
                 null,
                 null
@@ -421,7 +427,7 @@ public class JdbcSettlementBatchEventBus implements SettlementBatchEventBus {
             String reasonCode
     ) {
         insertEvent(
-                EVENT_COLLATERAL_RESULT,
+                OfflineWorkflowEventType.COLLATERAL_RESULT.name(),
                 STATUS_COMPLETED,
                 null,
                 null,
@@ -437,7 +443,8 @@ public class JdbcSettlementBatchEventBus implements SettlementBatchEventBus {
                         "assetCode", assetCode,
                         "referenceId", referenceId,
                         "processedAt", processedAt,
-                        "errorMessage", normalize(errorMessage)
+                        "errorMessage", normalize(errorMessage),
+                        "workflowStage", resolveCollateralResultStage(operationType, status)
                 )),
                 reasonCode,
                 errorMessage
@@ -467,7 +474,7 @@ public class JdbcSettlementBatchEventBus implements SettlementBatchEventBus {
                 RETURNING event.id, event.operation_id, event.operation_type, event.asset_code, event.reference_id, event.attempts
                 """;
         return jdbcClient.sql(sql)
-                .param("eventType", EVENT_COLLATERAL_REQUESTED)
+                .param("eventType", OfflineWorkflowEventType.COLLATERAL_REQUESTED.name())
                 .param("pendingStatus", STATUS_PENDING)
                 .param("processingStatus", STATUS_PROCESSING)
                 .param("lockOwner", properties.worker().consumerName())
@@ -508,7 +515,7 @@ public class JdbcSettlementBatchEventBus implements SettlementBatchEventBus {
                 """;
         Timestamp reclaimBefore = Timestamp.from(Instant.now().minusMillis(minIdleMillis));
         return jdbcClient.sql(sql)
-                .param("eventType", EVENT_COLLATERAL_REQUESTED)
+                .param("eventType", OfflineWorkflowEventType.COLLATERAL_REQUESTED.name())
                 .param("processingStatus", STATUS_PROCESSING)
                 .param("lockOwner", properties.worker().consumerName())
                 .param("reclaimBefore", reclaimBefore)
@@ -639,10 +646,21 @@ public class JdbcSettlementBatchEventBus implements SettlementBatchEventBus {
     }
 
     private String normalizeExternalSyncEventType(String eventType) {
-        if (EVENT_LEDGER_SYNC_REQUESTED.equals(eventType) || EVENT_HISTORY_SYNC_REQUESTED.equals(eventType)) {
+        if (OfflineWorkflowEventType.LEDGER_SYNC_REQUESTED.name().equals(eventType)
+                || OfflineWorkflowEventType.HISTORY_SYNC_REQUESTED.name().equals(eventType)) {
             return eventType;
         }
         throw new IllegalArgumentException("unsupported external sync eventType: " + eventType);
+    }
+
+    private String resolveCollateralResultStage(String operationType, String status) {
+        if (!STATUS_COMPLETED.equals(status)) {
+            return OfflineWorkflowStage.FAILED.name();
+        }
+        if ("RELEASE".equalsIgnoreCase(operationType)) {
+            return OfflineWorkflowStage.COLLATERAL_RELEASED.name();
+        }
+        return OfflineWorkflowStage.COLLATERAL_LOCKED.name();
     }
 
     private String json(Map<String, ?> payload) {

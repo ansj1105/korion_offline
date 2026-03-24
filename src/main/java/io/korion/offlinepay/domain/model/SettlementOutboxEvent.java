@@ -19,4 +19,26 @@ public record SettlementOutboxEvent(
         String errorMessage,
         OffsetDateTime createdAt,
         OffsetDateTime updatedAt
-) {}
+) {
+
+    public String getWorkflowStage() {
+        return extractPayloadValue("workflowStage");
+    }
+
+    private String extractPayloadValue(String fieldName) {
+        if (payloadJson == null || payloadJson.isBlank()) {
+            return "";
+        }
+        String token = "\"" + fieldName + "\":\"";
+        int start = payloadJson.indexOf(token);
+        if (start < 0) {
+            return "";
+        }
+        int valueStart = start + token.length();
+        int valueEnd = payloadJson.indexOf('"', valueStart);
+        if (valueEnd < 0) {
+            return "";
+        }
+        return payloadJson.substring(valueStart, valueEnd);
+    }
+}

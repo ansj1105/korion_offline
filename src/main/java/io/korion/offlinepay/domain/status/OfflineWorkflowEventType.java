@@ -1,0 +1,13 @@
+package io.korion.offlinepay.domain.status;
+
+public enum OfflineWorkflowEventType {
+    BATCH_REQUESTED,
+    BATCH_RESULT,
+    CONFLICT,
+    BATCH_DEAD_LETTER,
+    LEDGER_SYNC_REQUESTED,
+    HISTORY_SYNC_REQUESTED,
+    EXTERNAL_SYNC_DEAD_LETTER,
+    COLLATERAL_REQUESTED,
+    COLLATERAL_RESULT
+}

@@ -10,6 +10,7 @@ import io.korion.offlinepay.domain.model.ReconciliationCase;
 import io.korion.offlinepay.domain.policy.OfflineFailureClass;
 import io.korion.offlinepay.domain.policy.OfflineFailurePolicy;
 import io.korion.offlinepay.domain.reason.OfflinePayReasonCode;
+import io.korion.offlinepay.domain.status.OfflineWorkflowEventType;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -19,9 +20,6 @@ import org.springframework.stereotype.Component;
 
 @Component
 public class SettlementExternalSyncWorker {
-
-    private static final String EVENT_LEDGER_SYNC_REQUESTED = "LEDGER_SYNC_REQUESTED";
-    private static final String EVENT_HISTORY_SYNC_REQUESTED = "HISTORY_SYNC_REQUESTED";
 
     private final SettlementBatchEventBus eventBus;
     private final CoinManageSettlementPort coinManageSettlementPort;
@@ -89,7 +87,7 @@ public class SettlementExternalSyncWorker {
 
     private void process(SettlementBatchEventBus.QueuedExternalSyncMessage message) {
         JsonNode payload = jsonService.readTree(message.payloadJson());
-        if (EVENT_LEDGER_SYNC_REQUESTED.equals(message.eventType())) {
+        if (OfflineWorkflowEventType.LEDGER_SYNC_REQUESTED.name().equals(message.eventType())) {
             CoinManageSettlementPort.SettlementLedgerCommand command = toLedgerCommand(payload.path("ledgerCommand"));
             coinManageSettlementPort.finalizeSettlement(command);
             resolveReconciliationCases(
@@ -99,7 +97,7 @@ public class SettlementExternalSyncWorker {
                     message.eventType()
             );
             eventBus.publishExternalSyncRequested(
-                    EVENT_HISTORY_SYNC_REQUESTED,
+                    OfflineWorkflowEventType.HISTORY_SYNC_REQUESTED.name(),
                     message.settlementId(),
                     message.batchId(),
                     message.proofId(),
@@ -115,7 +113,7 @@ public class SettlementExternalSyncWorker {
             return;
         }
 
-        if (EVENT_HISTORY_SYNC_REQUESTED.equals(message.eventType())) {
+        if (OfflineWorkflowEventType.HISTORY_SYNC_REQUESTED.name().equals(message.eventType())) {
             FoxCoinHistoryPort.SettlementHistoryCommand command = toHistoryCommand(payload.path("historyCommand"));
             foxCoinHistoryPort.recordSettlementHistory(command);
             resolveReconciliationCases(
@@ -214,10 +212,10 @@ public class SettlementExternalSyncWorker {
 
     private String resolveFailureCaseType(String eventType, RuntimeException exception) {
         boolean circuitOpen = isCircuitOpen(exception);
-        if (EVENT_LEDGER_SYNC_REQUESTED.equals(eventType)) {
+        if (OfflineWorkflowEventType.LEDGER_SYNC_REQUESTED.name().equals(eventType)) {
             return circuitOpen ? "LEDGER_CIRCUIT_OPEN" : "LEDGER_SYNC_FAILED";
         }
-        if (EVENT_HISTORY_SYNC_REQUESTED.equals(eventType)) {
+        if (OfflineWorkflowEventType.HISTORY_SYNC_REQUESTED.name().equals(eventType)) {
             return circuitOpen ? "HISTORY_CIRCUIT_OPEN" : "HISTORY_SYNC_FAILED";
         }
         return "FAILED_SETTLEMENT";
@@ -225,17 +223,17 @@ public class SettlementExternalSyncWorker {
 
     private String resolveFailureReasonCode(String eventType, RuntimeException exception) {
         boolean circuitOpen = isCircuitOpen(exception);
-        if (EVENT_LEDGER_SYNC_REQUESTED.equals(eventType)) {
+        if (OfflineWorkflowEventType.LEDGER_SYNC_REQUESTED.name().equals(eventType)) {
             return circuitOpen ? OfflinePayReasonCode.LEDGER_CIRCUIT_OPEN : OfflinePayReasonCode.LEDGER_SYNC_FAIL;
         }
-        if (EVENT_HISTORY_SYNC_REQUESTED.equals(eventType)) {
+        if (OfflineWorkflowEventType.HISTORY_SYNC_REQUESTED.name().equals(eventType)) {
             return circuitOpen ? OfflinePayReasonCode.HISTORY_CIRCUIT_OPEN : OfflinePayReasonCode.HISTORY_SYNC_FAIL;
         }
         return OfflinePayReasonCode.SETTLEMENT_FAIL;
     }
 
     private String resolveSyncTarget(String eventType) {
-        return EVENT_LEDGER_SYNC_REQUESTED.equals(eventType) ? "COIN_MANAGE_LEDGER" : "FOXYA_HISTORY";
+        return OfflineWorkflowEventType.LEDGER_SYNC_REQUESTED.name().equals(eventType) ? "COIN_MANAGE_LEDGER" : "FOXYA_HISTORY";
     }
 
     private boolean isCircuitOpen(RuntimeException exception) {
