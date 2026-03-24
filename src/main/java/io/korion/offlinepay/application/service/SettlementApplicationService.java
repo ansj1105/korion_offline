@@ -729,7 +729,9 @@ public class SettlementApplicationService {
                         "batchId", batch.id(),
                         "settledCount", settledCount,
                         "failedCount", failedCount,
-                        "hasConflict", hasConflict
+                        "hasConflict", hasConflict,
+                        "retryable", true,
+                        "nextAction", "REVIEW_AND_RETRY_FAILED_SETTLEMENTS"
                 ))
         );
     }
@@ -741,6 +743,7 @@ public class SettlementApplicationService {
             String reasonCode,
             Map<String, Object> detail
     ) {
+        String syncTarget = resolveExternalSyncTarget(caseType);
         reconciliationCaseRepository.save(
                 request.id(),
                 request.batchId(),
@@ -749,8 +752,26 @@ public class SettlementApplicationService {
                 caseType,
                 ReconciliationCaseStatus.OPEN,
                 requireReasonCode(reasonCode, "external sync reconciliation"),
-                jsonService.write(detail)
+                jsonService.write(mergeDetail(detail, Map.of(
+                        "retryable", true,
+                        "nextAction", "RETRY_EXTERNAL_SYNC",
+                        "syncTarget", syncTarget
+                )))
         );
+    }
+
+    private Map<String, Object> mergeDetail(Map<String, Object> base, Map<String, Object> extra) {
+        java.util.LinkedHashMap<String, Object> merged = new java.util.LinkedHashMap<>(base);
+        merged.putAll(extra);
+        return merged;
+    }
+
+    private String resolveExternalSyncTarget(String caseType) {
+        return switch (caseType) {
+            case "LEDGER_SYNC_FAILED", "LEDGER_CIRCUIT_OPEN" -> "COIN_MANAGE_LEDGER";
+            case "HISTORY_SYNC_FAILED", "HISTORY_CIRCUIT_OPEN" -> "FOXYA_HISTORY";
+            default -> "UNKNOWN";
+        };
     }
 
     private boolean isCircuitOpen(RuntimeException exception) {
