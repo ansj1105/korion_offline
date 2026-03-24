@@ -60,6 +60,27 @@ public class JdbcDeviceRepository implements DeviceRepository {
     }
 
     @Override
+    public Device refreshRegistration(long userId, String deviceId, String publicKey, int keyVersion, String metadataJson) {
+        String sql = QueryBuilder.update("devices")
+                .set("user_id", ":userId")
+                .set("public_key", ":publicKey")
+                .set("key_version", ":keyVersion")
+                .set("status", "'ACTIVE'")
+                .set("metadata", "CAST(:metadata AS jsonb)")
+                .touchUpdatedAt()
+                .where("device_id", QueryBuilder.Op.EQ, ":deviceId")
+                .build();
+        jdbcClient.sql(sql)
+                .param("userId", userId)
+                .param("publicKey", publicKey)
+                .param("keyVersion", keyVersion)
+                .param("metadata", metadataJson)
+                .param("deviceId", deviceId)
+                .update();
+        return findByDeviceId(deviceId).orElseThrow();
+    }
+
+    @Override
     public List<Device> findRecent(int size, DeviceStatus status) {
         QueryBuilder.SelectBuilder builder = QueryBuilder
                 .select("devices", "id", "device_id", "user_id", "public_key", "key_version", "status", "metadata", "created_at", "updated_at");

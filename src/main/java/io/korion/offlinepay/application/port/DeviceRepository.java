@@ -13,6 +13,8 @@ public interface DeviceRepository {
 
     List<Device> findActiveByUserId(long userId);
 
+    Device refreshRegistration(long userId, String deviceId, String publicKey, int keyVersion, String metadataJson);
+
     List<Device> findRecent(int size, DeviceStatus status);
 
     Device save(long userId, String deviceId, String publicKey, int keyVersion, String metadataJson);

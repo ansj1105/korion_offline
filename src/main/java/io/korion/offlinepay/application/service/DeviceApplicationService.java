@@ -26,6 +26,23 @@ public class DeviceApplicationService {
     @Transactional
     public Device registerDevice(RegisterDeviceCommand command) {
         Device registered = deviceRepository.findByDeviceId(command.deviceId())
+                .map(existing -> {
+                    if (existing.userId() != command.userId()) {
+                        throw new IllegalArgumentException("device already belongs to another user: " + command.deviceId());
+                    }
+                    if (!existing.publicKey().equals(command.publicKey())
+                            || existing.keyVersion() != command.keyVersion()
+                            || existing.status() != io.korion.offlinepay.domain.status.DeviceStatus.ACTIVE) {
+                        return deviceRepository.refreshRegistration(
+                                command.userId(),
+                                command.deviceId(),
+                                command.publicKey(),
+                                command.keyVersion(),
+                                jsonService.write(command.metadata())
+                        );
+                    }
+                    return existing;
+                })
                 .orElseGet(() -> deviceRepository.save(
                         command.userId(),
                         command.deviceId(),
