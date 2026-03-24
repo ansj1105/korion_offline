@@ -5,6 +5,8 @@ import io.korion.offlinepay.application.factory.SettlementStreamEventFactory;
 import io.korion.offlinepay.application.port.CollateralOperationRepository;
 import io.korion.offlinepay.application.port.DeviceRepository;
 import io.korion.offlinepay.application.port.OfflineEventLogRepository;
+import io.korion.offlinepay.application.port.OfflineSagaRepository;
+import io.korion.offlinepay.application.port.OfflineWorkflowStateRepository;
 import io.korion.offlinepay.application.port.OfflinePaymentProofRepository;
 import io.korion.offlinepay.application.port.ReconciliationCaseRepository;
 import io.korion.offlinepay.application.port.SettlementBatchEventBus;
@@ -14,7 +16,9 @@ import io.korion.offlinepay.application.port.SettlementOutboxEventRepository;
 import io.korion.offlinepay.domain.model.CollateralOperation;
 import io.korion.offlinepay.domain.model.Device;
 import io.korion.offlinepay.domain.model.OfflineEventLog;
+import io.korion.offlinepay.domain.model.OfflineSaga;
 import io.korion.offlinepay.domain.model.OfflinePaymentProof;
+import io.korion.offlinepay.domain.model.OfflineWorkflowState;
 import io.korion.offlinepay.domain.model.ReconciliationCase;
 import io.korion.offlinepay.domain.model.SettlementBatch;
 import io.korion.offlinepay.domain.model.SettlementConflict;
@@ -27,6 +31,8 @@ import io.korion.offlinepay.domain.status.DeviceStatus;
 import io.korion.offlinepay.domain.status.OfflineEventStatus;
 import io.korion.offlinepay.domain.status.OfflineEventType;
 import io.korion.offlinepay.domain.status.OfflineProofStatus;
+import io.korion.offlinepay.domain.status.OfflineSagaStatus;
+import io.korion.offlinepay.domain.status.OfflineSagaType;
 import io.korion.offlinepay.domain.status.ReconciliationCaseStatus;
 import io.korion.offlinepay.domain.status.SettlementBatchStatus;
 import java.time.OffsetDateTime;
@@ -44,6 +50,8 @@ public class AdminOperationsService {
     private final CollateralOperationRepository collateralOperationRepository;
     private final DeviceRepository deviceRepository;
     private final OfflineEventLogRepository offlineEventLogRepository;
+    private final OfflineWorkflowStateRepository offlineWorkflowStateRepository;
+    private final OfflineSagaRepository offlineSagaRepository;
     private final OfflinePaymentProofRepository offlinePaymentProofRepository;
     private final ReconciliationCaseRepository reconciliationCaseRepository;
     private final SettlementOutboxEventRepository settlementOutboxEventRepository;
@@ -58,6 +66,8 @@ public class AdminOperationsService {
             CollateralOperationRepository collateralOperationRepository,
             DeviceRepository deviceRepository,
             OfflineEventLogRepository offlineEventLogRepository,
+            OfflineWorkflowStateRepository offlineWorkflowStateRepository,
+            OfflineSagaRepository offlineSagaRepository,
             OfflinePaymentProofRepository offlinePaymentProofRepository,
             ReconciliationCaseRepository reconciliationCaseRepository,
             SettlementOutboxEventRepository settlementOutboxEventRepository,
@@ -71,6 +81,8 @@ public class AdminOperationsService {
         this.collateralOperationRepository = collateralOperationRepository;
         this.deviceRepository = deviceRepository;
         this.offlineEventLogRepository = offlineEventLogRepository;
+        this.offlineWorkflowStateRepository = offlineWorkflowStateRepository;
+        this.offlineSagaRepository = offlineSagaRepository;
         this.offlinePaymentProofRepository = offlinePaymentProofRepository;
         this.reconciliationCaseRepository = reconciliationCaseRepository;
         this.settlementOutboxEventRepository = settlementOutboxEventRepository;
@@ -371,6 +383,20 @@ public class AdminOperationsService {
     }
 
     @Transactional(readOnly = true)
+    public List<OfflineWorkflowState> listWorkflowStates(int size, String workflowType, String workflowStage) {
+        return offlineWorkflowStateRepository.findRecent(size, workflowType, workflowStage);
+    }
+
+    @Transactional(readOnly = true)
+    public List<OfflineSaga> listSagas(int size, String sagaType, String status) {
+        return offlineSagaRepository.findRecent(
+                size,
+                parseOfflineSagaType(sagaType),
+                parseOfflineSagaStatus(status)
+        );
+    }
+
+    @Transactional(readOnly = true)
     public List<ReconciliationCase> listReconciliationCases(
             int size,
             String status,
@@ -663,6 +689,28 @@ public class AdminOperationsService {
             return ReconciliationCaseStatus.valueOf(status.trim().toUpperCase());
         } catch (IllegalArgumentException ignored) {
             return null;
+        }
+    }
+
+    private OfflineSagaType parseOfflineSagaType(String sagaType) {
+        if (sagaType == null || sagaType.isBlank()) {
+            return null;
+        }
+        try {
+            return OfflineSagaType.valueOf(sagaType.trim().toUpperCase());
+        } catch (IllegalArgumentException exception) {
+            throw new IllegalArgumentException("unsupported sagaType: " + sagaType);
+        }
+    }
+
+    private OfflineSagaStatus parseOfflineSagaStatus(String status) {
+        if (status == null || status.isBlank()) {
+            return null;
+        }
+        try {
+            return OfflineSagaStatus.valueOf(status.trim().toUpperCase());
+        } catch (IllegalArgumentException exception) {
+            throw new IllegalArgumentException("unsupported saga status: " + status);
         }
     }
 

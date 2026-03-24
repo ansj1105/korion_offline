@@ -46,6 +46,28 @@ public class AdminAnomalyController {
         );
     }
 
+    @GetMapping("/workflow-states")
+    public Object listWorkflowStates(
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String workflowType,
+            @RequestParam(required = false) String workflowStage
+    ) {
+        return Map.of(
+                "items", adminOperationsService.listWorkflowStates(size, workflowType, workflowStage)
+        );
+    }
+
+    @GetMapping("/sagas")
+    public Object listSagas(
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String sagaType,
+            @RequestParam(required = false) String status
+    ) {
+        return Map.of(
+                "items", adminOperationsService.listSagas(size, sagaType, status)
+        );
+    }
+
     @PostMapping("/reconciliation-cases/{caseId}/retry")
     public Object retryReconciliationCase(@PathVariable String caseId) {
         return Map.of(
