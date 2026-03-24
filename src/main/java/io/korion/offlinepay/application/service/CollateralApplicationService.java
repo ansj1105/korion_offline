@@ -1,6 +1,5 @@
 package io.korion.offlinepay.application.service;
 
-import io.korion.offlinepay.application.port.CoinManageCollateralPort;
 import io.korion.offlinepay.application.port.CollateralOperationRepository;
 import io.korion.offlinepay.application.port.CollateralRepository;
 import io.korion.offlinepay.application.port.DeviceRepository;
@@ -9,10 +8,8 @@ import io.korion.offlinepay.domain.model.CollateralOperation;
 import io.korion.offlinepay.domain.status.CollateralOperationType;
 import io.korion.offlinepay.config.AppProperties;
 import io.korion.offlinepay.domain.model.CollateralLock;
-import io.korion.offlinepay.domain.reason.OfflinePayReasonCode;
 import io.korion.offlinepay.domain.status.CollateralStatus;
 import java.math.BigDecimal;
-import java.time.OffsetDateTime;
 import java.util.Map;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,34 +20,28 @@ public class CollateralApplicationService {
     private final DeviceRepository deviceRepository;
     private final CollateralRepository collateralRepository;
     private final CollateralOperationRepository collateralOperationRepository;
-    private final CoinManageCollateralPort coinManageCollateralPort;
     private final SettlementBatchEventBus settlementBatchEventBus;
     private final JsonService jsonService;
     private final AppProperties properties;
-    private final OfflineSnapshotStreamService offlineSnapshotStreamService;
 
     public CollateralApplicationService(
             DeviceRepository deviceRepository,
             CollateralRepository collateralRepository,
             CollateralOperationRepository collateralOperationRepository,
-            CoinManageCollateralPort coinManageCollateralPort,
             SettlementBatchEventBus settlementBatchEventBus,
             JsonService jsonService,
-            AppProperties properties,
-            OfflineSnapshotStreamService offlineSnapshotStreamService
+            AppProperties properties
     ) {
         this.deviceRepository = deviceRepository;
         this.collateralRepository = collateralRepository;
         this.collateralOperationRepository = collateralOperationRepository;
-        this.coinManageCollateralPort = coinManageCollateralPort;
         this.settlementBatchEventBus = settlementBatchEventBus;
         this.jsonService = jsonService;
         this.properties = properties;
-        this.offlineSnapshotStreamService = offlineSnapshotStreamService;
     }
 
     @Transactional
-    public CollateralLock createCollateral(CreateCollateralCommand command) {
+    public CollateralOperation createCollateral(CreateCollateralCommand command) {
         deviceRepository.findByDeviceId(command.deviceId())
                 .orElseThrow(() -> new IllegalArgumentException("device not registered: " + command.deviceId()));
 
@@ -83,74 +74,7 @@ public class CollateralApplicationService {
                 operation.referenceId(),
                 operation.createdAt().toString()
         );
-
-        try {
-            CoinManageCollateralPort.LockCollateralResult external = coinManageCollateralPort.lockCollateral(
-                    command.userId(),
-                    command.deviceId(),
-                    assetCode,
-                    command.amount(),
-                    referenceId,
-                    policyVersion
-            );
-
-            OffsetDateTime expiresAt = OffsetDateTime.now().plusHours(properties.defaultCollateralExpiryHours());
-            CollateralLock collateral = collateralRepository.save(
-                    command.userId(),
-                    command.deviceId(),
-                    assetCode,
-                    command.amount(),
-                    command.amount(),
-                    initialStateRoot,
-                    policyVersion,
-                    CollateralStatus.LOCKED,
-                    external.lockId(),
-                    expiresAt,
-                    jsonService.write(command.metadata())
-            );
-            collateralOperationRepository.markCompleted(
-                    referenceId,
-                    collateral.id(),
-                    jsonService.write(Map.of(
-                            "externalLockId", external.lockId(),
-                            "operationStatus", external.status()
-                    ))
-            );
-            settlementBatchEventBus.publishCollateralOperationResult(
-                    operation.id(),
-                    operation.operationType().name(),
-                    "COMPLETED",
-                    operation.assetCode(),
-                    operation.referenceId(),
-                    OffsetDateTime.now().toString(),
-                    "",
-                    null
-            );
-            offlineSnapshotStreamService.publishCollateralChanged(
-                    collateral.userId(),
-                    collateral.deviceId(),
-                    collateral.assetCode(),
-                    "TOPUP_COMPLETED"
-            );
-            return collateral;
-        } catch (RuntimeException error) {
-            collateralOperationRepository.markFailed(
-                    referenceId,
-                    error.getMessage(),
-                    jsonService.write(Map.of("failedAt", OffsetDateTime.now().toString()))
-            );
-            settlementBatchEventBus.publishCollateralOperationResult(
-                    operation.id(),
-                    operation.operationType().name(),
-                    "FAILED",
-                    operation.assetCode(),
-                    operation.referenceId(),
-                    OffsetDateTime.now().toString(),
-                    error.getMessage() == null ? "" : error.getMessage(),
-                    OfflinePayReasonCode.COLLATERAL_LOCK_FAIL
-            );
-            throw error;
-        }
+        return operation;
     }
 
     @Transactional(readOnly = true)
@@ -160,7 +84,7 @@ public class CollateralApplicationService {
     }
 
     @Transactional
-    public CollateralLock releaseCollateral(String collateralId, ReleaseCollateralCommand command) {
+    public CollateralOperation releaseCollateral(String collateralId, ReleaseCollateralCommand command) {
         CollateralLock collateral = collateralRepository.findById(collateralId)
                 .orElseThrow(() -> new IllegalArgumentException("collateral not found: " + collateralId));
 
@@ -171,7 +95,7 @@ public class CollateralApplicationService {
             throw new IllegalArgumentException("collateral device mismatch: " + collateralId);
         }
         if (collateral.status() == CollateralStatus.RELEASED) {
-            return collateral;
+            throw new IllegalArgumentException("collateral already released: " + collateralId);
         }
         if (collateral.remainingAmount().signum() <= 0) {
             throw new IllegalArgumentException("collateral remaining amount is empty: " + collateralId);
@@ -198,69 +122,7 @@ public class CollateralApplicationService {
                 operation.referenceId(),
                 operation.createdAt().toString()
         );
-
-        try {
-            coinManageCollateralPort.releaseCollateral(
-                    collateral.userId(),
-                    collateral.deviceId(),
-                    collateral.id(),
-                    collateral.assetCode(),
-                    collateral.remainingAmount(),
-                    referenceId
-            );
-
-            collateralRepository.deductRemainingAmount(collateral.id(), collateral.remainingAmount());
-            collateralRepository.updateStatus(
-                    collateral.id(),
-                    CollateralStatus.RELEASED,
-                    jsonService.write(Map.of(
-                            "reason", command.reason() == null ? "manual_release" : command.reason(),
-                            "metadata", command.metadata() == null ? Map.of() : command.metadata(),
-                            "referenceId", referenceId
-                    ))
-            );
-            collateralOperationRepository.markCompleted(
-                    referenceId,
-                    collateral.id(),
-                    jsonService.write(Map.of("status", "RELEASED"))
-            );
-            settlementBatchEventBus.publishCollateralOperationResult(
-                    operation.id(),
-                    operation.operationType().name(),
-                    "COMPLETED",
-                    operation.assetCode(),
-                    operation.referenceId(),
-                    OffsetDateTime.now().toString(),
-                    "",
-                    null
-            );
-            offlineSnapshotStreamService.publishCollateralChanged(
-                    collateral.userId(),
-                    collateral.deviceId(),
-                    collateral.assetCode(),
-                    "RELEASE_COMPLETED"
-            );
-        } catch (RuntimeException error) {
-            collateralOperationRepository.markFailed(
-                    referenceId,
-                    error.getMessage(),
-                    jsonService.write(Map.of("failedAt", OffsetDateTime.now().toString()))
-            );
-            settlementBatchEventBus.publishCollateralOperationResult(
-                    operation.id(),
-                    operation.operationType().name(),
-                    "FAILED",
-                    operation.assetCode(),
-                    operation.referenceId(),
-                    OffsetDateTime.now().toString(),
-                    error.getMessage() == null ? "" : error.getMessage(),
-                    OfflinePayReasonCode.COLLATERAL_RELEASE_FAIL
-            );
-            throw error;
-        }
-
-        return collateralRepository.findById(collateral.id())
-                .orElseThrow(() -> new IllegalArgumentException("collateral not found after release: " + collateralId));
+        return operation;
     }
 
     public record CreateCollateralCommand(

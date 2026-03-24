@@ -18,11 +18,15 @@ public interface ReconciliationCaseRepository {
             String detailJson
     );
 
+    java.util.Optional<ReconciliationCase> findById(String id);
+
     List<ReconciliationCase> findRecent(int size, ReconciliationCaseStatus status, String caseType, String reasonCode);
 
     List<ReconciliationCase> findOpenRetryable(int size);
 
     Optional<ReconciliationCase> findOpenBySettlementIdAndCaseType(String settlementId, String caseType);
+
+    Optional<ReconciliationCase> findOpenByBatchIdAndCaseType(String batchId, String caseType);
 
     void resolve(String caseId, String detailJson);
 

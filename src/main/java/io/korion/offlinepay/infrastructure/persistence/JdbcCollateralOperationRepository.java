@@ -100,6 +100,18 @@ public class JdbcCollateralOperationRepository implements CollateralOperationRep
     }
 
     @Override
+    public Optional<CollateralOperation> findById(String id) {
+        String sql = QueryBuilder.select("collateral_operations")
+                .where("id", QueryBuilder.Op.EQ, ":id")
+                .limit(1)
+                .build();
+        return jdbcClient.sql(sql)
+                .param("id", java.util.UUID.fromString(id))
+                .query(rowMapper)
+                .optional();
+    }
+
+    @Override
     public Optional<CollateralOperation> findByReferenceId(String referenceId) {
         String sql = QueryBuilder.select("collateral_operations")
                 .where("reference_id", QueryBuilder.Op.EQ, ":referenceId")

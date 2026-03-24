@@ -445,12 +445,97 @@ public class JdbcSettlementBatchEventBus implements SettlementBatchEventBus {
     }
 
     @Override
+    public List<QueuedCollateralMessage> pollCollateralOperationRequested(int batchSize) {
+        String sql = """
+                WITH claimed AS (
+                    SELECT id
+                    FROM settlement_outbox_events
+                    WHERE event_type = :eventType
+                      AND status = :pendingStatus
+                    ORDER BY created_at ASC
+                    LIMIT :batchSize
+                    FOR UPDATE SKIP LOCKED
+                )
+                UPDATE settlement_outbox_events event
+                SET status = :processingStatus,
+                    lock_owner = :lockOwner,
+                    locked_at = NOW(),
+                    attempts = event.attempts + 1,
+                    updated_at = NOW()
+                FROM claimed
+                WHERE event.id = claimed.id
+                RETURNING event.id, event.operation_id, event.operation_type, event.asset_code, event.reference_id, event.attempts
+                """;
+        return jdbcClient.sql(sql)
+                .param("eventType", EVENT_COLLATERAL_REQUESTED)
+                .param("pendingStatus", STATUS_PENDING)
+                .param("processingStatus", STATUS_PROCESSING)
+                .param("lockOwner", properties.worker().consumerName())
+                .param("batchSize", batchSize)
+                .query((rs, rowNum) -> new QueuedCollateralMessage(
+                        rs.getObject("id").toString(),
+                        rs.getObject("operation_id").toString(),
+                        rs.getString("operation_type"),
+                        rs.getString("asset_code"),
+                        rs.getString("reference_id"),
+                        rs.getInt("attempts")
+                ))
+                .list();
+    }
+
+    @Override
+    public List<QueuedCollateralMessage> reclaimStaleCollateralOperationRequested(int batchSize, int minIdleMillis) {
+        String sql = """
+                WITH claimed AS (
+                    SELECT id
+                    FROM settlement_outbox_events
+                    WHERE event_type = :eventType
+                      AND status = :processingStatus
+                      AND locked_at IS NOT NULL
+                      AND locked_at <= :reclaimBefore
+                    ORDER BY locked_at ASC
+                    LIMIT :batchSize
+                    FOR UPDATE SKIP LOCKED
+                )
+                UPDATE settlement_outbox_events event
+                SET lock_owner = :lockOwner,
+                    locked_at = NOW(),
+                    attempts = event.attempts + 1,
+                    updated_at = NOW()
+                FROM claimed
+                WHERE event.id = claimed.id
+                RETURNING event.id, event.operation_id, event.operation_type, event.asset_code, event.reference_id, event.attempts
+                """;
+        Timestamp reclaimBefore = Timestamp.from(Instant.now().minusMillis(minIdleMillis));
+        return jdbcClient.sql(sql)
+                .param("eventType", EVENT_COLLATERAL_REQUESTED)
+                .param("processingStatus", STATUS_PROCESSING)
+                .param("lockOwner", properties.worker().consumerName())
+                .param("reclaimBefore", reclaimBefore)
+                .param("batchSize", batchSize)
+                .query((rs, rowNum) -> new QueuedCollateralMessage(
+                        rs.getObject("id").toString(),
+                        rs.getObject("operation_id").toString(),
+                        rs.getString("operation_type"),
+                        rs.getString("asset_code"),
+                        rs.getString("reference_id"),
+                        rs.getInt("attempts")
+                ))
+                .list();
+    }
+
+    @Override
     public void acknowledgeRequested(String messageId) {
         acknowledge(messageId);
     }
 
     @Override
     public void acknowledgeExternalSync(String messageId) {
+        acknowledge(messageId);
+    }
+
+    @Override
+    public void acknowledgeCollateral(String messageId) {
         acknowledge(messageId);
     }
 

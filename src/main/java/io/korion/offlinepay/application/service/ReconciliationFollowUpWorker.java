@@ -45,25 +45,43 @@ public class ReconciliationFollowUpWorker {
             if (!detail.path("retryable").asBoolean(false)) {
                 continue;
             }
-            if (!"RETRY_EXTERNAL_SYNC".equals(detail.path("nextAction").asText(""))) {
+            String nextAction = detail.path("nextAction").asText("");
+            if (!"RETRY_EXTERNAL_SYNC".equals(nextAction) && !"RETRY_COLLATERAL_SYNC".equals(nextAction)) {
                 continue;
             }
             if (!isRetryDue(detail.path("nextRetryAt").asText(null))) {
                 continue;
             }
-            String eventType = detail.path("eventType").asText("");
-            String payloadJson = detail.path("payloadJson").asText("");
-            if (eventType.isBlank() || payloadJson.isBlank()) {
-                continue;
+            if ("RETRY_EXTERNAL_SYNC".equals(nextAction)) {
+                String eventType = detail.path("eventType").asText("");
+                String payloadJson = detail.path("payloadJson").asText("");
+                if (eventType.isBlank() || payloadJson.isBlank()) {
+                    continue;
+                }
+                settlementBatchEventBus.publishExternalSyncRequested(
+                        eventType,
+                        candidate.settlementId(),
+                        candidate.batchId(),
+                        candidate.proofId(),
+                        payloadJson,
+                        OffsetDateTime.now().toString()
+                );
+            } else {
+                String operationId = detail.path("operationId").asText("");
+                String operationType = detail.path("operationType").asText("");
+                String assetCode = detail.path("assetCode").asText("");
+                String referenceId = detail.path("referenceId").asText("");
+                if (operationId.isBlank() || operationType.isBlank() || referenceId.isBlank()) {
+                    continue;
+                }
+                settlementBatchEventBus.publishCollateralOperationRequested(
+                        operationId,
+                        operationType,
+                        assetCode,
+                        referenceId,
+                        OffsetDateTime.now().toString()
+                );
             }
-            settlementBatchEventBus.publishExternalSyncRequested(
-                    eventType,
-                    candidate.settlementId(),
-                    candidate.batchId(),
-                    candidate.proofId(),
-                    payloadJson,
-                    OffsetDateTime.now().toString()
-            );
             reconciliationCaseRepository.updateDetail(candidate.id(), updateDetail(detail));
         }
     }

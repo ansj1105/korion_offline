@@ -66,9 +66,15 @@ public interface SettlementBatchEventBus {
             String reasonCode
     );
 
+    List<QueuedCollateralMessage> pollCollateralOperationRequested(int batchSize);
+
+    List<QueuedCollateralMessage> reclaimStaleCollateralOperationRequested(int batchSize, int minIdleMillis);
+
     void acknowledgeRequested(String messageId);
 
     void acknowledgeExternalSync(String messageId);
+
+    void acknowledgeCollateral(String messageId);
 
     record QueuedBatchMessage(
             String messageId,
@@ -84,6 +90,15 @@ public interface SettlementBatchEventBus {
             String batchId,
             String proofId,
             String payloadJson,
+            int attempts
+    ) {}
+
+    record QueuedCollateralMessage(
+            String messageId,
+            String operationId,
+            String operationType,
+            String assetCode,
+            String referenceId,
             int attempts
     ) {}
 }

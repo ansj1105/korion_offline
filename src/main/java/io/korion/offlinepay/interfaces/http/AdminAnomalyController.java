@@ -3,6 +3,8 @@ package io.korion.offlinepay.interfaces.http;
 import io.korion.offlinepay.application.service.AdminOperationsService;
 import java.util.Map;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -41,6 +43,14 @@ public class AdminAnomalyController {
     ) {
         return Map.of(
                 "items", adminOperationsService.listReconciliationCases(size, status, caseType, reasonCode)
+        );
+    }
+
+    @PostMapping("/reconciliation-cases/{caseId}/retry")
+    public Object retryReconciliationCase(@PathVariable String caseId) {
+        return Map.of(
+                "status", "REQUEUED",
+                "case", adminOperationsService.retryReconciliationCase(caseId)
         );
     }
 }

@@ -248,6 +248,16 @@ public class RedisSettlementBatchEventBus implements SettlementBatchEventBus {
     }
 
     @Override
+    public List<QueuedCollateralMessage> pollCollateralOperationRequested(int batchSize) {
+        return List.of();
+    }
+
+    @Override
+    public List<QueuedCollateralMessage> reclaimStaleCollateralOperationRequested(int batchSize, int minIdleMillis) {
+        return List.of();
+    }
+
+    @Override
     public void acknowledgeRequested(String messageId) {
         redisTemplate.opsForStream().acknowledge(
                 properties.redis().settlementGroup(),
@@ -258,6 +268,11 @@ public class RedisSettlementBatchEventBus implements SettlementBatchEventBus {
 
     @Override
     public void acknowledgeExternalSync(String messageId) {
+        // no-op for redis implementation
+    }
+
+    @Override
+    public void acknowledgeCollateral(String messageId) {
         // no-op for redis implementation
     }
 

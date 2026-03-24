@@ -50,6 +50,7 @@ public class AdminOperationsService {
     private final SettlementBatchEventBus settlementBatchEventBus;
     private final SettlementBatchFactory settlementBatchFactory;
     private final SettlementStreamEventFactory settlementStreamEventFactory;
+    private final JsonService jsonService;
 
     public AdminOperationsService(
             SettlementBatchRepository settlementBatchRepository,
@@ -62,7 +63,8 @@ public class AdminOperationsService {
             SettlementOutboxEventRepository settlementOutboxEventRepository,
             SettlementBatchEventBus settlementBatchEventBus,
             SettlementBatchFactory settlementBatchFactory,
-            SettlementStreamEventFactory settlementStreamEventFactory
+            SettlementStreamEventFactory settlementStreamEventFactory,
+            JsonService jsonService
     ) {
         this.settlementBatchRepository = settlementBatchRepository;
         this.settlementConflictRepository = settlementConflictRepository;
@@ -75,6 +77,7 @@ public class AdminOperationsService {
         this.settlementBatchEventBus = settlementBatchEventBus;
         this.settlementBatchFactory = settlementBatchFactory;
         this.settlementStreamEventFactory = settlementStreamEventFactory;
+        this.jsonService = jsonService;
     }
 
     @Transactional(readOnly = true)
@@ -160,6 +163,55 @@ public class AdminOperationsService {
         return settlementOutboxEventRepository.requeueDeadLetter(eventId);
     }
 
+    @Transactional
+    public CollateralOperation retryCollateralOperation(String operationId) {
+        CollateralOperation operation = collateralOperationRepository.findById(operationId)
+                .orElseThrow(() -> new IllegalArgumentException("collateral operation not found: " + operationId));
+        settlementBatchEventBus.publishCollateralOperationRequested(
+                operation.id(),
+                operation.operationType().name(),
+                operation.assetCode(),
+                operation.referenceId(),
+                OffsetDateTime.now().toString()
+        );
+        return collateralOperationRepository.findById(operation.id()).orElseThrow();
+    }
+
+    @Transactional
+    public ReconciliationCase retryReconciliationCase(String caseId) {
+        ReconciliationCase reconciliationCase = reconciliationCaseRepository.findById(caseId)
+                .orElseThrow(() -> new IllegalArgumentException("reconciliation case not found: " + caseId));
+        var detail = jsonService.readTree(reconciliationCase.detailJson());
+        if (!detail.path("retryable").asBoolean(false)) {
+            throw new IllegalArgumentException("reconciliation case is not retryable: " + caseId);
+        }
+        String nextAction = detail.path("nextAction").asText("");
+        if ("RETRY_EXTERNAL_SYNC".equals(nextAction)) {
+            String eventType = detail.path("eventType").asText("");
+            String payloadJson = detail.path("payloadJson").asText("");
+            settlementBatchEventBus.publishExternalSyncRequested(
+                    eventType,
+                    reconciliationCase.settlementId(),
+                    reconciliationCase.batchId(),
+                    reconciliationCase.proofId(),
+                    payloadJson,
+                    OffsetDateTime.now().toString()
+            );
+        } else if ("RETRY_COLLATERAL_SYNC".equals(nextAction)) {
+            settlementBatchEventBus.publishCollateralOperationRequested(
+                    detail.path("operationId").asText(),
+                    detail.path("operationType").asText(),
+                    detail.path("assetCode").asText(),
+                    detail.path("referenceId").asText(),
+                    OffsetDateTime.now().toString()
+            );
+        } else {
+            throw new IllegalArgumentException("unsupported reconciliation retry action: " + nextAction);
+        }
+        reconciliationCaseRepository.updateDetail(caseId, markManualRetry(detail));
+        return reconciliationCaseRepository.findById(caseId).orElseThrow();
+    }
+
     @Transactional(readOnly = true)
     public Map<String, Long> getOutboxOverview() {
         return Map.ofEntries(
@@ -183,6 +235,14 @@ public class AdminOperationsService {
                 || "LEDGER_SYNC_REQUESTED".equals(eventType)
                 || "HISTORY_SYNC_REQUESTED".equals(eventType)
                 || "COLLATERAL_REQUESTED".equals(eventType);
+    }
+
+    private String markManualRetry(com.fasterxml.jackson.databind.JsonNode detail) {
+        LinkedHashMap<String, Object> merged = new LinkedHashMap<>();
+        detail.fields().forEachRemaining(entry -> merged.put(entry.getKey(), entry.getValue()));
+        merged.put("lastManualRetryAt", OffsetDateTime.now().toString());
+        merged.put("nextRetryAt", OffsetDateTime.now().plusMinutes(5).toString());
+        return jsonService.write(merged);
     }
 
     @Transactional(readOnly = true)

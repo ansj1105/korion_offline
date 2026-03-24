@@ -3,6 +3,8 @@ package io.korion.offlinepay.interfaces.http;
 import io.korion.offlinepay.application.service.AdminOperationsService;
 import java.util.Map;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -35,5 +37,13 @@ public class AdminCollateralController {
             @RequestParam(required = false) String assetCode
     ) {
         return adminOperationsService.getCollateralOperationOverview(size, assetCode);
+    }
+
+    @PostMapping("/operations/{operationId}/retry")
+    public Object retryOperation(@PathVariable String operationId) {
+        return Map.of(
+                "status", "REQUEUED",
+                "operation", adminOperationsService.retryCollateralOperation(operationId)
+        );
     }
 }

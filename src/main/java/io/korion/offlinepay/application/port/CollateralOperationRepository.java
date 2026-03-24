@@ -24,6 +24,8 @@ public interface CollateralOperationRepository {
 
     void markFailed(String referenceId, String errorMessage, String metadataJson);
 
+    Optional<CollateralOperation> findById(String id);
+
     Optional<CollateralOperation> findByReferenceId(String referenceId);
 
     List<CollateralOperation> findRecent(

@@ -73,6 +73,18 @@ public class JdbcReconciliationCaseRepository implements ReconciliationCaseRepos
     }
 
     @Override
+    public Optional<ReconciliationCase> findById(String id) {
+        String sql = QueryBuilder.select("reconciliation_cases")
+                .where("id", Op.EQ, ":id")
+                .limit(1)
+                .build();
+        return jdbcClient.sql(sql)
+                .param("id", java.util.UUID.fromString(id))
+                .query(rowMapper)
+                .optional();
+    }
+
+    @Override
     public List<ReconciliationCase> findRecent(int size, ReconciliationCaseStatus status, String caseType, String reasonCode) {
         QueryBuilder.SelectBuilder builder = QueryBuilder.select("reconciliation_cases");
         if (status != null) {
@@ -128,6 +140,26 @@ public class JdbcReconciliationCaseRepository implements ReconciliationCaseRepos
                 .build();
         List<ReconciliationCase> cases = jdbcClient.sql(sql)
                 .param("settlementId", java.util.UUID.fromString(settlementId))
+                .param("caseType", caseType)
+                .param("status", ReconciliationCaseStatus.OPEN.name())
+                .query(rowMapper)
+                .list();
+        return cases.stream().findFirst();
+    }
+
+    @Override
+    public Optional<ReconciliationCase> findOpenByBatchIdAndCaseType(String batchId, String caseType) {
+        requireNonBlank(batchId, "batchId");
+        requireNonBlank(caseType, "caseType");
+        String sql = QueryBuilder.select("reconciliation_cases")
+                .where("batch_id", Op.EQ, ":batchId")
+                .where("case_type", Op.EQ, ":caseType")
+                .where("status", Op.EQ, ":status")
+                .orderBy("created_at DESC")
+                .limit(1)
+                .build();
+        List<ReconciliationCase> cases = jdbcClient.sql(sql)
+                .param("batchId", java.util.UUID.fromString(batchId))
                 .param("caseType", caseType)
                 .param("status", ReconciliationCaseStatus.OPEN.name())
                 .query(rowMapper)
