@@ -4,6 +4,7 @@ import io.korion.offlinepay.domain.model.CollateralLock;
 import io.korion.offlinepay.domain.status.CollateralStatus;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Optional;
 
 public interface CollateralRepository {
@@ -27,6 +28,8 @@ public interface CollateralRepository {
     Optional<CollateralLock> findLatestByUserIdAndDeviceIdAndAssetCode(long userId, String deviceId, String assetCode);
 
     Optional<CollateralLock> findAggregateByUserIdAndDeviceIdAndAssetCode(long userId, String deviceId, String assetCode);
+
+    List<CollateralLock> findActiveByUserIdAndDeviceIdAndAssetCode(long userId, String deviceId, String assetCode);
 
     void deductRemainingAmount(String collateralId, BigDecimal amount);
 

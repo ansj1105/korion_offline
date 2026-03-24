@@ -6,6 +6,7 @@ import io.korion.offlinepay.domain.status.CollateralStatus;
 import io.korion.offlinepay.infrastructure.persistence.mapper.CollateralLockRowMapper;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Optional;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
@@ -140,6 +141,24 @@ public class JdbcCollateralRepository implements CollateralRepository {
                 .param("assetCode", assetCode)
                 .query(collateralLockRowMapper)
                 .optional();
+    }
+
+    @Override
+    public List<CollateralLock> findActiveByUserIdAndDeviceIdAndAssetCode(long userId, String deviceId, String assetCode) {
+        String sql = QueryBuilder.select("collateral_locks")
+                .where("user_id", QueryBuilder.Op.EQ, ":userId")
+                .where("device_id", QueryBuilder.Op.EQ, ":deviceId")
+                .where("asset_code", QueryBuilder.Op.EQ, ":assetCode")
+                .where("remaining_amount", QueryBuilder.Op.GT, ":zero")
+                .orderBy("created_at ASC")
+                .build();
+        return jdbcClient.sql(sql)
+                .param("userId", userId)
+                .param("deviceId", deviceId)
+                .param("assetCode", assetCode)
+                .param("zero", BigDecimal.ZERO)
+                .query(collateralLockRowMapper)
+                .list();
     }
 
     @Override

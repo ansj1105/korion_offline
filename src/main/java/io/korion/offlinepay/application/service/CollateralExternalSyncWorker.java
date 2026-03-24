@@ -14,6 +14,8 @@ import io.korion.offlinepay.domain.status.CollateralOperationType;
 import io.korion.offlinepay.domain.status.CollateralStatus;
 import io.korion.offlinepay.domain.status.ReconciliationCaseStatus;
 import java.time.OffsetDateTime;
+import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -159,36 +161,76 @@ public class CollateralExternalSyncWorker {
     }
 
     private void processRelease(SettlementBatchEventBus.QueuedCollateralMessage message, CollateralOperation operation) {
-        if (operation.collateralId() == null || operation.collateralId().isBlank()) {
-            throw new IllegalArgumentException("collateralId is required for release operation");
-        }
-        var collateral = collateralRepository.findById(operation.collateralId())
-                .orElseThrow(() -> new IllegalArgumentException("collateral not found: " + operation.collateralId()));
-        coinManageCollateralPort.releaseCollateral(
+        List<CollateralLock> activeLocks = new ArrayList<>(collateralRepository.findActiveByUserIdAndDeviceIdAndAssetCode(
                 operation.userId(),
                 operation.deviceId(),
-                collateral.id(),
-                operation.assetCode(),
-                operation.amount(),
-                operation.referenceId()
-        );
-        collateralRepository.deductRemainingAmount(collateral.id(), operation.amount());
-        boolean fullyReleased = collateral.remainingAmount().compareTo(operation.amount()) <= 0;
-        collateralRepository.updateStatus(
-                collateral.id(),
-                fullyReleased ? CollateralStatus.RELEASED : CollateralStatus.LOCKED,
-                jsonService.write(Map.of(
-                        "referenceId", operation.referenceId(),
-                        "releasedAmount", operation.amount(),
-                        "releasedAt", OffsetDateTime.now().toString()
-                ))
-        );
+                operation.assetCode()
+        ));
+        if (activeLocks.isEmpty()) {
+            throw new IllegalArgumentException("no releasable collateral found");
+        }
+        if (operation.collateralId() != null && !operation.collateralId().isBlank()) {
+            activeLocks.sort((left, right) -> {
+                if (left.id().equals(operation.collateralId())) {
+                    return -1;
+                }
+                if (right.id().equals(operation.collateralId())) {
+                    return 1;
+                }
+                return left.createdAt().compareTo(right.createdAt());
+            });
+        }
+
+        BigDecimal remainingToRelease = operation.amount();
+        List<Map<String, Object>> releasedSegments = new ArrayList<>();
+        int segmentIndex = 0;
+        for (CollateralLock collateral : activeLocks) {
+            if (remainingToRelease.signum() <= 0) {
+                break;
+            }
+            BigDecimal releasable = collateral.remainingAmount().min(remainingToRelease);
+            if (releasable.signum() <= 0) {
+                continue;
+            }
+
+            String segmentReferenceId = operation.referenceId() + ":" + segmentIndex++;
+            coinManageCollateralPort.releaseCollateral(
+                    operation.userId(),
+                    operation.deviceId(),
+                    collateral.id(),
+                    operation.assetCode(),
+                    releasable,
+                    segmentReferenceId
+            );
+            collateralRepository.deductRemainingAmount(collateral.id(), releasable);
+            boolean fullyReleased = collateral.remainingAmount().compareTo(releasable) <= 0;
+            collateralRepository.updateStatus(
+                    collateral.id(),
+                    fullyReleased ? CollateralStatus.RELEASED : CollateralStatus.LOCKED,
+                    jsonService.write(Map.of(
+                            "referenceId", segmentReferenceId,
+                            "releasedAmount", releasable,
+                            "releasedAt", OffsetDateTime.now().toString()
+                    ))
+            );
+            releasedSegments.add(Map.of(
+                    "collateralId", collateral.id(),
+                    "amount", releasable.toPlainString(),
+                    "referenceId", segmentReferenceId
+            ));
+            remainingToRelease = remainingToRelease.subtract(releasable);
+        }
+        if (remainingToRelease.signum() > 0) {
+            throw new IllegalArgumentException("no releasable quantity for requested amount");
+        }
+
         collateralOperationRepository.markCompleted(
                 operation.referenceId(),
-                collateral.id(),
+                operation.collateralId(),
                 jsonService.write(Map.of(
                         "status", "RELEASED",
-                        "completedAt", OffsetDateTime.now().toString()
+                        "completedAt", OffsetDateTime.now().toString(),
+                        "releasedSegments", releasedSegments
                 ))
         );
         eventBus.publishCollateralOperationResult(
