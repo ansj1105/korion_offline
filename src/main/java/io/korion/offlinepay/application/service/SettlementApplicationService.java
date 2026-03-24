@@ -514,11 +514,14 @@ public class SettlementApplicationService {
             );
             ledgerSynced = true;
         } catch (RuntimeException exception) {
+            String reasonCode = isCircuitOpen(exception)
+                    ? OfflinePayReasonCode.LEDGER_CIRCUIT_OPEN
+                    : OfflinePayReasonCode.LEDGER_SYNC_FAIL;
             saveExternalSyncReconciliationCase(
                     request,
                     proof,
                     "LEDGER_SYNC_FAILED",
-                    OfflinePayReasonCode.LEDGER_SYNC_FAIL,
+                    reasonCode,
                     Map.of(
                             "settlementId", request.id(),
                             "voucherId", proof.voucherId(),
@@ -542,11 +545,14 @@ public class SettlementApplicationService {
                     )
             );
         } catch (RuntimeException exception) {
+            String reasonCode = isCircuitOpen(exception)
+                    ? OfflinePayReasonCode.HISTORY_CIRCUIT_OPEN
+                    : OfflinePayReasonCode.HISTORY_SYNC_FAIL;
             saveExternalSyncReconciliationCase(
                     request,
                     proof,
                     "PARTIAL_SETTLEMENT",
-                    OfflinePayReasonCode.HISTORY_SYNC_FAIL,
+                    reasonCode,
                     Map.of(
                             "settlementId", request.id(),
                             "voucherId", proof.voucherId(),
@@ -713,6 +719,11 @@ public class SettlementApplicationService {
                 requireReasonCode(reasonCode, "external sync reconciliation"),
                 jsonService.write(detail)
         );
+    }
+
+    private boolean isCircuitOpen(RuntimeException exception) {
+        String message = exception.getMessage();
+        return message != null && message.toLowerCase().contains("circuit is open");
     }
 
     private CollateralStatus resolveCollateralStatus(

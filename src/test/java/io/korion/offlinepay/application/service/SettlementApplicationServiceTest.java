@@ -996,6 +996,222 @@ class SettlementApplicationServiceTest {
     }
 
     @Test
+    void finalizeSettlementCreatesLedgerCircuitOpenCase() {
+        SettlementRequest request = new SettlementRequest(
+                "settlement-ledger-open",
+                "batch-ledger-open",
+                "collateral-ledger-open",
+                "proof-ledger-open",
+                SettlementStatus.VALIDATING,
+                null,
+                false,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        CollateralLock collateral = new CollateralLock(
+                "collateral-ledger-open",
+                77L,
+                "device-1",
+                "USDT",
+                new BigDecimal("150"),
+                new BigDecimal("100"),
+                "GENESIS",
+                1,
+                CollateralStatus.LOCKED,
+                "lock-ledger-open",
+                OffsetDateTime.now().plusDays(1),
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        String proofHash = spendingProofHashService.computeNewStateHash(
+                "GENESIS",
+                new BigDecimal("100"),
+                1L,
+                "device-1",
+                "nonce-ledger-open"
+        );
+        OfflinePaymentProof proof = new OfflinePaymentProof(
+                "proof-ledger-open",
+                "batch-ledger-open",
+                "voucher-ledger-open",
+                "collateral-ledger-open",
+                "device-1",
+                "device-2",
+                1,
+                1,
+                1L,
+                "nonce-ledger-open",
+                proofHash,
+                "GENESIS",
+                "signature",
+                new BigDecimal("100"),
+                System.currentTimeMillis(),
+                System.currentTimeMillis() + 60_000,
+                "{\"voucherId\":\"voucher-ledger-open\"}",
+                "SENDER",
+                "{\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"100\",\"uiMode\":\"SEND\",\"connectionType\":\"FAST_CONTACT\",\"paymentFlow\":\"FAST_PAYMENT\",\"senderAuthRequired\":true,\"ledgerExecutionMode\":\"INTERNAL_LEDGER_ONLY\",\"dualAmountEntered\":false}",
+                OffsetDateTime.now()
+        );
+        Device device = new Device(
+                "row-1",
+                "device-1",
+                77L,
+                "public-key",
+                1,
+                DeviceStatus.ACTIVE,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+
+        when(settlementRepository.findById("settlement-ledger-open"))
+                .thenReturn(Optional.of(request))
+                .thenReturn(Optional.of(new SettlementRequest(
+                        "settlement-ledger-open",
+                        "batch-ledger-open",
+                        "collateral-ledger-open",
+                        "proof-ledger-open",
+                        SettlementStatus.SETTLED,
+                        null,
+                        false,
+                        "{\"releaseAction\":\"RELEASE\"}",
+                        OffsetDateTime.now(),
+                        OffsetDateTime.now()
+                )));
+        when(collateralRepository.findById("collateral-ledger-open")).thenReturn(Optional.of(collateral));
+        when(proofRepository.findById("proof-ledger-open")).thenReturn(Optional.of(proof));
+        when(proofRepository.findByCollateralId("collateral-ledger-open")).thenReturn(java.util.List.of(proof));
+        when(deviceRepository.findByDeviceId("device-1")).thenReturn(Optional.of(device));
+        when(settlementResultRepository.existsByVoucherId("voucher-ledger-open")).thenReturn(false);
+        doThrow(new IllegalStateException("circuit is open"))
+                .when(coinManageSettlementPort)
+                .finalizeSettlement(any(CoinManageSettlementPort.SettlementLedgerCommand.class));
+
+        service.finalizeSettlement("settlement-ledger-open");
+
+        verify(reconciliationCaseRepository).save(
+                eq("settlement-ledger-open"),
+                eq("batch-ledger-open"),
+                eq("proof-ledger-open"),
+                eq("voucher-ledger-open"),
+                eq("LEDGER_SYNC_FAILED"),
+                eq(io.korion.offlinepay.domain.status.ReconciliationCaseStatus.OPEN),
+                eq("LEDGER_CIRCUIT_OPEN"),
+                anyString()
+        );
+    }
+
+    @Test
+    void finalizeSettlementCreatesHistoryCircuitOpenCase() {
+        SettlementRequest request = new SettlementRequest(
+                "settlement-history-open",
+                "batch-history-open",
+                "collateral-history-open",
+                "proof-history-open",
+                SettlementStatus.VALIDATING,
+                null,
+                false,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        CollateralLock collateral = new CollateralLock(
+                "collateral-history-open",
+                77L,
+                "device-1",
+                "USDT",
+                new BigDecimal("150"),
+                new BigDecimal("100"),
+                "GENESIS",
+                1,
+                CollateralStatus.LOCKED,
+                "lock-history-open",
+                OffsetDateTime.now().plusDays(1),
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        String proofHash = spendingProofHashService.computeNewStateHash(
+                "GENESIS",
+                new BigDecimal("100"),
+                1L,
+                "device-1",
+                "nonce-history-open"
+        );
+        OfflinePaymentProof proof = new OfflinePaymentProof(
+                "proof-history-open",
+                "batch-history-open",
+                "voucher-history-open",
+                "collateral-history-open",
+                "device-1",
+                "device-2",
+                1,
+                1,
+                1L,
+                "nonce-history-open",
+                proofHash,
+                "GENESIS",
+                "signature",
+                new BigDecimal("100"),
+                System.currentTimeMillis(),
+                System.currentTimeMillis() + 60_000,
+                "{\"voucherId\":\"voucher-history-open\"}",
+                "SENDER",
+                "{\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"100\",\"uiMode\":\"SEND\",\"connectionType\":\"FAST_CONTACT\",\"paymentFlow\":\"FAST_PAYMENT\",\"senderAuthRequired\":true,\"ledgerExecutionMode\":\"INTERNAL_LEDGER_ONLY\",\"dualAmountEntered\":false}",
+                OffsetDateTime.now()
+        );
+        Device device = new Device(
+                "row-1",
+                "device-1",
+                77L,
+                "public-key",
+                1,
+                DeviceStatus.ACTIVE,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+
+        when(settlementRepository.findById("settlement-history-open"))
+                .thenReturn(Optional.of(request))
+                .thenReturn(Optional.of(new SettlementRequest(
+                        "settlement-history-open",
+                        "batch-history-open",
+                        "collateral-history-open",
+                        "proof-history-open",
+                        SettlementStatus.SETTLED,
+                        null,
+                        false,
+                        "{\"releaseAction\":\"RELEASE\"}",
+                        OffsetDateTime.now(),
+                        OffsetDateTime.now()
+                )));
+        when(collateralRepository.findById("collateral-history-open")).thenReturn(Optional.of(collateral));
+        when(proofRepository.findById("proof-history-open")).thenReturn(Optional.of(proof));
+        when(proofRepository.findByCollateralId("collateral-history-open")).thenReturn(java.util.List.of(proof));
+        when(deviceRepository.findByDeviceId("device-1")).thenReturn(Optional.of(device));
+        when(settlementResultRepository.existsByVoucherId("voucher-history-open")).thenReturn(false);
+        doThrow(new IllegalStateException("circuit is open"))
+                .when(foxCoinHistoryPort)
+                .recordSettlementHistory(any(FoxCoinHistoryPort.SettlementHistoryCommand.class));
+
+        service.finalizeSettlement("settlement-history-open");
+
+        verify(reconciliationCaseRepository).save(
+                eq("settlement-history-open"),
+                eq("batch-history-open"),
+                eq("proof-history-open"),
+                eq("voucher-history-open"),
+                eq("PARTIAL_SETTLEMENT"),
+                eq(io.korion.offlinepay.domain.status.ReconciliationCaseStatus.OPEN),
+                eq("HISTORY_CIRCUIT_OPEN"),
+                anyString()
+        );
+    }
+
+    @Test
     void finalizeSettlementMapsDuplicateNonceConflictToDuplicateSendCase() {
         SettlementRequest request = new SettlementRequest(
                 "settlement-dup-send",
