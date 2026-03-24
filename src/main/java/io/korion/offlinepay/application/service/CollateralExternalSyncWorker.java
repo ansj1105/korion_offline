@@ -73,9 +73,15 @@ public class CollateralExternalSyncWorker {
                 process(message);
                 eventBus.acknowledgeCollateral(message.messageId());
             } catch (RuntimeException exception) {
-                if (message.attempts() >= properties.worker().maxAttempts()) {
+                if (isTerminalFailure(exception) || message.attempts() >= properties.worker().maxAttempts()) {
                     markDeadLetter(message, exception);
                     eventBus.acknowledgeCollateral(message.messageId());
+                } else {
+                    eventBus.requeueCollateral(
+                            message.messageId(),
+                            resolveFailureReasonCodeName(message.operationType()),
+                            summarize(exception)
+                    );
                 }
             }
         }
@@ -235,6 +241,27 @@ public class CollateralExternalSyncWorker {
                         + ", reason=" + reasonCode
                         + ", error=" + errorMessage
         );
+    }
+
+    private boolean isTerminalFailure(RuntimeException exception) {
+        String message = summarize(exception).toUpperCase();
+        return message.contains("INSUFFICIENT_BALANCE")
+                || message.contains("VALIDATION_ERROR")
+                || message.contains("400 BAD REQUEST")
+                || message.contains("404 NOT FOUND");
+    }
+
+    private String resolveFailureReasonCodeName(String operationType) {
+        if (CollateralOperationType.RELEASE.name().equals(operationType)) {
+            return OfflinePayReasonCode.COLLATERAL_RELEASE_FAIL;
+        }
+        return OfflinePayReasonCode.COLLATERAL_LOCK_FAIL;
+    }
+
+    private String summarize(RuntimeException exception) {
+        return exception.getMessage() == null || exception.getMessage().isBlank()
+                ? "unknown collateral sync failure"
+                : exception.getMessage();
     }
 
     private void ensureReconciliation(

@@ -258,6 +258,11 @@ public class RedisSettlementBatchEventBus implements SettlementBatchEventBus {
     }
 
     @Override
+    public void requeueCollateral(String messageId, String reasonCode, String errorMessage) {
+        // no-op for redis implementation
+    }
+
+    @Override
     public void acknowledgeRequested(String messageId) {
         redisTemplate.opsForStream().acknowledge(
                 properties.redis().settlementGroup(),

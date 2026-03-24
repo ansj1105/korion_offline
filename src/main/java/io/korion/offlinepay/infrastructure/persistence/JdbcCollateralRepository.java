@@ -110,7 +110,7 @@ public class JdbcCollateralRepository implements CollateralRepository {
     public Optional<CollateralLock> findAggregateByUserIdAndDeviceIdAndAssetCode(long userId, String deviceId, String assetCode) {
         String sql = """
                 SELECT
-                    MIN(id)::text AS id,
+                    MIN(id::text) AS id,
                     user_id,
                     device_id,
                     asset_code,

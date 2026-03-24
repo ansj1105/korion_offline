@@ -70,6 +70,8 @@ public interface SettlementBatchEventBus {
 
     List<QueuedCollateralMessage> reclaimStaleCollateralOperationRequested(int batchSize, int minIdleMillis);
 
+    void requeueCollateral(String messageId, String reasonCode, String errorMessage);
+
     void acknowledgeRequested(String messageId);
 
     void acknowledgeExternalSync(String messageId);

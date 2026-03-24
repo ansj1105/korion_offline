@@ -525,6 +525,26 @@ public class JdbcSettlementBatchEventBus implements SettlementBatchEventBus {
     }
 
     @Override
+    public void requeueCollateral(String messageId, String reasonCode, String errorMessage) {
+        String sql = """
+                UPDATE settlement_outbox_events
+                SET status = :pendingStatus,
+                    lock_owner = NULL,
+                    locked_at = NULL,
+                    updated_at = NOW(),
+                    reason_code = :reasonCode,
+                    error_message = :errorMessage
+                WHERE id = :id
+                """;
+        jdbcClient.sql(sql)
+                .param("pendingStatus", STATUS_PENDING)
+                .param("reasonCode", reasonCode)
+                .param("errorMessage", errorMessage)
+                .param("id", java.util.UUID.fromString(messageId))
+                .update();
+    }
+
+    @Override
     public void acknowledgeRequested(String messageId) {
         acknowledge(messageId);
     }
