@@ -678,6 +678,12 @@ public class SettlementApplicationService {
                 || OfflinePayReasonCode.DUPLICATE_COUNTER.equals(reasonCode)) {
             return "DUPLICATE_SEND";
         }
+        if (reasonCode != null && reasonCode.startsWith("ISSUED_PROOF_")) {
+            return "ISSUED_PROOF_INVALID";
+        }
+        if (reasonCode != null && reasonCode.startsWith("PAYLOAD_")) {
+            return "PAYLOAD_INVALID";
+        }
         if (evaluation.conflictDetected()) {
             return "CONFLICT";
         }

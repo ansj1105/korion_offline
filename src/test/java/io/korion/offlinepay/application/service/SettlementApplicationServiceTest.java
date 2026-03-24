@@ -665,6 +665,16 @@ class SettlementApplicationServiceTest {
 
         assertEquals(SettlementStatus.REJECTED, result.status());
         assertTrue(result.settlementResultJson().contains("PAYLOAD_AMOUNT_MISMATCH"));
+        verify(reconciliationCaseRepository).save(
+                eq("settlement-6"),
+                eq("batch-6"),
+                eq("proof-6"),
+                eq("voucher-6"),
+                eq("PAYLOAD_INVALID"),
+                eq(io.korion.offlinepay.domain.status.ReconciliationCaseStatus.OPEN),
+                eq("PAYLOAD_AMOUNT_MISMATCH"),
+                anyString()
+        );
     }
 
     @Test
@@ -744,6 +754,16 @@ class SettlementApplicationServiceTest {
 
         assertEquals(SettlementStatus.REJECTED, result.status());
         assertTrue(result.settlementResultJson().contains("PAYLOAD_REQUIRED_FIELD_MISSING"));
+        verify(reconciliationCaseRepository).save(
+                eq("settlement-7"),
+                eq("batch-7"),
+                eq("proof-7"),
+                eq("voucher-7"),
+                eq("PAYLOAD_INVALID"),
+                eq(io.korion.offlinepay.domain.status.ReconciliationCaseStatus.OPEN),
+                eq("PAYLOAD_REQUIRED_FIELD_MISSING"),
+                anyString()
+        );
     }
 
     @Test
