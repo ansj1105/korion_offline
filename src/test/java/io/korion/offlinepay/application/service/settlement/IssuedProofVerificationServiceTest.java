@@ -67,6 +67,17 @@ class IssuedProofVerificationServiceTest {
         assertEquals(OfflinePayReasonCode.ISSUED_PROOF_SIGNATURE_INVALID, result.reasonCode());
     }
 
+    @Test
+    void verifyRejectsIssuedProofWhenSenderPublicKeyMissing() {
+        IssuedOfflineProof issuedProof = buildIssuedProof(false);
+        when(issuedOfflineProofRepository.findById("issued-proof-1")).thenReturn(Optional.of(issuedProof));
+
+        OfflinePaymentProof incoming = buildIncomingProofWithoutSenderPublicKey(issuedProof);
+        IssuedProofVerificationService.VerificationResult result = service.verify(incoming);
+
+        assertEquals(OfflinePayReasonCode.ISSUED_PROOF_PAYLOAD_MISMATCH, result.reasonCode());
+    }
+
     private IssuedOfflineProof buildIssuedProof(boolean tamperSignature) {
         OffsetDateTime expiresAt = OffsetDateTime.now().plusHours(1);
         Map<String, Object> issuedPayloadMap = new LinkedHashMap<>();
@@ -138,6 +149,68 @@ class IssuedProofVerificationServiceTest {
         ));
         return new OfflinePaymentProof(
                 "proof-row-1",
+                "batch-1",
+                "voucher-1",
+                "collateral-1",
+                "device-1",
+                "device-2",
+                1,
+                1,
+                1L,
+                "payment-nonce-1",
+                "hash-1",
+                "prev-hash-1",
+                "sender-signature-1",
+                new BigDecimal("100.000000"),
+                System.currentTimeMillis(),
+                System.currentTimeMillis() + 60_000,
+                canonicalPayload,
+                "SENDER",
+                "BLE",
+                OfflineProofStatus.ISSUED,
+                null,
+                rawPayload,
+                OffsetDateTime.now(),
+                OffsetDateTime.now(),
+                null,
+                null,
+                null,
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+    }
+
+    private OfflinePaymentProof buildIncomingProofWithoutSenderPublicKey(IssuedOfflineProof issuedProof) {
+        String canonicalPayload = jsonService.write(Map.of(
+                "issuedProof",
+                Map.of(
+                        "proofId", issuedProof.id(),
+                        "issuerKeyId", issuedProof.issuerKeyId(),
+                        "issuerPublicKey", issuedProof.issuerPublicKey(),
+                        "issuerSignature", issuedProof.issuerSignature(),
+                        "issuedPayload", issuedProof.issuedPayloadJson(),
+                        "assetCode", issuedProof.assetCode(),
+                        "usableAmount", issuedProof.usableAmount().toPlainString(),
+                        "collateralId", issuedProof.collateralId(),
+                        "nonce", issuedProof.proofNonce()
+                )
+        ));
+        String rawPayload = jsonService.write(Map.of(
+                "issuedProof",
+                Map.of(
+                        "proofId", issuedProof.id(),
+                        "issuerKeyId", issuedProof.issuerKeyId(),
+                        "issuerPublicKey", issuedProof.issuerPublicKey(),
+                        "issuerSignature", issuedProof.issuerSignature(),
+                        "issuedPayload", issuedProof.issuedPayloadJson(),
+                        "assetCode", issuedProof.assetCode(),
+                        "usableAmount", issuedProof.usableAmount().toPlainString(),
+                        "collateralId", issuedProof.collateralId(),
+                        "nonce", issuedProof.proofNonce()
+                )
+        ));
+        return new OfflinePaymentProof(
+                "proof-row-2",
                 "batch-1",
                 "voucher-1",
                 "collateral-1",

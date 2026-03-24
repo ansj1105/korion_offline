@@ -37,6 +37,7 @@ public class IssuedProofVerificationService {
         if (issuedNode.isMissingNode() || issuedNode.isNull()) {
             issuedNode = rawPayload.path("issuedProof");
         }
+        JsonNode senderDeviceNode = rawPayload.path("senderDevice");
         if (issuedNode.isMissingNode() || issuedNode.isNull()) {
             return VerificationResult.invalid(OfflinePayReasonCode.ISSUED_PROOF_REQUIRED, "issuedProof missing");
         }
@@ -52,7 +53,8 @@ public class IssuedProofVerificationService {
                 || isBlank(text(issuedNode, "assetCode"))
                 || decimal(issuedNode, "usableAmount") == null
                 || isBlank(text(issuedNode, "collateralId"))
-                || isBlank(text(issuedNode, "nonce"))) {
+                || isBlank(text(issuedNode, "nonce"))
+                || isBlank(text(senderDeviceNode, "publicKey"))) {
             return VerificationResult.invalid(OfflinePayReasonCode.ISSUED_PROOF_PAYLOAD_MISMATCH, "issued proof required fields missing");
         }
 
@@ -96,7 +98,9 @@ public class IssuedProofVerificationService {
                 || mismatch(decimal(issuedPayloadNode, "usableAmount"), issuedProof.usableAmount())
                 || mismatch(text(issuedPayloadNode, "nonce"), issuedProof.proofNonce())
                 || mismatch(text(issuedPayloadNode, "issuerKeyId"), issuedProof.issuerKeyId())
-                || mismatch(text(issuedPayloadNode, "devicePublicKey"), text(rawPayload.path("senderDevice"), "publicKey"))
+                || mismatch(text(issuedPayloadNode, "devicePublicKey"), text(senderDeviceNode, "publicKey"))
+                || isBlank(text(issuedPayloadNode, "issuedAt"))
+                || isBlank(text(issuedPayloadNode, "expiresAt"))
                 || mismatch(text(issuedPayloadNode, "expiresAt"), issuedProof.expiresAt() == null ? null : issuedProof.expiresAt().toString())) {
             return VerificationResult.invalid(OfflinePayReasonCode.ISSUED_PROOF_PAYLOAD_MISMATCH, "issued proof persisted payload mismatch");
         }

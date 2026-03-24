@@ -39,6 +39,14 @@
 - `coin_manage`도 자체 Postgres/Redis를 가진 별도 Compose 스택이다.
 - 따라서 현재 운영 구조는 “개별 인스턴스 + 개별 DB”에 가깝고, `offline_pay`도 같은 원칙으로 가야 한다.
 
+## Ops Notes
+- `offline_pay` 운영 서버는 현재 `98.91.96.182`이고 앱 루트는 `/var/www/korion_offline`이다.
+- `offline_pay` 서버 접속은 현재 `ubuntu@98.91.96.182` + `korion.pem` 경로로 확인됐다.
+- `coin_manage` 운영 서버는 현재 `54.83.183.123`이고 앱 루트는 `/var/www/korion`이다.
+- `foxya_coin_service` 운영 서버는 현재 `52.200.97.155`이고 앱 루트는 `/var/www/fox_coin`이다.
+- 서비스 재배포 시 먼저 원격 앱 루트와 Docker Compose 위치를 확인하고, 이후 `git pull` + `sudo docker compose up -d --build` 순서를 사용한다.
+- Telegram 같은 운영 비밀값은 레포에 커밋하지 않고 각 서버 `.env`에만 유지한다.
+
 ## Offline Pay Policy Rules
 - 오프라인 페이 요구사항 구현 시 UI 데모용 하드코딩 business 데이터를 기본 동작에 남기지 않는다.
 - 테스트용 peer, 사용자, 기기, 금액 샘플이 필요하면 `test mode` 또는 fixture 경계 안으로 격리한다.
