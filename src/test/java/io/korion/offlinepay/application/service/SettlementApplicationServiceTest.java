@@ -988,7 +988,7 @@ class SettlementApplicationServiceTest {
                 eq("batch-history-fail"),
                 eq("proof-history-fail"),
                 eq("voucher-history-fail"),
-                eq("PARTIAL_SETTLEMENT"),
+                eq("HISTORY_SYNC_FAILED"),
                 eq(io.korion.offlinepay.domain.status.ReconciliationCaseStatus.OPEN),
                 eq("HISTORY_SYNC_FAIL"),
                 anyString()
@@ -1096,7 +1096,7 @@ class SettlementApplicationServiceTest {
                 eq("batch-ledger-open"),
                 eq("proof-ledger-open"),
                 eq("voucher-ledger-open"),
-                eq("LEDGER_SYNC_FAILED"),
+                eq("LEDGER_CIRCUIT_OPEN"),
                 eq(io.korion.offlinepay.domain.status.ReconciliationCaseStatus.OPEN),
                 eq("LEDGER_CIRCUIT_OPEN"),
                 anyString()
@@ -1204,7 +1204,7 @@ class SettlementApplicationServiceTest {
                 eq("batch-history-open"),
                 eq("proof-history-open"),
                 eq("voucher-history-open"),
-                eq("PARTIAL_SETTLEMENT"),
+                eq("HISTORY_CIRCUIT_OPEN"),
                 eq(io.korion.offlinepay.domain.status.ReconciliationCaseStatus.OPEN),
                 eq("HISTORY_CIRCUIT_OPEN"),
                 anyString()

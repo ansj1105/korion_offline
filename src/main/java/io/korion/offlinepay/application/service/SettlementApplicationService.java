@@ -520,7 +520,12 @@ public class SettlementApplicationService {
             saveExternalSyncReconciliationCase(
                     request,
                     proof,
-                    "LEDGER_SYNC_FAILED",
+                    resolveExternalSyncCaseType(
+                            OfflinePayReasonCode.LEDGER_CIRCUIT_OPEN,
+                            "LEDGER_CIRCUIT_OPEN",
+                            "LEDGER_SYNC_FAILED",
+                            reasonCode
+                    ),
                     reasonCode,
                     Map.of(
                             "settlementId", request.id(),
@@ -551,7 +556,12 @@ public class SettlementApplicationService {
             saveExternalSyncReconciliationCase(
                     request,
                     proof,
-                    "PARTIAL_SETTLEMENT",
+                    resolveExternalSyncCaseType(
+                            OfflinePayReasonCode.HISTORY_CIRCUIT_OPEN,
+                            "HISTORY_CIRCUIT_OPEN",
+                            "HISTORY_SYNC_FAILED",
+                            reasonCode
+                    ),
                     reasonCode,
                     Map.of(
                             "settlementId", request.id(),
@@ -724,6 +734,15 @@ public class SettlementApplicationService {
     private boolean isCircuitOpen(RuntimeException exception) {
         String message = exception.getMessage();
         return message != null && message.toLowerCase().contains("circuit is open");
+    }
+
+    private String resolveExternalSyncCaseType(
+            String circuitOpenReasonCode,
+            String circuitOpenCaseType,
+            String defaultCaseType,
+            String reasonCode
+    ) {
+        return circuitOpenReasonCode.equals(reasonCode) ? circuitOpenCaseType : defaultCaseType;
     }
 
     private CollateralStatus resolveCollateralStatus(
