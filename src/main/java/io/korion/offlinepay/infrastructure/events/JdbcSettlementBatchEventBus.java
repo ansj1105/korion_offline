@@ -18,6 +18,9 @@ public class JdbcSettlementBatchEventBus implements SettlementBatchEventBus {
     private static final String EVENT_BATCH_RESULT = "BATCH_RESULT";
     private static final String EVENT_CONFLICT = "CONFLICT";
     private static final String EVENT_BATCH_DEAD_LETTER = "BATCH_DEAD_LETTER";
+    private static final String EVENT_LEDGER_SYNC_REQUESTED = "LEDGER_SYNC_REQUESTED";
+    private static final String EVENT_HISTORY_SYNC_REQUESTED = "HISTORY_SYNC_REQUESTED";
+    private static final String EVENT_EXTERNAL_SYNC_DEAD_LETTER = "EXTERNAL_SYNC_DEAD_LETTER";
     private static final String EVENT_COLLATERAL_REQUESTED = "COLLATERAL_REQUESTED";
     private static final String EVENT_COLLATERAL_RESULT = "COLLATERAL_RESULT";
 
@@ -164,6 +167,160 @@ public class JdbcSettlementBatchEventBus implements SettlementBatchEventBus {
     }
 
     @Override
+    public void publishExternalSyncRequested(
+            String eventType,
+            String settlementId,
+            String batchId,
+            String proofId,
+            String payloadJson,
+            String requestedAt
+    ) {
+        insertEvent(
+                normalizeExternalSyncEventType(eventType),
+                STATUS_PENDING,
+                batchId,
+                null,
+                null,
+                proofId,
+                eventType,
+                null,
+                settlementId,
+                payloadJson == null || payloadJson.isBlank()
+                        ? json(Map.of("settlementId", settlementId, "batchId", batchId, "proofId", proofId, "requestedAt", requestedAt))
+                        : payloadJson,
+                null,
+                null
+        );
+    }
+
+    @Override
+    public List<QueuedExternalSyncMessage> pollExternalSyncRequested(int batchSize) {
+        String sql = """
+                WITH claimed AS (
+                    SELECT id
+                    FROM settlement_outbox_events
+                    WHERE event_type IN (:ledgerEventType, :historyEventType)
+                      AND status = :pendingStatus
+                    ORDER BY created_at ASC
+                    LIMIT :batchSize
+                    FOR UPDATE SKIP LOCKED
+                )
+                UPDATE settlement_outbox_events event
+                SET status = :processingStatus,
+                    lock_owner = :lockOwner,
+                    locked_at = NOW(),
+                    attempts = event.attempts + 1,
+                    updated_at = NOW()
+                FROM claimed
+                WHERE event.id = claimed.id
+                RETURNING event.id, event.event_type, event.reference_id, event.batch_id, event.operation_id, event.payload, event.attempts
+                """;
+        return jdbcClient.sql(sql)
+                .param("ledgerEventType", EVENT_LEDGER_SYNC_REQUESTED)
+                .param("historyEventType", EVENT_HISTORY_SYNC_REQUESTED)
+                .param("pendingStatus", STATUS_PENDING)
+                .param("processingStatus", STATUS_PROCESSING)
+                .param("lockOwner", properties.worker().consumerName())
+                .param("batchSize", batchSize)
+                .query((rs, rowNum) -> new QueuedExternalSyncMessage(
+                        rs.getObject("id").toString(),
+                        rs.getString("event_type"),
+                        rs.getString("reference_id"),
+                        rs.getObject("batch_id").toString(),
+                        rs.getString("operation_id"),
+                        rs.getString("payload"),
+                        rs.getInt("attempts")
+                ))
+                .list();
+    }
+
+    @Override
+    public List<QueuedExternalSyncMessage> reclaimStaleExternalSyncRequested(int batchSize, int minIdleMillis) {
+        String sql = """
+                WITH claimed AS (
+                    SELECT id
+                    FROM settlement_outbox_events
+                    WHERE event_type IN (:ledgerEventType, :historyEventType)
+                      AND status = :processingStatus
+                      AND locked_at IS NOT NULL
+                      AND locked_at <= :reclaimBefore
+                    ORDER BY locked_at ASC
+                    LIMIT :batchSize
+                    FOR UPDATE SKIP LOCKED
+                )
+                UPDATE settlement_outbox_events event
+                SET lock_owner = :lockOwner,
+                    locked_at = NOW(),
+                    attempts = event.attempts + 1,
+                    updated_at = NOW()
+                FROM claimed
+                WHERE event.id = claimed.id
+                RETURNING event.id, event.event_type, event.reference_id, event.batch_id, event.operation_id, event.payload, event.attempts
+                """;
+        Timestamp reclaimBefore = Timestamp.from(Instant.now().minusMillis(minIdleMillis));
+        return jdbcClient.sql(sql)
+                .param("ledgerEventType", EVENT_LEDGER_SYNC_REQUESTED)
+                .param("historyEventType", EVENT_HISTORY_SYNC_REQUESTED)
+                .param("processingStatus", STATUS_PROCESSING)
+                .param("lockOwner", properties.worker().consumerName())
+                .param("reclaimBefore", reclaimBefore)
+                .param("batchSize", batchSize)
+                .query((rs, rowNum) -> new QueuedExternalSyncMessage(
+                        rs.getObject("id").toString(),
+                        rs.getString("event_type"),
+                        rs.getString("reference_id"),
+                        rs.getObject("batch_id").toString(),
+                        rs.getString("operation_id"),
+                        rs.getString("payload"),
+                        rs.getInt("attempts")
+                ))
+                .list();
+    }
+
+    @Override
+    public void publishExternalSyncDeadLetter(
+            String eventType,
+            String settlementId,
+            String batchId,
+            String proofId,
+            int attemptCount,
+            String reasonCode,
+            String errorMessage,
+            String failedAt
+    ) {
+        insertEvent(
+                EVENT_EXTERNAL_SYNC_DEAD_LETTER,
+                STATUS_DEAD_LETTER,
+                batchId,
+                null,
+                null,
+                proofId,
+                eventType,
+                null,
+                settlementId,
+                json(Map.of(
+                        "eventType", eventType,
+                        "settlementId", settlementId,
+                        "batchId", batchId,
+                        "proofId", proofId,
+                        "attemptCount", attemptCount,
+                        "failedAt", failedAt,
+                        "errorMessage", normalize(errorMessage)
+                )),
+                reasonCode,
+                errorMessage
+        );
+        telegramAlertService.notifyCircuitOpened(
+                "offline_pay.external_sync.dead_letter",
+                "eventType=" + eventType
+                        + ", settlementId=" + settlementId
+                        + ", attempts=" + attemptCount
+                        + ", reason=" + normalize(reasonCode)
+                        + ", error=" + normalize(errorMessage)
+        );
+    }
+
+    @Override
     public void publishConflict(
             String batchId,
             String voucherId,
@@ -288,17 +445,12 @@ public class JdbcSettlementBatchEventBus implements SettlementBatchEventBus {
 
     @Override
     public void acknowledgeRequested(String messageId) {
-        String sql = """
-                UPDATE settlement_outbox_events
-                SET status = :completedStatus,
-                    processed_at = NOW(),
-                    updated_at = NOW()
-                WHERE id = :id
-                """;
-        jdbcClient.sql(sql)
-                .param("completedStatus", STATUS_COMPLETED)
-                .param("id", java.util.UUID.fromString(messageId))
-                .update();
+        acknowledge(messageId);
+    }
+
+    @Override
+    public void acknowledgeExternalSync(String messageId) {
+        acknowledge(messageId);
     }
 
     private void insertEvent(
@@ -364,6 +516,27 @@ public class JdbcSettlementBatchEventBus implements SettlementBatchEventBus {
                 .param("completedStatus", STATUS_COMPLETED)
                 .param("deadLetterStatus", STATUS_DEAD_LETTER)
                 .update();
+    }
+
+    private void acknowledge(String messageId) {
+        String sql = """
+                UPDATE settlement_outbox_events
+                SET status = :completedStatus,
+                    processed_at = NOW(),
+                    updated_at = NOW()
+                WHERE id = :id
+                """;
+        jdbcClient.sql(sql)
+                .param("completedStatus", STATUS_COMPLETED)
+                .param("id", java.util.UUID.fromString(messageId))
+                .update();
+    }
+
+    private String normalizeExternalSyncEventType(String eventType) {
+        if (EVENT_LEDGER_SYNC_REQUESTED.equals(eventType) || EVENT_HISTORY_SYNC_REQUESTED.equals(eventType)) {
+            return eventType;
+        }
+        throw new IllegalArgumentException("unsupported external sync eventType: " + eventType);
     }
 
     private String json(Map<String, ?> payload) {

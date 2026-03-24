@@ -127,6 +127,42 @@ public class RedisSettlementBatchEventBus implements SettlementBatchEventBus {
     }
 
     @Override
+    public void publishExternalSyncRequested(
+            String eventType,
+            String settlementId,
+            String batchId,
+            String proofId,
+            String payloadJson,
+            String requestedAt
+    ) {
+        throw new UnsupportedOperationException("external sync outbox is only supported by JDBC event bus");
+    }
+
+    @Override
+    public List<QueuedExternalSyncMessage> pollExternalSyncRequested(int batchSize) {
+        return List.of();
+    }
+
+    @Override
+    public List<QueuedExternalSyncMessage> reclaimStaleExternalSyncRequested(int batchSize, int minIdleMillis) {
+        return List.of();
+    }
+
+    @Override
+    public void publishExternalSyncDeadLetter(
+            String eventType,
+            String settlementId,
+            String batchId,
+            String proofId,
+            int attemptCount,
+            String reasonCode,
+            String errorMessage,
+            String failedAt
+    ) {
+        throw new UnsupportedOperationException("external sync outbox is only supported by JDBC event bus");
+    }
+
+    @Override
     public void publishConflict(
             String batchId,
             String voucherId,
@@ -216,6 +252,11 @@ public class RedisSettlementBatchEventBus implements SettlementBatchEventBus {
                 properties.redis().settlementRequestedStream(),
                 messageId
         );
+    }
+
+    @Override
+    public void acknowledgeExternalSync(String messageId) {
+        // no-op for redis implementation
     }
 
     private void ensureGroup() {

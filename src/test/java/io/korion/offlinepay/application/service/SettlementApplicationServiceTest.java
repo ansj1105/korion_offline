@@ -216,8 +216,14 @@ class SettlementApplicationServiceTest {
 
         SettlementRequest result = service.finalizeSettlement("settlement-1");
 
-        verify(coinManageSettlementPort).finalizeSettlement(any(CoinManageSettlementPort.SettlementLedgerCommand.class));
-        verify(foxCoinHistoryPort).recordSettlementHistory(any(FoxCoinHistoryPort.SettlementHistoryCommand.class));
+        verify(eventBus).publishExternalSyncRequested(
+                eq("LEDGER_SYNC_REQUESTED"),
+                eq("settlement-1"),
+                eq("batch-1"),
+                eq("proof-1"),
+                anyString(),
+                anyString()
+        );
         verify(settlementRepository).update(anyString(), any(SettlementStatus.class), any(), anyBoolean(), anyString());
         assertEquals(SettlementStatus.SETTLED, result.status());
     }
@@ -910,21 +916,15 @@ class SettlementApplicationServiceTest {
         when(proofRepository.findByCollateralId("collateral-ledger-fail")).thenReturn(java.util.List.of(proof));
         when(deviceRepository.findByDeviceId("device-1")).thenReturn(Optional.of(device));
         when(settlementResultRepository.existsByVoucherId("voucher-ledger-fail")).thenReturn(false);
-        doThrow(new IllegalStateException("ledger unavailable"))
-                .when(coinManageSettlementPort)
-                .finalizeSettlement(any(CoinManageSettlementPort.SettlementLedgerCommand.class));
-
         SettlementRequest result = service.finalizeSettlement("settlement-ledger-fail");
 
         assertEquals(SettlementStatus.SETTLED, result.status());
-        verify(reconciliationCaseRepository).save(
+        verify(eventBus).publishExternalSyncRequested(
+                eq("LEDGER_SYNC_REQUESTED"),
                 eq("settlement-ledger-fail"),
                 eq("batch-ledger-fail"),
                 eq("proof-ledger-fail"),
-                eq("voucher-ledger-fail"),
-                eq("LEDGER_SYNC_FAILED"),
-                eq(io.korion.offlinepay.domain.status.ReconciliationCaseStatus.OPEN),
-                eq("LEDGER_SYNC_FAIL"),
+                anyString(),
                 anyString()
         );
     }
@@ -1019,21 +1019,15 @@ class SettlementApplicationServiceTest {
         when(proofRepository.findByCollateralId("collateral-history-fail")).thenReturn(java.util.List.of(proof));
         when(deviceRepository.findByDeviceId("device-1")).thenReturn(Optional.of(device));
         when(settlementResultRepository.existsByVoucherId("voucher-history-fail")).thenReturn(false);
-        doThrow(new IllegalStateException("history unavailable"))
-                .when(foxCoinHistoryPort)
-                .recordSettlementHistory(any(FoxCoinHistoryPort.SettlementHistoryCommand.class));
-
         SettlementRequest result = service.finalizeSettlement("settlement-history-fail");
 
         assertEquals(SettlementStatus.SETTLED, result.status());
-        verify(reconciliationCaseRepository).save(
+        verify(eventBus).publishExternalSyncRequested(
+                eq("LEDGER_SYNC_REQUESTED"),
                 eq("settlement-history-fail"),
                 eq("batch-history-fail"),
                 eq("proof-history-fail"),
-                eq("voucher-history-fail"),
-                eq("HISTORY_SYNC_FAILED"),
-                eq(io.korion.offlinepay.domain.status.ReconciliationCaseStatus.OPEN),
-                eq("HISTORY_SYNC_FAIL"),
+                anyString(),
                 anyString()
         );
     }
@@ -1128,20 +1122,14 @@ class SettlementApplicationServiceTest {
         when(proofRepository.findByCollateralId("collateral-ledger-open")).thenReturn(java.util.List.of(proof));
         when(deviceRepository.findByDeviceId("device-1")).thenReturn(Optional.of(device));
         when(settlementResultRepository.existsByVoucherId("voucher-ledger-open")).thenReturn(false);
-        doThrow(new IllegalStateException("circuit is open"))
-                .when(coinManageSettlementPort)
-                .finalizeSettlement(any(CoinManageSettlementPort.SettlementLedgerCommand.class));
-
         service.finalizeSettlement("settlement-ledger-open");
 
-        verify(reconciliationCaseRepository).save(
+        verify(eventBus).publishExternalSyncRequested(
+                eq("LEDGER_SYNC_REQUESTED"),
                 eq("settlement-ledger-open"),
                 eq("batch-ledger-open"),
                 eq("proof-ledger-open"),
-                eq("voucher-ledger-open"),
-                eq("LEDGER_CIRCUIT_OPEN"),
-                eq(io.korion.offlinepay.domain.status.ReconciliationCaseStatus.OPEN),
-                eq("LEDGER_CIRCUIT_OPEN"),
+                anyString(),
                 anyString()
         );
     }
@@ -1236,20 +1224,14 @@ class SettlementApplicationServiceTest {
         when(proofRepository.findByCollateralId("collateral-history-open")).thenReturn(java.util.List.of(proof));
         when(deviceRepository.findByDeviceId("device-1")).thenReturn(Optional.of(device));
         when(settlementResultRepository.existsByVoucherId("voucher-history-open")).thenReturn(false);
-        doThrow(new IllegalStateException("circuit is open"))
-                .when(foxCoinHistoryPort)
-                .recordSettlementHistory(any(FoxCoinHistoryPort.SettlementHistoryCommand.class));
-
         service.finalizeSettlement("settlement-history-open");
 
-        verify(reconciliationCaseRepository).save(
+        verify(eventBus).publishExternalSyncRequested(
+                eq("LEDGER_SYNC_REQUESTED"),
                 eq("settlement-history-open"),
                 eq("batch-history-open"),
                 eq("proof-history-open"),
-                eq("voucher-history-open"),
-                eq("HISTORY_CIRCUIT_OPEN"),
-                eq(io.korion.offlinepay.domain.status.ReconciliationCaseStatus.OPEN),
-                eq("HISTORY_CIRCUIT_OPEN"),
+                anyString(),
                 anyString()
         );
     }

@@ -3,8 +3,10 @@ package io.korion.offlinepay.infrastructure.persistence;
 import io.korion.offlinepay.application.port.ReconciliationCaseRepository;
 import io.korion.offlinepay.domain.model.ReconciliationCase;
 import io.korion.offlinepay.domain.status.ReconciliationCaseStatus;
+import io.korion.offlinepay.infrastructure.persistence.QueryBuilder.Op;
 import io.korion.offlinepay.infrastructure.persistence.mapper.ReconciliationCaseRowMapper;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
@@ -96,6 +98,44 @@ public class JdbcReconciliationCaseRepository implements ReconciliationCaseRepos
             statement.param("reasonCode", reasonCode);
         }
         return statement.query(rowMapper).list();
+    }
+
+    @Override
+    public Optional<ReconciliationCase> findOpenBySettlementIdAndCaseType(String settlementId, String caseType) {
+        requireNonBlank(settlementId, "settlementId");
+        requireNonBlank(caseType, "caseType");
+        String sql = QueryBuilder.select("reconciliation_cases")
+                .where("settlement_id", Op.EQ, ":settlementId")
+                .where("case_type", Op.EQ, ":caseType")
+                .where("status", Op.EQ, ":status")
+                .orderBy("created_at DESC")
+                .limit(1)
+                .build();
+        List<ReconciliationCase> cases = jdbcClient.sql(sql)
+                .param("settlementId", java.util.UUID.fromString(settlementId))
+                .param("caseType", caseType)
+                .param("status", ReconciliationCaseStatus.OPEN.name())
+                .query(rowMapper)
+                .list();
+        return cases.stream().findFirst();
+    }
+
+    @Override
+    public void resolve(String caseId, String detailJson) {
+        requireNonBlank(caseId, "caseId");
+        requireNonBlank(detailJson, "detailJson");
+        String sql = QueryBuilder.update("reconciliation_cases")
+                .set("status", ":status")
+                .set("detail", "CAST(:detail AS jsonb)")
+                .set("resolved_at", "NOW()")
+                .touchUpdatedAt()
+                .where("id", Op.EQ, ":id")
+                .build();
+        jdbcClient.sql(sql)
+                .param("status", ReconciliationCaseStatus.RESOLVED.name())
+                .param("detail", detailJson)
+                .param("id", java.util.UUID.fromString(caseId))
+                .update();
     }
 
     private String requireReasonCode(String reasonCode, String context) {

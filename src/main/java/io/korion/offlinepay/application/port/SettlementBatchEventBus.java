@@ -12,6 +12,30 @@ public interface SettlementBatchEventBus {
 
     void publishBatchResult(String batchId, String status, int settledCount, int failedCount, String processedAt);
 
+    void publishExternalSyncRequested(
+            String eventType,
+            String settlementId,
+            String batchId,
+            String proofId,
+            String payloadJson,
+            String requestedAt
+    );
+
+    List<QueuedExternalSyncMessage> pollExternalSyncRequested(int batchSize);
+
+    List<QueuedExternalSyncMessage> reclaimStaleExternalSyncRequested(int batchSize, int minIdleMillis);
+
+    void publishExternalSyncDeadLetter(
+            String eventType,
+            String settlementId,
+            String batchId,
+            String proofId,
+            int attemptCount,
+            String reasonCode,
+            String errorMessage,
+            String failedAt
+    );
+
     void publishConflict(
             String batchId,
             String voucherId,
@@ -43,10 +67,22 @@ public interface SettlementBatchEventBus {
 
     void acknowledgeRequested(String messageId);
 
+    void acknowledgeExternalSync(String messageId);
+
     record QueuedBatchMessage(
             String messageId,
             String batchId,
             String uploaderType,
             String uploaderDeviceId
+    ) {}
+
+    record QueuedExternalSyncMessage(
+            String messageId,
+            String eventType,
+            String settlementId,
+            String batchId,
+            String proofId,
+            String payloadJson,
+            int attempts
     ) {}
 }

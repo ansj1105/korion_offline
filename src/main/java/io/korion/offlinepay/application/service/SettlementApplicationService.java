@@ -58,8 +58,6 @@ public class SettlementApplicationService {
     private final ReconciliationCaseRepository reconciliationCaseRepository;
     private final SettlementConflictRepository settlementConflictRepository;
     private final SettlementBatchEventBus eventBus;
-    private final CoinManageSettlementPort coinManageSettlementPort;
-    private final FoxCoinHistoryPort foxCoinHistoryPort;
     private final JsonService jsonService;
     private final SettlementBatchFactory settlementBatchFactory;
     private final SettlementRequestFactory settlementRequestFactory;
@@ -109,8 +107,6 @@ public class SettlementApplicationService {
         this.reconciliationCaseRepository = reconciliationCaseRepository;
         this.settlementConflictRepository = settlementConflictRepository;
         this.eventBus = eventBus;
-        this.coinManageSettlementPort = coinManageSettlementPort;
-        this.foxCoinHistoryPort = foxCoinHistoryPort;
         this.jsonService = jsonService;
         this.settlementBatchFactory = settlementBatchFactory;
         this.settlementRequestFactory = settlementRequestFactory;
@@ -499,79 +495,68 @@ public class SettlementApplicationService {
             );
         }
 
-        boolean ledgerSynced = false;
-        try {
-            coinManageSettlementPort.finalizeSettlement(
-                    settlementSyncCommandFactory.createLedgerCommand(
-                            collateral,
-                            proof,
-                            proof.amount(),
-                            request,
-                            evaluation.status().name(),
-                            evaluation.releaseAction(),
-                            evaluation.conflictDetected()
-                    )
-            );
-            ledgerSynced = true;
-        } catch (RuntimeException exception) {
-            String reasonCode = isCircuitOpen(exception)
-                    ? OfflinePayReasonCode.LEDGER_CIRCUIT_OPEN
-                    : OfflinePayReasonCode.LEDGER_SYNC_FAIL;
-            saveExternalSyncReconciliationCase(
-                    request,
-                    proof,
-                    resolveExternalSyncCaseType(
-                            OfflinePayReasonCode.LEDGER_CIRCUIT_OPEN,
-                            "LEDGER_CIRCUIT_OPEN",
-                            "LEDGER_SYNC_FAILED",
-                            reasonCode
-                    ),
-                    reasonCode,
-                    Map.of(
-                            "settlementId", request.id(),
-                            "voucherId", proof.voucherId(),
-                            "ledgerSynced", false,
-                            "historySynced", false,
-                            "errorMessage", exception.getMessage() == null ? "unknown" : exception.getMessage()
-                    )
-            );
-            return;
-        }
-
-        try {
-            foxCoinHistoryPort.recordSettlementHistory(
-                    settlementSyncCommandFactory.createHistoryCommand(
-                            collateral,
-                            proof.id(),
-                            proof.amount(),
-                            request,
-                            evaluation.status().name(),
-                            evaluation.conflictDetected()
-                    )
-            );
-        } catch (RuntimeException exception) {
-            String reasonCode = isCircuitOpen(exception)
-                    ? OfflinePayReasonCode.HISTORY_CIRCUIT_OPEN
-                    : OfflinePayReasonCode.HISTORY_SYNC_FAIL;
-            saveExternalSyncReconciliationCase(
-                    request,
-                    proof,
-                    resolveExternalSyncCaseType(
-                            OfflinePayReasonCode.HISTORY_CIRCUIT_OPEN,
-                            "HISTORY_CIRCUIT_OPEN",
-                            "HISTORY_SYNC_FAILED",
-                            reasonCode
-                    ),
-                    reasonCode,
-                    Map.of(
-                            "settlementId", request.id(),
-                            "voucherId", proof.voucherId(),
-                            "ledgerSynced", ledgerSynced,
-                            "historySynced", false,
-                            "errorMessage", exception.getMessage() == null ? "unknown" : exception.getMessage()
-                    )
-            );
-        }
+        CoinManageSettlementPort.SettlementLedgerCommand ledgerCommand = settlementSyncCommandFactory.createLedgerCommand(
+                collateral,
+                proof,
+                proof.amount(),
+                request,
+                evaluation.status().name(),
+                evaluation.releaseAction(),
+                evaluation.conflictDetected()
+        );
+        FoxCoinHistoryPort.SettlementHistoryCommand historyCommand = settlementSyncCommandFactory.createHistoryCommand(
+                collateral,
+                proof.id(),
+                proof.amount(),
+                request,
+                evaluation.status().name(),
+                evaluation.conflictDetected()
+        );
+        eventBus.publishExternalSyncRequested(
+                "LEDGER_SYNC_REQUESTED",
+                request.id(),
+                request.batchId(),
+                proof.id(),
+                jsonService.write(Map.ofEntries(
+                        Map.entry("settlementId", request.id()),
+                        Map.entry("batchId", request.batchId()),
+                        Map.entry("proofId", proof.id()),
+                        Map.entry("voucherId", proof.voucherId()),
+                        Map.entry("ledgerCommand", Map.ofEntries(
+                                Map.entry("settlementId", ledgerCommand.settlementId()),
+                                Map.entry("batchId", ledgerCommand.batchId()),
+                                Map.entry("collateralId", ledgerCommand.collateralId()),
+                                Map.entry("proofId", ledgerCommand.proofId()),
+                                Map.entry("userId", ledgerCommand.userId()),
+                                Map.entry("deviceId", ledgerCommand.deviceId()),
+                                Map.entry("assetCode", ledgerCommand.assetCode()),
+                                Map.entry("amount", ledgerCommand.amount()),
+                                Map.entry("settlementStatus", ledgerCommand.settlementStatus()),
+                                Map.entry("releaseAction", ledgerCommand.releaseAction()),
+                                Map.entry("conflictDetected", ledgerCommand.conflictDetected()),
+                                Map.entry("proofFingerprint", ledgerCommand.proofFingerprint()),
+                                Map.entry("newStateHash", ledgerCommand.newStateHash()),
+                                Map.entry("previousHash", ledgerCommand.previousHash()),
+                                Map.entry("monotonicCounter", ledgerCommand.monotonicCounter()),
+                                Map.entry("nonce", ledgerCommand.nonce()),
+                                Map.entry("signature", ledgerCommand.signature())
+                        )),
+                        Map.entry("historyCommand", Map.ofEntries(
+                                Map.entry("settlementId", historyCommand.settlementId()),
+                                Map.entry("batchId", historyCommand.batchId()),
+                                Map.entry("collateralId", historyCommand.collateralId()),
+                                Map.entry("proofId", historyCommand.proofId()),
+                                Map.entry("userId", historyCommand.userId()),
+                                Map.entry("deviceId", historyCommand.deviceId()),
+                                Map.entry("assetCode", historyCommand.assetCode()),
+                                Map.entry("amount", historyCommand.amount()),
+                                Map.entry("settlementStatus", historyCommand.settlementStatus()),
+                                Map.entry("historyType", historyCommand.historyType())
+                        )),
+                        Map.entry("requestedAt", OffsetDateTime.now().toString())
+                )),
+                OffsetDateTime.now().toString()
+        );
     }
 
     private void saveReconciliationCase(SettlementRequest request, OfflinePaymentProof proof, SettlementEvaluation evaluation) {
@@ -736,56 +721,10 @@ public class SettlementApplicationService {
         );
     }
 
-    private void saveExternalSyncReconciliationCase(
-            SettlementRequest request,
-            OfflinePaymentProof proof,
-            String caseType,
-            String reasonCode,
-            Map<String, Object> detail
-    ) {
-        String syncTarget = resolveExternalSyncTarget(caseType);
-        reconciliationCaseRepository.save(
-                request.id(),
-                request.batchId(),
-                proof.id(),
-                proof.voucherId(),
-                caseType,
-                ReconciliationCaseStatus.OPEN,
-                requireReasonCode(reasonCode, "external sync reconciliation"),
-                jsonService.write(mergeDetail(detail, Map.of(
-                        "retryable", true,
-                        "nextAction", "RETRY_EXTERNAL_SYNC",
-                        "syncTarget", syncTarget
-                )))
-        );
-    }
-
     private Map<String, Object> mergeDetail(Map<String, Object> base, Map<String, Object> extra) {
         java.util.LinkedHashMap<String, Object> merged = new java.util.LinkedHashMap<>(base);
         merged.putAll(extra);
         return merged;
-    }
-
-    private String resolveExternalSyncTarget(String caseType) {
-        return switch (caseType) {
-            case "LEDGER_SYNC_FAILED", "LEDGER_CIRCUIT_OPEN" -> "COIN_MANAGE_LEDGER";
-            case "HISTORY_SYNC_FAILED", "HISTORY_CIRCUIT_OPEN" -> "FOXYA_HISTORY";
-            default -> "UNKNOWN";
-        };
-    }
-
-    private boolean isCircuitOpen(RuntimeException exception) {
-        String message = exception.getMessage();
-        return message != null && message.toLowerCase().contains("circuit is open");
-    }
-
-    private String resolveExternalSyncCaseType(
-            String circuitOpenReasonCode,
-            String circuitOpenCaseType,
-            String defaultCaseType,
-            String reasonCode
-    ) {
-        return circuitOpenReasonCode.equals(reasonCode) ? circuitOpenCaseType : defaultCaseType;
     }
 
     private CollateralStatus resolveCollateralStatus(
