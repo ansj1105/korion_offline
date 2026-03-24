@@ -51,6 +51,14 @@ public class AdminSyncController {
         return adminOperationsService.getOutboxOverview();
     }
 
+    @PostMapping("/outbox/{eventId}/retry")
+    public Object retryDeadLetterOutbox(@PathVariable String eventId) {
+        return Map.of(
+                "status", "REQUEUED",
+                "event", adminOperationsService.retryDeadLetterOutboxEvent(eventId)
+        );
+    }
+
     @GetMapping("/batches/dead-letters")
     public Object listDeadLetters(
             @RequestParam(defaultValue = "20") int size,

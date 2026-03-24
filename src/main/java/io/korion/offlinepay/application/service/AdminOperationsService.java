@@ -148,6 +148,18 @@ public class AdminOperationsService {
         return settlementOutboxEventRepository.findRecent(size, eventType, status);
     }
 
+    @Transactional
+    public SettlementOutboxEvent retryDeadLetterOutboxEvent(String eventId) {
+        SettlementOutboxEvent event = settlementOutboxEventRepository.findById(eventId);
+        if (!"DEAD_LETTER".equals(event.status())) {
+            throw new IllegalArgumentException("outbox event is not dead-lettered: " + eventId);
+        }
+        if (!isRetryableOutboxEvent(event.eventType())) {
+            throw new IllegalArgumentException("outbox event type is not retryable: " + event.eventType());
+        }
+        return settlementOutboxEventRepository.requeueDeadLetter(eventId);
+    }
+
     @Transactional(readOnly = true)
     public Map<String, Long> getOutboxOverview() {
         return Map.ofEntries(
@@ -164,6 +176,13 @@ public class AdminOperationsService {
                 Map.entry("historySyncRequested", settlementOutboxEventRepository.countByEventType("HISTORY_SYNC_REQUESTED")),
                 Map.entry("externalSyncDeadLetter", settlementOutboxEventRepository.countByEventType("EXTERNAL_SYNC_DEAD_LETTER"))
         );
+    }
+
+    private boolean isRetryableOutboxEvent(String eventType) {
+        return "BATCH_REQUESTED".equals(eventType)
+                || "LEDGER_SYNC_REQUESTED".equals(eventType)
+                || "HISTORY_SYNC_REQUESTED".equals(eventType)
+                || "COLLATERAL_REQUESTED".equals(eventType);
     }
 
     @Transactional(readOnly = true)

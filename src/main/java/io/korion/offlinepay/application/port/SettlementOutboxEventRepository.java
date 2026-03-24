@@ -7,6 +7,10 @@ public interface SettlementOutboxEventRepository {
 
     List<SettlementOutboxEvent> findRecent(int limit, String eventType, String status);
 
+    SettlementOutboxEvent findById(String id);
+
+    SettlementOutboxEvent requeueDeadLetter(String id);
+
     long countByStatus(String status);
 
     long countByEventType(String eventType);
