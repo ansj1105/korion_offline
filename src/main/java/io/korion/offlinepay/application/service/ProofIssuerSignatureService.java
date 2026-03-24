@@ -6,9 +6,11 @@ import java.security.KeyFactory;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.PrivateKey;
+import java.security.PublicKey;
 import java.security.Signature;
 import java.security.spec.ECGenParameterSpec;
 import java.security.spec.PKCS8EncodedKeySpec;
+import java.security.spec.X509EncodedKeySpec;
 import java.util.Base64;
 import org.springframework.stereotype.Service;
 
@@ -51,6 +53,25 @@ public class ProofIssuerSignatureService {
             return Base64.getEncoder().encodeToString(signature.sign());
         } catch (Exception exception) {
             throw new IllegalStateException("Failed to sign issued proof payload", exception);
+        }
+    }
+
+    public boolean verify(String payload, String publicKeyBase64, String signatureBase64) {
+        try {
+            if (payload == null || payload.isBlank()
+                    || publicKeyBase64 == null || publicKeyBase64.isBlank()
+                    || signatureBase64 == null || signatureBase64.isBlank()) {
+                return false;
+            }
+            byte[] publicKeyBytes = Base64.getDecoder().decode(publicKeyBase64.trim().replaceAll("\\s+", ""));
+            PublicKey publicKey = KeyFactory.getInstance("EC").generatePublic(new X509EncodedKeySpec(publicKeyBytes));
+            Signature signature = Signature.getInstance("SHA256withECDSA");
+            signature.initVerify(publicKey);
+            signature.update(payload.getBytes(StandardCharsets.UTF_8));
+            byte[] signatureBytes = Base64.getDecoder().decode(signatureBase64.trim().replaceAll("\\s+", ""));
+            return signature.verify(signatureBytes);
+        } catch (Exception ignored) {
+            return false;
         }
     }
 

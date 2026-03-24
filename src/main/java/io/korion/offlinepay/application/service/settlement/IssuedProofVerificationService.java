@@ -3,6 +3,7 @@ package io.korion.offlinepay.application.service.settlement;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.korion.offlinepay.application.port.IssuedOfflineProofRepository;
 import io.korion.offlinepay.application.service.JsonService;
+import io.korion.offlinepay.application.service.ProofIssuerSignatureService;
 import io.korion.offlinepay.domain.model.IssuedOfflineProof;
 import io.korion.offlinepay.domain.model.OfflinePaymentProof;
 import io.korion.offlinepay.domain.reason.OfflinePayReasonCode;
@@ -17,13 +18,16 @@ public class IssuedProofVerificationService {
 
     private final JsonService jsonService;
     private final IssuedOfflineProofRepository issuedOfflineProofRepository;
+    private final ProofIssuerSignatureService proofIssuerSignatureService;
 
     public IssuedProofVerificationService(
             JsonService jsonService,
-            IssuedOfflineProofRepository issuedOfflineProofRepository
+            IssuedOfflineProofRepository issuedOfflineProofRepository,
+            ProofIssuerSignatureService proofIssuerSignatureService
     ) {
         this.jsonService = jsonService;
         this.issuedOfflineProofRepository = issuedOfflineProofRepository;
+        this.proofIssuerSignatureService = proofIssuerSignatureService;
     }
 
     public VerificationResult verify(OfflinePaymentProof proof) {
@@ -85,12 +89,23 @@ public class IssuedProofVerificationService {
 
         JsonNode issuedPayloadNode = jsonService.readTree(issuedProof.issuedPayloadJson());
         if (mismatch(text(issuedPayloadNode, "proofId"), issuedProof.id())
+                || mismatch(number(issuedPayloadNode, "userId"), issuedProof.userId())
                 || mismatch(text(issuedPayloadNode, "deviceId"), issuedProof.deviceId())
                 || mismatch(text(issuedPayloadNode, "collateralLockId"), issuedProof.collateralId())
                 || mismatch(text(issuedPayloadNode, "assetCode"), issuedProof.assetCode())
                 || mismatch(decimal(issuedPayloadNode, "usableAmount"), issuedProof.usableAmount())
-                || mismatch(text(issuedPayloadNode, "nonce"), issuedProof.proofNonce())) {
+                || mismatch(text(issuedPayloadNode, "nonce"), issuedProof.proofNonce())
+                || mismatch(text(issuedPayloadNode, "issuerKeyId"), issuedProof.issuerKeyId())
+                || mismatch(text(issuedPayloadNode, "devicePublicKey"), text(rawPayload.path("senderDevice"), "publicKey"))
+                || mismatch(text(issuedPayloadNode, "expiresAt"), issuedProof.expiresAt() == null ? null : issuedProof.expiresAt().toString())) {
             return VerificationResult.invalid(OfflinePayReasonCode.ISSUED_PROOF_PAYLOAD_MISMATCH, "issued proof persisted payload mismatch");
+        }
+        if (!proofIssuerSignatureService.verify(
+                issuedProof.issuedPayloadJson(),
+                issuedProof.issuerPublicKey(),
+                issuedProof.issuerSignature()
+        )) {
+            return VerificationResult.invalid(OfflinePayReasonCode.ISSUED_PROOF_SIGNATURE_INVALID, "issued proof issuer signature invalid");
         }
 
         return VerificationResult.valid(issuedProof);
@@ -140,12 +155,24 @@ public class IssuedProofVerificationService {
         return new BigDecimal(text);
     }
 
+    private Long number(JsonNode node, String field) {
+        String text = text(node, field);
+        if (text == null) {
+            return null;
+        }
+        return Long.parseLong(text);
+    }
+
     private boolean mismatch(String left, String right) {
         return left != null && right != null && !left.equals(right);
     }
 
     private boolean mismatch(BigDecimal left, BigDecimal right) {
         return left != null && right != null && left.compareTo(right) != 0;
+    }
+
+    private boolean mismatch(Long left, long right) {
+        return left != null && left != right;
     }
 
     private boolean isBlank(String value) {

@@ -53,6 +53,7 @@ public final class OfflinePayReasonCode {
     public static final String ISSUED_PROOF_EXPIRED = "ISSUED_PROOF_EXPIRED";
     public static final String ISSUED_PROOF_STATUS_INVALID = "ISSUED_PROOF_STATUS_INVALID";
     public static final String ISSUED_PROOF_PAYLOAD_MISMATCH = "ISSUED_PROOF_PAYLOAD_MISMATCH";
+    public static final String ISSUED_PROOF_SIGNATURE_INVALID = "ISSUED_PROOF_SIGNATURE_INVALID";
     public static final String ISSUED_PROOF_DEVICE_MISMATCH = "ISSUED_PROOF_DEVICE_MISMATCH";
     public static final String ISSUED_PROOF_AMOUNT_EXCEEDED = "ISSUED_PROOF_AMOUNT_EXCEEDED";
     public static final String ISSUED_PROOF_NONCE_MISMATCH = "ISSUED_PROOF_NONCE_MISMATCH";
