@@ -3,6 +3,7 @@ package io.korion.offlinepay.infrastructure.adapter;
 import io.korion.offlinepay.application.port.CoinManageSettlementPort;
 import io.korion.offlinepay.contracts.internal.CoinManageFinalizeSettlementContract;
 import io.korion.offlinepay.contracts.internal.InternalAckResponseContract;
+import java.math.RoundingMode;
 import org.springframework.web.client.RestClient;
 
 public class CoinManageSettlementAdapter implements CoinManageSettlementPort {
@@ -25,10 +26,10 @@ public class CoinManageSettlementAdapter implements CoinManageSettlementPort {
                         command.batchId(),
                         command.collateralId(),
                         command.proofId(),
-                        command.userId(),
+                        String.valueOf(command.userId()),
                         command.deviceId(),
                         command.assetCode(),
-                        command.amount(),
+                        command.amount().setScale(6, RoundingMode.HALF_UP).toPlainString(),
                         command.settlementStatus(),
                         command.releaseAction(),
                         command.conflictDetected(),

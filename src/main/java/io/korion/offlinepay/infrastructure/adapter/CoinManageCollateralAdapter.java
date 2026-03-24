@@ -6,6 +6,7 @@ import io.korion.offlinepay.contracts.internal.CoinManageLockCollateralResponseC
 import io.korion.offlinepay.contracts.internal.CoinManageReleaseCollateralContract;
 import io.korion.offlinepay.contracts.internal.CoinManageReleaseCollateralResponseContract;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import org.springframework.web.client.RestClient;
 
 public class CoinManageCollateralAdapter implements CoinManageCollateralPort {
@@ -24,10 +25,10 @@ public class CoinManageCollateralAdapter implements CoinManageCollateralPort {
                 .uri("/api/internal/offline-pay/collateral/lock")
                 .header("x-internal-api-key", apiKey)
                 .body(new CoinManageLockCollateralContract(
-                        userId,
+                        String.valueOf(userId),
                         deviceId,
                         assetCode,
-                        amount,
+                        formatAmount(amount),
                         referenceId,
                         policyVersion
                 ))
@@ -45,11 +46,11 @@ public class CoinManageCollateralAdapter implements CoinManageCollateralPort {
                 .uri("/api/internal/offline-pay/collateral/release")
                 .header("x-internal-api-key", apiKey)
                 .body(new CoinManageReleaseCollateralContract(
-                        userId,
+                        String.valueOf(userId),
                         deviceId,
                         collateralId,
                         assetCode,
-                        amount,
+                        formatAmount(amount),
                         referenceId
                 ))
                 .retrieve()
@@ -58,5 +59,9 @@ public class CoinManageCollateralAdapter implements CoinManageCollateralPort {
             throw new IllegalStateException("coin_manage release response is empty");
         }
         return new ReleaseCollateralResult(response.releaseId(), response.status());
+    }
+
+    private String formatAmount(BigDecimal amount) {
+        return amount.setScale(6, RoundingMode.HALF_UP).toPlainString();
     }
 }
