@@ -389,7 +389,7 @@ public class JdbcSettlementBatchEventBus implements SettlementBatchEventBus {
     ) {
         insertEvent(
                 EVENT_COLLATERAL_REQUESTED,
-                STATUS_COMPLETED,
+                STATUS_PENDING,
                 null,
                 null,
                 null,

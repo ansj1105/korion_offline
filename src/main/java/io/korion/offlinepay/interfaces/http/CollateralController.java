@@ -46,6 +46,7 @@ public class CollateralController {
                 new CollateralApplicationService.ReleaseCollateralCommand(
                         request.userId(),
                         request.deviceId(),
+                        request.amount(),
                         request.reason(),
                         request.metadata()
                 )

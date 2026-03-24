@@ -107,6 +107,42 @@ public class JdbcCollateralRepository implements CollateralRepository {
     }
 
     @Override
+    public Optional<CollateralLock> findAggregateByUserIdAndDeviceIdAndAssetCode(long userId, String deviceId, String assetCode) {
+        String sql = """
+                SELECT
+                    MIN(id)::text AS id,
+                    user_id,
+                    device_id,
+                    asset_code,
+                    COALESCE(SUM(locked_amount), 0) AS locked_amount,
+                    COALESCE(SUM(remaining_amount), 0) AS remaining_amount,
+                    'AGGREGATED' AS initial_state_root,
+                    COALESCE(MAX(policy_version), 1) AS policy_version,
+                    CASE
+                        WHEN BOOL_OR(status = 'LOCKED') THEN 'LOCKED'
+                        ELSE COALESCE(MAX(status), 'RELEASED')
+                    END AS status,
+                    STRING_AGG(external_lock_id, ',' ORDER BY created_at) AS external_lock_id,
+                    MAX(expires_at) AS expires_at,
+                    '{}'::text AS metadata,
+                    MIN(created_at) AS created_at,
+                    MAX(updated_at) AS updated_at
+                FROM collateral_locks
+                WHERE user_id = :userId
+                  AND device_id = :deviceId
+                  AND asset_code = :assetCode
+                  AND remaining_amount > 0
+                GROUP BY user_id, device_id, asset_code
+                """;
+        return jdbcClient.sql(sql)
+                .param("userId", userId)
+                .param("deviceId", deviceId)
+                .param("assetCode", assetCode)
+                .query(collateralLockRowMapper)
+                .optional();
+    }
+
+    @Override
     public void deductRemainingAmount(String collateralId, BigDecimal amount) {
         String sql = QueryBuilder.update("collateral_locks")
                 .set("remaining_amount", "GREATEST(remaining_amount - :amount, 0)")

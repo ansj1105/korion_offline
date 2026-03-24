@@ -167,11 +167,13 @@ public class CollateralExternalSyncWorker {
                 operation.referenceId()
         );
         collateralRepository.deductRemainingAmount(collateral.id(), operation.amount());
+        boolean fullyReleased = collateral.remainingAmount().compareTo(operation.amount()) <= 0;
         collateralRepository.updateStatus(
                 collateral.id(),
-                CollateralStatus.RELEASED,
+                fullyReleased ? CollateralStatus.RELEASED : CollateralStatus.LOCKED,
                 jsonService.write(Map.of(
                         "referenceId", operation.referenceId(),
+                        "releasedAmount", operation.amount(),
                         "releasedAt", OffsetDateTime.now().toString()
                 ))
         );

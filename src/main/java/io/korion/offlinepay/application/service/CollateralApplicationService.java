@@ -100,6 +100,12 @@ public class CollateralApplicationService {
         if (collateral.remainingAmount().signum() <= 0) {
             throw new IllegalArgumentException("collateral remaining amount is empty: " + collateralId);
         }
+        if (command.amount() == null || command.amount().signum() <= 0) {
+            throw new IllegalArgumentException("release amount is required");
+        }
+        if (command.amount().compareTo(collateral.remainingAmount()) > 0) {
+            throw new IllegalArgumentException("release amount exceeds remaining collateral");
+        }
 
         String referenceId = "release:" + collateralId;
         CollateralOperation operation = collateralOperationRepository.saveRequested(
@@ -108,9 +114,10 @@ public class CollateralApplicationService {
                 collateral.deviceId(),
                 collateral.assetCode(),
                 CollateralOperationType.RELEASE,
-                collateral.remainingAmount(),
+                command.amount(),
                 referenceId,
                 jsonService.write(Map.of(
+                        "amount", command.amount(),
                         "reason", command.reason() == null ? "manual_release" : command.reason(),
                         "metadata", command.metadata() == null ? Map.of() : command.metadata()
                 ))
@@ -138,6 +145,7 @@ public class CollateralApplicationService {
     public record ReleaseCollateralCommand(
             long userId,
             String deviceId,
+            BigDecimal amount,
             String reason,
             Map<String, Object> metadata
     ) {}
