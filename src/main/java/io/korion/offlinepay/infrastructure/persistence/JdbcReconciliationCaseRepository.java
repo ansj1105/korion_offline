@@ -30,6 +30,7 @@ public class JdbcReconciliationCaseRepository implements ReconciliationCaseRepos
             String reasonCode,
             String detailJson
     ) {
+        String normalizedReasonCode = requireReasonCode(reasonCode, "reconciliation case");
         String sql = QueryBuilder.insert(
                         "reconciliation_cases",
                         "settlement_id",
@@ -50,7 +51,7 @@ public class JdbcReconciliationCaseRepository implements ReconciliationCaseRepos
                 .param("voucherId", voucherId)
                 .param("caseType", caseType)
                 .param("status", status.name())
-                .param("reasonCode", reasonCode)
+                .param("reasonCode", normalizedReasonCode)
                 .param("detail", detailJson)
                 .update();
 
@@ -91,5 +92,12 @@ public class JdbcReconciliationCaseRepository implements ReconciliationCaseRepos
             statement.param("reasonCode", reasonCode);
         }
         return statement.query(rowMapper).list();
+    }
+
+    private String requireReasonCode(String reasonCode, String context) {
+        if (reasonCode == null || reasonCode.isBlank()) {
+            throw new IllegalStateException("reasonCode is required for " + context);
+        }
+        return reasonCode;
     }
 }

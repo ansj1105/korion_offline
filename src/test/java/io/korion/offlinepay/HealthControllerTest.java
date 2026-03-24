@@ -20,6 +20,10 @@ class HealthControllerTest {
                 new AppProperties.ProofIssuer("test-proof-issuer", "", ""),
                 new AppProperties.CoinManage("http://localhost:3000", "test-key", 5000),
                 new AppProperties.FoxCoin("http://localhost:3101", "test-key", 5000),
+                new AppProperties.Alerts(
+                        new AppProperties.Telegram("", ""),
+                        new AppProperties.CircuitBreaker(3, 60000)
+                ),
                 new AppProperties.Redis(
                         "offlinepay",
                         "stream:settlement:requested",

@@ -29,6 +29,13 @@ offline-pay:
     base-url: ${FOX_COIN_BASE_URL:http://localhost:3101}
     api-key: ${FOX_COIN_API_KEY:replace-with-fox-coin-internal-api-key}
     timeout-ms: ${FOX_COIN_TIMEOUT_MS:5000}
+  alerts:
+    telegram:
+      bot-token: ${TELEGRAM_BOT_TOKEN:}
+      chat-id: ${TELEGRAM_CHAT_ID:}
+    circuit-breaker:
+      failure-threshold: ${OUTBOUND_CIRCUIT_FAILURE_THRESHOLD:3}
+      reset-timeout-ms: ${OUTBOUND_CIRCUIT_RESET_TIMEOUT_MS:60000}
   redis:
     key-prefix: ${REDIS_KEY_PREFIX:offlinepay}
     settlement-requested-stream: ${SETTLEMENT_REQUESTED_STREAM_NAME:stream:settlement:requested}

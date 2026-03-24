@@ -11,6 +11,7 @@ public record AppProperties(
         ProofIssuer proofIssuer,
         CoinManage coinManage,
         FoxCoin foxCoin,
+        Alerts alerts,
         Redis redis,
         Worker worker
 ) {
@@ -31,6 +32,21 @@ public record AppProperties(
             String baseUrl,
             String apiKey,
             int timeoutMs
+    ) {}
+
+    public record Alerts(
+            Telegram telegram,
+            CircuitBreaker circuitBreaker
+    ) {}
+
+    public record Telegram(
+            String botToken,
+            String chatId
+    ) {}
+
+    public record CircuitBreaker(
+            int failureThreshold,
+            long resetTimeoutMs
     ) {}
 
     public record Redis(

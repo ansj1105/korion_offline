@@ -4,8 +4,12 @@ import io.korion.offlinepay.application.port.CoinManageCollateralPort;
 import io.korion.offlinepay.application.port.CoinManageSettlementPort;
 import io.korion.offlinepay.application.port.FoxCoinHistoryPort;
 import io.korion.offlinepay.application.port.SettlementBatchEventBus;
+import io.korion.offlinepay.application.service.SimpleCircuitBreaker;
+import io.korion.offlinepay.application.service.TelegramAlertService;
 import io.korion.offlinepay.infrastructure.adapter.CoinManageCollateralAdapter;
 import io.korion.offlinepay.infrastructure.adapter.CoinManageSettlementAdapter;
+import io.korion.offlinepay.infrastructure.adapter.CircuitBreakingCoinManageSettlementAdapter;
+import io.korion.offlinepay.infrastructure.adapter.CircuitBreakingFoxCoinHistoryAdapter;
 import io.korion.offlinepay.infrastructure.adapter.FoxCoinHistoryAdapter;
 import io.korion.offlinepay.infrastructure.events.RedisSettlementBatchEventBus;
 import org.springframework.context.annotation.Bean;
@@ -19,6 +23,26 @@ public class InfrastructureFactoryConfig {
     @Bean
     public RestClient.Builder restClientBuilder() {
         return RestClient.builder();
+    }
+
+    @Bean
+    public RestClient telegramRestClient(RestClient.Builder builder) {
+        return builder.baseUrl("https://api.telegram.org").build();
+    }
+
+    @Bean
+    public TelegramAlertService telegramAlertService(RestClient telegramRestClient, AppProperties properties) {
+        return new TelegramAlertService(telegramRestClient, properties);
+    }
+
+    @Bean
+    public SimpleCircuitBreaker coinManageSettlementCircuitBreaker(AppProperties properties) {
+        return new SimpleCircuitBreaker(resolveFailureThreshold(properties), resolveResetTimeoutMs(properties));
+    }
+
+    @Bean
+    public SimpleCircuitBreaker foxCoinHistoryCircuitBreaker(AppProperties properties) {
+        return new SimpleCircuitBreaker(resolveFailureThreshold(properties), resolveResetTimeoutMs(properties));
     }
 
     @Bean
@@ -49,17 +73,47 @@ public class InfrastructureFactoryConfig {
     }
 
     @Bean
-    public CoinManageSettlementPort coinManageSettlementPort(RestClient coinManageRestClient) {
-        return new CoinManageSettlementAdapter(coinManageRestClient);
+    public CoinManageSettlementPort coinManageSettlementPort(
+            RestClient coinManageRestClient,
+            SimpleCircuitBreaker coinManageSettlementCircuitBreaker,
+            TelegramAlertService telegramAlertService
+    ) {
+        return new CircuitBreakingCoinManageSettlementAdapter(
+                new CoinManageSettlementAdapter(coinManageRestClient),
+                coinManageSettlementCircuitBreaker,
+                telegramAlertService
+        );
     }
 
     @Bean
-    public FoxCoinHistoryPort foxCoinHistoryPort(RestClient foxCoinRestClient) {
-        return new FoxCoinHistoryAdapter(foxCoinRestClient);
+    public FoxCoinHistoryPort foxCoinHistoryPort(
+            RestClient foxCoinRestClient,
+            SimpleCircuitBreaker foxCoinHistoryCircuitBreaker,
+            TelegramAlertService telegramAlertService
+    ) {
+        return new CircuitBreakingFoxCoinHistoryAdapter(
+                new FoxCoinHistoryAdapter(foxCoinRestClient),
+                foxCoinHistoryCircuitBreaker,
+                telegramAlertService
+        );
     }
 
     @Bean
     public SettlementBatchEventBus settlementBatchEventBus(StringRedisTemplate redisTemplate, AppProperties properties) {
         return new RedisSettlementBatchEventBus(redisTemplate, properties);
+    }
+
+    private int resolveFailureThreshold(AppProperties properties) {
+        if (properties.alerts() == null || properties.alerts().circuitBreaker() == null) {
+            return 3;
+        }
+        return properties.alerts().circuitBreaker().failureThreshold();
+    }
+
+    private long resolveResetTimeoutMs(AppProperties properties) {
+        if (properties.alerts() == null || properties.alerts().circuitBreaker() == null) {
+            return 60_000L;
+        }
+        return properties.alerts().circuitBreaker().resetTimeoutMs();
     }
 }

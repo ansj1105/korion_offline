@@ -35,6 +35,7 @@ class IssuedProofVerificationServiceTest {
                     null,
                     null,
                     null,
+                    null,
                     null
             )
     );
