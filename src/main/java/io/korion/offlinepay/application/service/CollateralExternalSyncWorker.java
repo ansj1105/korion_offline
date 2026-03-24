@@ -8,6 +8,8 @@ import io.korion.offlinepay.application.port.SettlementBatchEventBus;
 import io.korion.offlinepay.config.AppProperties;
 import io.korion.offlinepay.domain.model.CollateralLock;
 import io.korion.offlinepay.domain.model.CollateralOperation;
+import io.korion.offlinepay.domain.policy.OfflineFailureClass;
+import io.korion.offlinepay.domain.policy.OfflineFailurePolicy;
 import io.korion.offlinepay.domain.reason.OfflinePayReasonCode;
 import io.korion.offlinepay.domain.status.CollateralOperationStatus;
 import io.korion.offlinepay.domain.status.CollateralOperationType;
@@ -315,6 +317,28 @@ public class CollateralExternalSyncWorker {
         if (reconciliationCaseRepository.findOpenByVoucherIdAndCaseType(operation.id(), caseType).isPresent()) {
             return;
         }
+        OfflineFailureClass failureClass = OfflineFailurePolicy.classify(reasonCode, errorMessage);
+        boolean retryable = OfflineFailurePolicy.isRetryable(failureClass);
+        LinkedHashMap<String, Object> detail = new LinkedHashMap<>();
+        detail.put("operationId", operation.id());
+        detail.put("operationType", operation.operationType().name());
+        detail.put("referenceId", operation.referenceId());
+        detail.put("assetCode", operation.assetCode());
+        detail.put("failureClass", failureClass.name());
+        detail.put("retryable", retryable);
+        detail.put("adminAction", OfflineFailurePolicy.adminAction(failureClass));
+        detail.put("nextAction", "RETRY_COLLATERAL_SYNC");
+        detail.put("syncTarget", "COIN_MANAGE_COLLATERAL");
+        detail.put("retryCount", message.attempts());
+        detail.put(
+                "nextRetryAt",
+                retryable
+                        ? OffsetDateTime.now()
+                                .plus(OfflineFailurePolicy.nextRetryDelay(failureClass, message.attempts()))
+                                .toString()
+                        : ""
+        );
+        detail.put("errorMessage", errorMessage);
         reconciliationCaseRepository.save(
                 null,
                 null,
@@ -323,18 +347,7 @@ public class CollateralExternalSyncWorker {
                 caseType,
                 ReconciliationCaseStatus.OPEN,
                 reasonCode,
-                jsonService.write(new LinkedHashMap<>(Map.of(
-                        "operationId", operation.id(),
-                        "operationType", operation.operationType().name(),
-                        "referenceId", operation.referenceId(),
-                        "assetCode", operation.assetCode(),
-                        "retryable", true,
-                        "nextAction", "RETRY_COLLATERAL_SYNC",
-                        "syncTarget", "COIN_MANAGE_COLLATERAL",
-                        "retryCount", message.attempts(),
-                        "nextRetryAt", OffsetDateTime.now().plusMinutes(5).toString(),
-                        "errorMessage", errorMessage
-                )))
+                jsonService.write(detail)
         );
     }
 

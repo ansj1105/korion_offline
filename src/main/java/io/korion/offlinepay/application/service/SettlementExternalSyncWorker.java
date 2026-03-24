@@ -7,6 +7,8 @@ import io.korion.offlinepay.application.port.ReconciliationCaseRepository;
 import io.korion.offlinepay.application.port.SettlementBatchEventBus;
 import io.korion.offlinepay.config.AppProperties;
 import io.korion.offlinepay.domain.model.ReconciliationCase;
+import io.korion.offlinepay.domain.policy.OfflineFailureClass;
+import io.korion.offlinepay.domain.policy.OfflineFailurePolicy;
 import io.korion.offlinepay.domain.reason.OfflinePayReasonCode;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
@@ -137,6 +139,9 @@ public class SettlementExternalSyncWorker {
         if (reconciliationCaseRepository.findOpenBySettlementIdAndCaseType(message.settlementId(), caseType).isPresent()) {
             return;
         }
+        String errorMessage = exception.getMessage() == null ? "unknown external sync failure" : exception.getMessage();
+        OfflineFailureClass failureClass = OfflineFailurePolicy.classify(reasonCode, errorMessage);
+        boolean retryable = OfflineFailurePolicy.isRetryable(failureClass);
         reconciliationCaseRepository.save(
                 message.settlementId(),
                 message.batchId(),
@@ -149,17 +154,23 @@ public class SettlementExternalSyncWorker {
                         Map.entry("settlementId", message.settlementId()),
                         Map.entry("batchId", message.batchId()),
                         Map.entry("proofId", message.proofId()),
-                        Map.entry("retryable", true),
+                        Map.entry("failureClass", failureClass.name()),
+                        Map.entry("retryable", retryable),
+                        Map.entry("adminAction", OfflineFailurePolicy.adminAction(failureClass)),
                         Map.entry("nextAction", "RETRY_EXTERNAL_SYNC"),
                         Map.entry("syncTarget", resolveSyncTarget(message.eventType())),
                         Map.entry("eventType", message.eventType()),
                         Map.entry("payloadJson", message.payloadJson()),
                         Map.entry("retryCount", message.attempts()),
-                        Map.entry("nextRetryAt", OffsetDateTime.now().plusMinutes(5).toString()),
                         Map.entry(
-                                "errorMessage",
-                                exception.getMessage() == null ? "unknown external sync failure" : exception.getMessage()
-                        )
+                                "nextRetryAt",
+                                retryable
+                                        ? OffsetDateTime.now()
+                                                .plus(OfflineFailurePolicy.nextRetryDelay(failureClass, message.attempts()))
+                                                .toString()
+                                        : ""
+                        ),
+                        Map.entry("errorMessage", errorMessage)
                 ))
         );
     }

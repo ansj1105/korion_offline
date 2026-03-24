@@ -5,6 +5,8 @@ import io.korion.offlinepay.application.port.ReconciliationCaseRepository;
 import io.korion.offlinepay.application.port.SettlementBatchEventBus;
 import io.korion.offlinepay.config.AppProperties;
 import io.korion.offlinepay.domain.model.ReconciliationCase;
+import io.korion.offlinepay.domain.policy.OfflineFailureClass;
+import io.korion.offlinepay.domain.policy.OfflineFailurePolicy;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
 import java.util.LinkedHashMap;
@@ -45,6 +47,11 @@ public class ReconciliationFollowUpWorker {
             if (!detail.path("retryable").asBoolean(false)) {
                 continue;
             }
+            OfflineFailureClass failureClass = resolveFailureClass(detail);
+            if (detail.path("retryCount").asInt(0) >= OfflineFailurePolicy.maxAutoRetryAttempts(failureClass)) {
+                reconciliationCaseRepository.updateDetail(candidate.id(), disableRetry(detail, failureClass));
+                continue;
+            }
             String nextAction = detail.path("nextAction").asText("");
             if (!"RETRY_EXTERNAL_SYNC".equals(nextAction) && !"RETRY_COLLATERAL_SYNC".equals(nextAction)) {
                 continue;
@@ -82,7 +89,7 @@ public class ReconciliationFollowUpWorker {
                         OffsetDateTime.now().toString()
                 );
             }
-            reconciliationCaseRepository.updateDetail(candidate.id(), updateDetail(detail));
+            reconciliationCaseRepository.updateDetail(candidate.id(), updateDetail(detail, failureClass));
         }
     }
 
@@ -97,13 +104,37 @@ public class ReconciliationFollowUpWorker {
         }
     }
 
-    private String updateDetail(JsonNode detail) {
+    private String updateDetail(JsonNode detail, OfflineFailureClass failureClass) {
         LinkedHashMap<String, Object> merged = new LinkedHashMap<>();
         detail.fields().forEachRemaining(entry -> merged.put(entry.getKey(), entry.getValue()));
         int retryCount = detail.path("retryCount").asInt(0) + 1;
         merged.put("retryCount", retryCount);
         merged.put("lastRetriedAt", OffsetDateTime.now().toString());
-        merged.put("nextRetryAt", OffsetDateTime.now().plusMinutes(5).toString());
+        merged.put("nextRetryAt", OffsetDateTime.now().plus(OfflineFailurePolicy.nextRetryDelay(failureClass, retryCount)).toString());
         return jsonService.write(merged);
+    }
+
+    private String disableRetry(JsonNode detail, OfflineFailureClass failureClass) {
+        LinkedHashMap<String, Object> merged = new LinkedHashMap<>();
+        detail.fields().forEachRemaining(entry -> merged.put(entry.getKey(), entry.getValue()));
+        merged.put("retryable", false);
+        merged.put("adminAction", OfflineFailurePolicy.adminAction(failureClass));
+        merged.put("nextRetryAt", "");
+        merged.put("retryExhaustedAt", OffsetDateTime.now().toString());
+        return jsonService.write(merged);
+    }
+
+    private OfflineFailureClass resolveFailureClass(JsonNode detail) {
+        String raw = detail.path("failureClass").asText("");
+        if (!raw.isBlank()) {
+            try {
+                return OfflineFailureClass.valueOf(raw);
+            } catch (IllegalArgumentException ignored) {
+                return OfflineFailureClass.SYSTEM;
+            }
+        }
+        String reasonCode = detail.path("reasonCode").asText("");
+        String errorMessage = detail.path("errorMessage").asText("");
+        return OfflineFailurePolicy.classify(reasonCode, errorMessage);
     }
 }
