@@ -3,6 +3,7 @@ package io.korion.offlinepay.application.service;
 import io.korion.offlinepay.application.port.CollateralOperationRepository;
 import io.korion.offlinepay.application.port.CollateralRepository;
 import io.korion.offlinepay.application.port.DeviceRepository;
+import io.korion.offlinepay.application.port.FoxCoinWalletSnapshotPort;
 import io.korion.offlinepay.application.port.SettlementBatchEventBus;
 import io.korion.offlinepay.domain.model.CollateralOperation;
 import io.korion.offlinepay.domain.status.OfflineSagaType;
@@ -21,6 +22,7 @@ public class CollateralApplicationService {
     private final DeviceRepository deviceRepository;
     private final CollateralRepository collateralRepository;
     private final CollateralOperationRepository collateralOperationRepository;
+    private final FoxCoinWalletSnapshotPort foxCoinWalletSnapshotPort;
     private final SettlementBatchEventBus settlementBatchEventBus;
     private final OfflineSagaService offlineSagaService;
     private final JsonService jsonService;
@@ -30,6 +32,7 @@ public class CollateralApplicationService {
             DeviceRepository deviceRepository,
             CollateralRepository collateralRepository,
             CollateralOperationRepository collateralOperationRepository,
+            FoxCoinWalletSnapshotPort foxCoinWalletSnapshotPort,
             SettlementBatchEventBus settlementBatchEventBus,
             OfflineSagaService offlineSagaService,
             JsonService jsonService,
@@ -38,6 +41,7 @@ public class CollateralApplicationService {
         this.deviceRepository = deviceRepository;
         this.collateralRepository = collateralRepository;
         this.collateralOperationRepository = collateralOperationRepository;
+        this.foxCoinWalletSnapshotPort = foxCoinWalletSnapshotPort;
         this.settlementBatchEventBus = settlementBatchEventBus;
         this.offlineSagaService = offlineSagaService;
         this.jsonService = jsonService;
@@ -52,6 +56,25 @@ public class CollateralApplicationService {
         String assetCode = command.assetCode() == null || command.assetCode().isBlank()
                 ? properties.assetCode()
                 : command.assetCode();
+        CollateralLock aggregate = collateralRepository.findAggregateByUserIdAndAssetCode(
+                        command.userId(),
+                        assetCode
+                )
+                .orElse(null);
+        FoxCoinWalletSnapshotPort.WalletSnapshot walletSnapshot =
+                foxCoinWalletSnapshotPort.getCanonicalWalletSnapshot(command.userId(), assetCode);
+        BigDecimal currentCollateralAmount = aggregate == null
+                ? BigDecimal.ZERO
+                : aggregate.lockedAmount().max(BigDecimal.ZERO);
+        BigDecimal additionalCollateralAvailableAmount = walletSnapshot.totalBalance()
+                .subtract(currentCollateralAmount)
+                .max(BigDecimal.ZERO);
+        if (command.amount() == null || command.amount().signum() <= 0) {
+            throw new IllegalArgumentException("collateral amount is required");
+        }
+        if (command.amount().compareTo(additionalCollateralAvailableAmount) > 0) {
+            throw new IllegalArgumentException("collateral amount exceeds foxya canonical snapshot balance");
+        }
         int policyVersion = command.policyVersion() == null ? 1 : command.policyVersion();
         String initialStateRoot = command.initialStateRoot() == null || command.initialStateRoot().isBlank()
                 ? "GENESIS"
