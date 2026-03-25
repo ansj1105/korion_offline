@@ -2,6 +2,7 @@ package io.korion.offlinepay.application.service;
 
 import io.korion.offlinepay.application.port.CollateralRepository;
 import io.korion.offlinepay.application.port.DeviceRepository;
+import io.korion.offlinepay.application.port.FoxCoinWalletSnapshotPort;
 import io.korion.offlinepay.application.port.IssuedOfflineProofRepository;
 import io.korion.offlinepay.config.AppProperties;
 import io.korion.offlinepay.domain.model.CollateralLock;
@@ -18,6 +19,7 @@ public class OfflineSnapshotService {
     private final DeviceRepository deviceRepository;
     private final CollateralRepository collateralRepository;
     private final IssuedOfflineProofRepository issuedOfflineProofRepository;
+    private final FoxCoinWalletSnapshotPort foxCoinWalletSnapshotPort;
     private final AppProperties properties;
     private final JsonService jsonService;
 
@@ -25,12 +27,14 @@ public class OfflineSnapshotService {
             DeviceRepository deviceRepository,
             CollateralRepository collateralRepository,
             IssuedOfflineProofRepository issuedOfflineProofRepository,
+            FoxCoinWalletSnapshotPort foxCoinWalletSnapshotPort,
             AppProperties properties,
             JsonService jsonService
     ) {
         this.deviceRepository = deviceRepository;
         this.collateralRepository = collateralRepository;
         this.issuedOfflineProofRepository = issuedOfflineProofRepository;
+        this.foxCoinWalletSnapshotPort = foxCoinWalletSnapshotPort;
         this.properties = properties;
         this.jsonService = jsonService;
     }
@@ -48,6 +52,11 @@ public class OfflineSnapshotService {
         IssuedOfflineProof issuedProof = issuedOfflineProofRepository
                 .findLatestActiveByUserIdAndDeviceIdAndAssetCode(userId, deviceId, normalizedAssetCode)
                 .orElse(null);
+        WalletSnapshot walletSnapshot = loadWalletSnapshot(
+                userId,
+                normalizedAssetCode,
+                collateral == null ? null : collateral.lockedAmount()
+        );
 
         return new CurrentSnapshot(
                 userId,
@@ -94,6 +103,7 @@ public class OfflineSnapshotService {
                         issuedProof.expiresAt().toString(),
                         issuedProof.createdAt().toString()
                 ),
+                walletSnapshot,
                 true,
                 OffsetDateTime.now().toString()
         );
@@ -106,6 +116,7 @@ public class OfflineSnapshotService {
             DeviceRegistrationSnapshot deviceRegistration,
             CollateralSnapshot collateral,
             IssuedProofSnapshot issuedProof,
+            WalletSnapshot wallet,
             boolean walletRefreshRequired,
             String refreshedAt
     ) {}
@@ -153,6 +164,40 @@ public class OfflineSnapshotService {
             String expiresAt,
             String updatedAt
     ) {}
+
+    public record WalletSnapshot(
+            long userId,
+            String assetCode,
+            String totalBalance,
+            String lockedBalance,
+            String additionalCollateralAvailableAmount,
+            String canonicalBasis,
+            String refreshedAt
+    ) {}
+
+    private WalletSnapshot loadWalletSnapshot(long userId, String assetCode, java.math.BigDecimal collateralLockedAmount) {
+        try {
+            FoxCoinWalletSnapshotPort.WalletSnapshot snapshot =
+                    foxCoinWalletSnapshotPort.getCanonicalWalletSnapshot(userId, assetCode);
+            java.math.BigDecimal currentCollateralAmount = collateralLockedAmount == null
+                    ? java.math.BigDecimal.ZERO
+                    : collateralLockedAmount.max(java.math.BigDecimal.ZERO);
+            java.math.BigDecimal additionalCollateralAvailableAmount = snapshot.totalBalance()
+                    .subtract(currentCollateralAmount)
+                    .max(java.math.BigDecimal.ZERO);
+            return new WalletSnapshot(
+                    snapshot.userId(),
+                    snapshot.assetCode(),
+                    snapshot.totalBalance().toPlainString(),
+                    snapshot.lockedBalance().toPlainString(),
+                    additionalCollateralAvailableAmount.toPlainString(),
+                    snapshot.canonicalBasis(),
+                    snapshot.refreshedAt()
+            );
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
 
     private String readMetadataText(Device device, String fieldName) {
         try {

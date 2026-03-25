@@ -3,6 +3,7 @@ package io.korion.offlinepay.config;
 import io.korion.offlinepay.application.port.CoinManageCollateralPort;
 import io.korion.offlinepay.application.port.CoinManageSettlementPort;
 import io.korion.offlinepay.application.port.FoxCoinHistoryPort;
+import io.korion.offlinepay.application.port.FoxCoinWalletSnapshotPort;
 import io.korion.offlinepay.application.port.SettlementBatchEventBus;
 import io.korion.offlinepay.application.service.SimpleCircuitBreaker;
 import io.korion.offlinepay.application.service.TelegramAlertService;
@@ -11,6 +12,7 @@ import io.korion.offlinepay.infrastructure.adapter.CoinManageSettlementAdapter;
 import io.korion.offlinepay.infrastructure.adapter.CircuitBreakingCoinManageSettlementAdapter;
 import io.korion.offlinepay.infrastructure.adapter.CircuitBreakingFoxCoinHistoryAdapter;
 import io.korion.offlinepay.infrastructure.adapter.FoxCoinHistoryAdapter;
+import io.korion.offlinepay.infrastructure.adapter.FoxCoinWalletSnapshotAdapter;
 import io.korion.offlinepay.infrastructure.events.JdbcSettlementBatchEventBus;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -90,6 +92,14 @@ public class InfrastructureFactoryConfig {
                 foxCoinHistoryCircuitBreaker,
                 telegramAlertService
         );
+    }
+
+    @Bean
+    public FoxCoinWalletSnapshotPort foxCoinWalletSnapshotPort(
+            RestClient foxCoinRestClient,
+            AppProperties properties
+    ) {
+        return new FoxCoinWalletSnapshotAdapter(foxCoinRestClient, properties.foxCoin().apiKey());
     }
 
     @Bean
