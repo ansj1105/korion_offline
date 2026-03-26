@@ -12,12 +12,18 @@ import io.korion.offlinepay.config.AppProperties;
 import io.korion.offlinepay.domain.model.CollateralLock;
 import io.korion.offlinepay.domain.status.CollateralStatus;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.Map;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class CollateralApplicationService {
+
+    private static final int MAX_REFERENCE_SCOPE_LENGTH = 24;
+    private static final int HASH_LENGTH = 16;
 
     private final DeviceRepository deviceRepository;
     private final CollateralRepository collateralRepository;
@@ -182,18 +188,42 @@ public class CollateralApplicationService {
 
     private String buildTopupReferenceId(CreateCollateralCommand command) {
         String idempotencyKey = normalizeIdempotencyKey(command.idempotencyKey());
-        if (idempotencyKey != null) {
-            return "topup:" + command.deviceId() + ":" + idempotencyKey;
-        }
-        return "topup:" + command.deviceId() + ":" + System.currentTimeMillis();
+        return buildBoundedReferenceId("topup", command.deviceId(), idempotencyKey);
     }
 
     private String buildReleaseReferenceId(String collateralId, ReleaseCollateralCommand command) {
         String idempotencyKey = normalizeIdempotencyKey(command.idempotencyKey());
+        return buildBoundedReferenceId("release", collateralId, idempotencyKey);
+    }
+
+    private String buildBoundedReferenceId(String prefix, String scope, String idempotencyKey) {
+        String compactScope = compactScope(scope);
         if (idempotencyKey != null) {
-            return "release:" + collateralId + ":" + idempotencyKey;
+            return prefix + ":" + compactScope + ":" + fingerprint(idempotencyKey, HASH_LENGTH);
         }
-        return "release:" + collateralId + ":" + System.currentTimeMillis();
+        return prefix + ":" + compactScope + ":" + System.currentTimeMillis();
+    }
+
+    private String compactScope(String scope) {
+        String normalized = scope == null ? "unknown" : scope.trim();
+        if (normalized.length() <= MAX_REFERENCE_SCOPE_LENGTH) {
+            return normalized;
+        }
+        return normalized.substring(0, 12) + "-" + fingerprint(normalized, 8);
+    }
+
+    private String fingerprint(String value, int length) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] bytes = digest.digest(value.getBytes(StandardCharsets.UTF_8));
+            StringBuilder builder = new StringBuilder();
+            for (byte current : bytes) {
+                builder.append(String.format("%02x", current));
+            }
+            return builder.substring(0, Math.min(length, builder.length()));
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256 algorithm is unavailable", exception);
+        }
     }
 
     private String normalizeIdempotencyKey(String idempotencyKey) {
