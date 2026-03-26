@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -22,7 +23,10 @@ public class CollateralController {
     }
 
     @PostMapping
-    public Object create(@Valid @RequestBody CreateCollateralRequest request) {
+    public Object create(
+            @RequestHeader(name = "Idempotency-Key", required = false) String idempotencyKey,
+            @Valid @RequestBody CreateCollateralRequest request
+    ) {
         return collateralApplicationService.createCollateral(new CollateralApplicationService.CreateCollateralCommand(
                 request.userId(),
                 request.deviceId(),
@@ -30,7 +34,8 @@ public class CollateralController {
                 request.assetCode(),
                 request.initialStateRoot(),
                 request.policyVersion(),
-                request.metadata()
+                request.metadata(),
+                idempotencyKey
         ));
     }
 
@@ -40,7 +45,11 @@ public class CollateralController {
     }
 
     @PostMapping("/{collateralId}/release")
-    public Object release(@PathVariable String collateralId, @Valid @RequestBody ReleaseCollateralRequest request) {
+    public Object release(
+            @RequestHeader(name = "Idempotency-Key", required = false) String idempotencyKey,
+            @PathVariable String collateralId,
+            @Valid @RequestBody ReleaseCollateralRequest request
+    ) {
         return collateralApplicationService.releaseCollateral(
                 collateralId,
                 new CollateralApplicationService.ReleaseCollateralCommand(
@@ -48,7 +57,8 @@ public class CollateralController {
                         request.deviceId(),
                         request.amount(),
                         request.reason(),
-                        request.metadata()
+                        request.metadata(),
+                        idempotencyKey
                 )
         );
     }

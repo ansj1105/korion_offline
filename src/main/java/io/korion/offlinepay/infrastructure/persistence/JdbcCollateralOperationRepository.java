@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Repository;
 
 @Repository
@@ -49,17 +50,21 @@ public class JdbcCollateralOperationRepository implements CollateralOperationRep
                 .value("metadata", "CAST(:metadata AS jsonb)")
                 .build();
 
-        jdbcClient.sql(sql)
-                .param("collateral_id", collateralId == null || collateralId.isBlank() ? null : UUID.fromString(collateralId))
-                .param("user_id", userId)
-                .param("device_id", deviceId)
-                .param("asset_code", assetCode)
-                .param("operation_type", operationType.name())
-                .param("amount", amount)
-                .param("status", CollateralOperationStatus.REQUESTED.name())
-                .param("reference_id", referenceId)
-                .param("metadata", metadataJson)
-                .update();
+        try {
+            jdbcClient.sql(sql)
+                    .param("collateral_id", collateralId == null || collateralId.isBlank() ? null : UUID.fromString(collateralId))
+                    .param("user_id", userId)
+                    .param("device_id", deviceId)
+                    .param("asset_code", assetCode)
+                    .param("operation_type", operationType.name())
+                    .param("amount", amount)
+                    .param("status", CollateralOperationStatus.REQUESTED.name())
+                    .param("reference_id", referenceId)
+                    .param("metadata", metadataJson)
+                    .update();
+        } catch (DataIntegrityViolationException error) {
+            return findByReferenceId(referenceId).orElseThrow(() -> error);
+        }
 
         return findByReferenceId(referenceId).orElseThrow();
     }

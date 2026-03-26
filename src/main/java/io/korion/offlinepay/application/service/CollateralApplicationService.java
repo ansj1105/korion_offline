@@ -79,7 +79,7 @@ public class CollateralApplicationService {
         String initialStateRoot = command.initialStateRoot() == null || command.initialStateRoot().isBlank()
                 ? "GENESIS"
                 : command.initialStateRoot();
-        String referenceId = "topup:" + command.deviceId() + ":" + System.currentTimeMillis();
+        String referenceId = buildTopupReferenceId(command);
         CollateralOperation operation = collateralOperationRepository.saveRequested(
                 null,
                 command.userId(),
@@ -144,7 +144,7 @@ public class CollateralApplicationService {
             throw new IllegalArgumentException("release amount exceeds remaining collateral");
         }
 
-        String referenceId = "release:" + collateralId;
+        String referenceId = buildReleaseReferenceId(collateralId, command);
         CollateralOperation operation = collateralOperationRepository.saveRequested(
                 collateral.id(),
                 collateral.userId(),
@@ -180,6 +180,30 @@ public class CollateralApplicationService {
         return operation;
     }
 
+    private String buildTopupReferenceId(CreateCollateralCommand command) {
+        String idempotencyKey = normalizeIdempotencyKey(command.idempotencyKey());
+        if (idempotencyKey != null) {
+            return "topup:" + command.deviceId() + ":" + idempotencyKey;
+        }
+        return "topup:" + command.deviceId() + ":" + System.currentTimeMillis();
+    }
+
+    private String buildReleaseReferenceId(String collateralId, ReleaseCollateralCommand command) {
+        String idempotencyKey = normalizeIdempotencyKey(command.idempotencyKey());
+        if (idempotencyKey != null) {
+            return "release:" + collateralId + ":" + idempotencyKey;
+        }
+        return "release:" + collateralId + ":" + System.currentTimeMillis();
+    }
+
+    private String normalizeIdempotencyKey(String idempotencyKey) {
+        if (idempotencyKey == null) {
+            return null;
+        }
+        String normalized = idempotencyKey.trim();
+        return normalized.isBlank() ? null : normalized;
+    }
+
     public record CreateCollateralCommand(
             long userId,
             String deviceId,
@@ -187,7 +211,8 @@ public class CollateralApplicationService {
             String assetCode,
             String initialStateRoot,
             Integer policyVersion,
-            Map<String, Object> metadata
+            Map<String, Object> metadata,
+            String idempotencyKey
     ) {}
 
     public record ReleaseCollateralCommand(
@@ -195,6 +220,7 @@ public class CollateralApplicationService {
             String deviceId,
             BigDecimal amount,
             String reason,
-            Map<String, Object> metadata
+            Map<String, Object> metadata,
+            String idempotencyKey
     ) {}
 }
