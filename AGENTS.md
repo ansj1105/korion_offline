@@ -52,6 +52,9 @@
 - 테스트용 peer, 사용자, 기기, 금액 샘플이 필요하면 `test mode` 또는 fixture 경계 안으로 격리한다.
 - 오프라인 결제는 `원장 기반 pay`이며, 자동 실출금이 아니라 내부원장/정합성 검증/배치 처리 구조를 유지한다.
 - `online/offline` 상태와 무관하게 오프라인 페이 화면 진입은 가능해야 하고, 최종 정합성은 온라인 복귀 후 서버가 판정한다.
+- 오프라인 페이 프런트 디자인 기준은 `/Users/an/Downloads/pages/offline-pay`이다.
+- `container`, `app-wrapper`, `app-container` 충돌 방지에 필요한 예외를 제외하면 다운로드본 렌더를 우선 1:1로 맞춘다.
+- 기능 로직은 현재 브랜치를 유지하되, 마크업/CSS는 다운로드본을 source of truth로 본다.
 
 ## Cross Repo Change Rules
 - 오프라인 페이 변경은 `offline_pay`만 보지 말고 `coin_manage`, `foxya_coin_service`, `coin_csms`, `coin_publish`, `coin_front`까지 영향 범위를 같이 본다.
