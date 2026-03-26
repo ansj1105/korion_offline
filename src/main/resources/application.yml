@@ -23,7 +23,7 @@ offline-pay:
   settlement-stream-block-ms: ${SETTLEMENT_STREAM_BLOCK_MS:1000}
   coin-manage:
     base-url: ${COIN_MANAGE_BASE_URL:http://localhost:3000}
-    api-key: ${COIN_MANAGE_API_KEY:replace-with-internal-api-key}
+    api-key: ${COIN_MANAGE_OFFLINE_PAY_API_KEY:${OFFLINE_PAY_INTERNAL_API_KEY:${COIN_MANAGE_API_KEY:replace-with-internal-api-key}}}
     timeout-ms: ${COIN_MANAGE_TIMEOUT_MS:5000}
   fox-coin:
     base-url: ${FOX_COIN_BASE_URL:http://localhost:3101}
