@@ -16,6 +16,12 @@
 	- outbox 이벤트를 읽어 `current workflow state`를 계산하는 소비자
 - `compensation`
 	- 중간 단계 성공 후 후속 단계 실패 시 되돌리기 위한 보상 작업
+- `save-point`
+	- forward recovery 재시작 또는 backward recovery 되감기의 기준이 되는 단계
+- `forward recovery`
+	- 실패 시 중지하지 않고 재시도/재처리로 다음 단계를 계속 진행하는 복구
+- `backward recovery`
+	- 이미 반영된 단계를 보상 트랜잭션으로 되돌리는 복구
 
 ## 3. 공통 단계
 
@@ -40,7 +46,29 @@
 - `DEAD_LETTERED`
 	- retry 한도 초과 또는 운영 개입 필요
 
-### 3.2 sagaStatus
+### 3.2 save-point / recovery mode
+
+- save-point stage
+	- `SERVER_ACCEPTED`
+	- `SETTLEMENT_ACCEPTED`
+	- `COLLATERAL_LOCKED`
+	- `COLLATERAL_RELEASED`
+	- `LEDGER_SYNCED`
+	- `HISTORY_SYNCED`
+- forward recovery 우선 stage
+	- `LOCAL_QUEUED`
+	- `SERVER_ACCEPTED`
+	- `SETTLEMENT_ACCEPTED`
+- backward recovery 우선 stage
+	- `COLLATERAL_LOCKED`
+	- `COLLATERAL_RELEASED`
+	- `LEDGER_SYNCED`
+	- `COMPENSATING`
+- terminal stage
+	- `FAILED`
+	- `DEAD_LETTERED`
+
+### 3.3 sagaStatus
 
 - `QUEUED`
 - `ACCEPTED`
@@ -52,6 +80,29 @@
 - `COMPENSATED`
 - `FAILED`
 - `DEAD_LETTERED`
+
+### 3.4 saga recovery rule
+
+- `QUEUED`
+	- forward recovery
+- `ACCEPTED`
+	- forward recovery
+- `PROCESSING`
+	- forward recovery
+- `PARTIALLY_APPLIED`
+	- forward recovery
+- `COMPENSATION_REQUIRED`
+	- backward recovery
+- `COMPENSATING`
+	- backward recovery
+- `COMPLETED`
+	- no recovery
+- `COMPENSATED`
+	- no recovery
+- `FAILED`
+	- terminal
+- `DEAD_LETTERED`
+	- terminal
 
 ## 4. 서비스별 책임
 
@@ -123,6 +174,20 @@ history 단계 실패:
 - ledger는 성공했지만 history가 실패했으면
 	- saga `COMPENSATION_REQUIRED`
 	- 후속 보상 또는 재처리 필요
+	- 기본 recovery mode는 `BACKWARD_RECOVERY`
+	- save-point는 `LEDGER_SYNCED`
+
+### 6.4 forward recovery
+
+1. `LOCAL_QUEUED -> SERVER_ACCEPTED -> SETTLEMENT_ACCEPTED` 구간 실패는 즉시 rollback보다 재시도 우선
+2. transport/auth/system failure는 save-point 이전이면 retry queue로 재진입
+3. retry 성공 시 같은 `referenceId` / `Idempotency-Key`로 saga를 이어감
+
+### 6.5 backward recovery
+
+1. `COLLATERAL_LOCKED`, `COLLATERAL_RELEASED`, `LEDGER_SYNCED` 이후 후속 단계 실패 시 보상 필요 여부를 먼저 판단
+2. 보상 필요 시 saga는 `COMPENSATION_REQUIRED -> COMPENSATING -> COMPENSATED`
+3. 보상 트랜잭션 로그와 원본 saga 상태를 함께 남겨 운영자가 replay-safe 하게 추적
 
 ## 7. 관리자 모니터링
 
