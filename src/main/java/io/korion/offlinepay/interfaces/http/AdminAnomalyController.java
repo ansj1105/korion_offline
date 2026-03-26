@@ -68,6 +68,13 @@ public class AdminAnomalyController {
         );
     }
 
+    @GetMapping("/overview")
+    public Object anomalyOverview(@RequestParam(defaultValue = "200") int sampleSize) {
+        return Map.of(
+                "summary", adminOperationsService.getAnomalyOverview(sampleSize)
+        );
+    }
+
     @PostMapping("/reconciliation-cases/{caseId}/retry")
     public Object retryReconciliationCase(@PathVariable String caseId) {
         return Map.of(

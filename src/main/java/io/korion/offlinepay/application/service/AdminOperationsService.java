@@ -412,6 +412,61 @@ public class AdminOperationsService {
     }
 
     @Transactional(readOnly = true)
+    public Map<String, Long> getAnomalyOverview(int sampleSize) {
+        int limit = Math.max(20, sampleSize);
+        List<SettlementConflict> conflicts = settlementConflictRepository.findRecent(null, null, null, null, null, limit);
+        List<ReconciliationCase> reconciliationCases = reconciliationCaseRepository.findRecent(limit, null, null, null);
+        List<OfflineWorkflowState> workflowStates = offlineWorkflowStateRepository.findRecent(limit, null, null);
+        List<OfflineSaga> sagas = offlineSagaRepository.findRecent(limit, null, null);
+
+        long duplicateReplayConflictCount = conflicts.stream()
+                .filter(item -> containsDuplicateReplaySignal(item.conflictType()))
+                .count();
+        long duplicateReplayCaseCount = reconciliationCases.stream()
+                .filter(item -> containsDuplicateReplaySignal(item.caseType()) || containsDuplicateReplaySignal(item.reasonCode()))
+                .count();
+        long duplicateReplayWorkflowCount = workflowStates.stream()
+                .filter(item -> containsDuplicateReplaySignal(item.reasonCode()) || containsDuplicateReplaySignal(item.errorMessage()))
+                .count();
+
+        long failedWorkflowCount = workflowStates.stream()
+                .filter(item -> "FAILED".equals(item.workflowStage()) || "DEAD_LETTERED".equals(item.workflowStage()))
+                .count();
+        long blockedSagaCount = sagas.stream()
+                .filter(item ->
+                        item.status() == OfflineSagaStatus.FAILED
+                                || item.status() == OfflineSagaStatus.DEAD_LETTERED
+                                || item.status() == OfflineSagaStatus.COMPENSATION_REQUIRED
+                )
+                .count();
+        long openReconciliationCount = reconciliationCases.stream()
+                .filter(item -> item.status() != ReconciliationCaseStatus.RESOLVED)
+                .count();
+
+        return Map.of(
+                "sampleSize", (long) limit,
+                "duplicateReplayConflictCount", duplicateReplayConflictCount,
+                "duplicateReplayCaseCount", duplicateReplayCaseCount,
+                "duplicateReplayWorkflowCount", duplicateReplayWorkflowCount,
+                "duplicateReplaySignalCount", duplicateReplayConflictCount + duplicateReplayCaseCount + duplicateReplayWorkflowCount,
+                "failedWorkflowCount", failedWorkflowCount,
+                "blockedSagaCount", blockedSagaCount,
+                "openReconciliationCount", openReconciliationCount,
+                "conflictCount", (long) conflicts.size()
+        );
+    }
+
+    private boolean containsDuplicateReplaySignal(String value) {
+        if (value == null || value.isBlank()) {
+            return false;
+        }
+        String normalized = value.trim().toUpperCase();
+        return normalized.contains("DUPLICATE")
+                || normalized.contains("REPLAY")
+                || normalized.contains("PAYLOAD_MISMATCH");
+    }
+
+    @Transactional(readOnly = true)
     public OfflineEventOverview getOfflineEventOverview(int size, String assetCode) {
         List<OfflineEventLog> recentEvents = offlineEventLogRepository.findRecent(size, null, null, assetCode);
         long pendingCount = recentEvents.stream().filter(item -> item.eventStatus() == OfflineEventStatus.PENDING).count();
