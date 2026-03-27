@@ -8,6 +8,9 @@ import io.korion.offlinepay.domain.model.CollateralLock;
 import io.korion.offlinepay.domain.model.Device;
 import io.korion.offlinepay.domain.model.IssuedOfflineProof;
 import io.korion.offlinepay.domain.status.IssuedProofStatus;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.OffsetDateTime;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -17,6 +20,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class IssuedProofApplicationService {
+
+    private static final String SUBJECT_BINDING_NAMESPACE = "korion-offline-pay:user-binding";
 
     private final DeviceRepository deviceRepository;
     private final CollateralRepository collateralRepository;
@@ -64,6 +69,7 @@ public class IssuedProofApplicationService {
         Map<String, Object> payloadMap = new LinkedHashMap<>();
         payloadMap.put("proofId", proofId);
         payloadMap.put("userId", command.userId());
+        payloadMap.put("subjectBindingKey", buildSubjectBindingKey(command.userId(), normalizedAssetCode));
         payloadMap.put("deviceId", command.deviceId());
         payloadMap.put("collateralLockId", collateral.id());
         payloadMap.put("assetCode", normalizedAssetCode);
@@ -105,6 +111,24 @@ public class IssuedProofApplicationService {
                 issued.expiresAt().toString(),
                 issued.createdAt().toString()
         );
+    }
+
+    public static String buildSubjectBindingKey(long userId, String assetCode) {
+        return sha256Hex(SUBJECT_BINDING_NAMESPACE + "|" + userId + "|" + String.valueOf(assetCode).toUpperCase());
+    }
+
+    private static String sha256Hex(String value) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] bytes = digest.digest(value.getBytes(StandardCharsets.UTF_8));
+            StringBuilder builder = new StringBuilder();
+            for (byte current : bytes) {
+                builder.append(String.format("%02x", current));
+            }
+            return builder.toString();
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256 algorithm is unavailable", exception);
+        }
     }
 
     public record IssueCommand(

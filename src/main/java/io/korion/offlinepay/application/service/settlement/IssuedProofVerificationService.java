@@ -2,6 +2,7 @@ package io.korion.offlinepay.application.service.settlement;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import io.korion.offlinepay.application.port.IssuedOfflineProofRepository;
+import io.korion.offlinepay.application.service.IssuedProofApplicationService;
 import io.korion.offlinepay.application.service.JsonService;
 import io.korion.offlinepay.application.service.ProofIssuerSignatureService;
 import io.korion.offlinepay.domain.model.IssuedOfflineProof;
@@ -92,6 +93,7 @@ public class IssuedProofVerificationService {
         JsonNode issuedPayloadNode = jsonService.readTree(issuedProof.issuedPayloadJson());
         if (mismatch(text(issuedPayloadNode, "proofId"), issuedProof.id())
                 || mismatch(number(issuedPayloadNode, "userId"), issuedProof.userId())
+                || mismatch(text(issuedPayloadNode, "subjectBindingKey"), IssuedProofApplicationService.buildSubjectBindingKey(issuedProof.userId(), issuedProof.assetCode()))
                 || mismatch(text(issuedPayloadNode, "deviceId"), issuedProof.deviceId())
                 || mismatch(text(issuedPayloadNode, "collateralLockId"), issuedProof.collateralId())
                 || mismatch(text(issuedPayloadNode, "assetCode"), issuedProof.assetCode())
