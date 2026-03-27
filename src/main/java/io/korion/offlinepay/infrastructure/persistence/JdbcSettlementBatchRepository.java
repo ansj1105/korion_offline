@@ -131,7 +131,7 @@ public class JdbcSettlementBatchRepository implements SettlementBatchRepository 
     public List<SettlementBatch> findDeadLetterBatches(int limit, String networkScope) {
         QueryBuilder.SelectBuilder builder = QueryBuilder.select("settlement_batches")
                 .where("status", QueryBuilder.Op.EQ, "'FAILED'")
-                .where("summary ? 'deadLetteredAt'");
+                .where("jsonb_exists(summary, 'deadLetteredAt')");
         appendNetworkScopeFilter(builder, "settlement_batches.id", networkScope);
 
         String sql = builder.orderBy("updated_at DESC")
@@ -189,7 +189,7 @@ public class JdbcSettlementBatchRepository implements SettlementBatchRepository 
     public long countDeadLetterBatches(int hours, String networkScope) {
         QueryBuilder.SelectBuilder builder = QueryBuilder.select("settlement_batches", "COUNT(*) AS count")
                 .where("status", QueryBuilder.Op.EQ, "'FAILED'")
-                .where("summary ? 'deadLetteredAt'")
+                .where("jsonb_exists(summary, 'deadLetteredAt')")
                 .where("updated_at", QueryBuilder.Op.GTE, "NOW() - make_interval(hours => :hours)");
         appendNetworkScopeFilter(builder, "settlement_batches.id", networkScope);
 
