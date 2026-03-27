@@ -22,6 +22,10 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+    networks:
+      default:
+        aliases:
+          - offline-pay-runtime-db
 
   redis:
     image: redis:7-alpine
@@ -30,6 +34,10 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+    networks:
+      default:
+        aliases:
+          - offline-pay-runtime-redis
 
   flyway:
     image: flyway/flyway:11-alpine
@@ -50,11 +58,11 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: jdbc:postgresql://postgres:5432/offline_pay
+      DATABASE_URL: ${APP_DATABASE_URL:-jdbc:postgresql://offline-pay-runtime-db:5432/offline_pay}
       DATABASE_USERNAME: offline_pay
       DATABASE_PASSWORD: offline_pay
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
+      REDIS_HOST: ${APP_REDIS_HOST:-offline-pay-runtime-redis}
+      REDIS_PORT: ${APP_REDIS_PORT:-6379}
       SETTLEMENT_WORKER_ENABLED: "false"
     depends_on:
       postgres:
@@ -71,11 +79,11 @@ services:
     environment:
       SPRING_MAIN_WEB_APPLICATION_TYPE: "none"
       SETTLEMENT_WORKER_ENABLED: "true"
-      DATABASE_URL: jdbc:postgresql://postgres:5432/offline_pay
+      DATABASE_URL: ${APP_DATABASE_URL:-jdbc:postgresql://offline-pay-runtime-db:5432/offline_pay}
       DATABASE_USERNAME: offline_pay
       DATABASE_PASSWORD: offline_pay
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
+      REDIS_HOST: ${APP_REDIS_HOST:-offline-pay-runtime-redis}
+      REDIS_PORT: ${APP_REDIS_PORT:-6379}
     depends_on:
       postgres:
         condition: service_healthy
