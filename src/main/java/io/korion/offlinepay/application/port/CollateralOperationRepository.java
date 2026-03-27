@@ -34,4 +34,10 @@ public interface CollateralOperationRepository {
             CollateralOperationStatus status,
             String assetCode
     );
+
+    List<CollateralOperation> findRecentByUserIdAndAssetCode(
+            long userId,
+            String assetCode,
+            int size
+    );
 }

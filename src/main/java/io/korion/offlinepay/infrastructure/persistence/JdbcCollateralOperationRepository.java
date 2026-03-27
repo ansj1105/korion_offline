@@ -159,4 +159,22 @@ public class JdbcCollateralOperationRepository implements CollateralOperationRep
         }
         return spec.query(rowMapper).list();
     }
+
+    @Override
+    public List<CollateralOperation> findRecentByUserIdAndAssetCode(long userId, String assetCode, int size) {
+        QueryBuilder.SelectBuilder builder = QueryBuilder.select("collateral_operations")
+                .where("user_id", QueryBuilder.Op.EQ, ":userId")
+                .orderBy("created_at DESC")
+                .limit(size);
+        if (assetCode != null && !assetCode.isBlank()) {
+            builder.where("asset_code", QueryBuilder.Op.EQ, ":assetCode");
+        }
+
+        JdbcClient.StatementSpec spec = jdbcClient.sql(builder.build())
+                .param("userId", userId);
+        if (assetCode != null && !assetCode.isBlank()) {
+            spec.param("assetCode", assetCode.toUpperCase());
+        }
+        return spec.query(rowMapper).list();
+    }
 }

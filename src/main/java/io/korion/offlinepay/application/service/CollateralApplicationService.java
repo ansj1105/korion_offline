@@ -15,6 +15,7 @@ import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.List;
 import java.util.Map;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -125,6 +126,15 @@ public class CollateralApplicationService {
     public CollateralLock getCollateral(String collateralId) {
         return collateralRepository.findById(collateralId)
                 .orElseThrow(() -> new IllegalArgumentException("collateral not found: " + collateralId));
+    }
+
+    @Transactional(readOnly = true)
+    public List<CollateralOperation> listCollateralOperations(long userId, String assetCode, Integer size) {
+        int normalizedSize = size == null ? 50 : Math.min(Math.max(size, 1), 100);
+        String normalizedAssetCode = assetCode == null || assetCode.isBlank()
+                ? properties.assetCode()
+                : assetCode.trim().toUpperCase();
+        return collateralOperationRepository.findRecentByUserIdAndAssetCode(userId, normalizedAssetCode, normalizedSize);
     }
 
     @Transactional
