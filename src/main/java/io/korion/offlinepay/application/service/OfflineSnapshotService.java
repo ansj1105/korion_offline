@@ -45,13 +45,15 @@ public class OfflineSnapshotService {
                 ? properties.assetCode()
                 : assetCode.trim().toUpperCase();
         Device device = deviceRepository.findByUserIdAndDeviceId(userId, deviceId)
-                .orElseThrow(() -> new IllegalArgumentException("device binding mismatch: " + deviceId));
+                .orElse(null);
         CollateralLock collateral = collateralRepository
                 .findAggregateByUserIdAndAssetCode(userId, normalizedAssetCode)
                 .orElse(null);
-        IssuedOfflineProof issuedProof = issuedOfflineProofRepository
-                .findLatestActiveByUserIdAndDeviceIdAndAssetCode(userId, deviceId, normalizedAssetCode)
-                .orElse(null);
+        IssuedOfflineProof issuedProof = device == null
+                ? null
+                : issuedOfflineProofRepository
+                        .findLatestActiveByUserIdAndDeviceIdAndAssetCode(userId, deviceId, normalizedAssetCode)
+                        .orElse(null);
         WalletSnapshot walletSnapshot = loadWalletSnapshot(
                 userId,
                 normalizedAssetCode,
@@ -62,19 +64,7 @@ public class OfflineSnapshotService {
                 userId,
                 deviceId,
                 normalizedAssetCode,
-                new DeviceRegistrationSnapshot(
-                        device.id(),
-                        device.deviceId(),
-                        device.userId(),
-                        device.publicKey(),
-                        device.keyVersion(),
-                        readMetadataText(device, "nickname"),
-                        readMetadataText(device, "deviceModel"),
-                        readMetadataText(device, "platform"),
-                        device.status().name(),
-                        device.metadataJson(),
-                        device.updatedAt().toString()
-                ),
+                buildDeviceRegistrationSnapshot(userId, deviceId, device),
                 collateral == null ? null : new CollateralSnapshot(
                         collateral.id(),
                         collateral.userId(),
@@ -106,6 +96,38 @@ public class OfflineSnapshotService {
                 walletSnapshot,
                 true,
                 OffsetDateTime.now().toString()
+        );
+    }
+
+    private DeviceRegistrationSnapshot buildDeviceRegistrationSnapshot(long userId, String deviceId, Device device) {
+        if (device == null) {
+            return new DeviceRegistrationSnapshot(
+                    "",
+                    deviceId,
+                    userId,
+                    "",
+                    0,
+                    "",
+                    "",
+                    "WEB",
+                    "UNREGISTERED",
+                    "{}",
+                    OffsetDateTime.now().toString()
+            );
+        }
+
+        return new DeviceRegistrationSnapshot(
+                device.id(),
+                device.deviceId(),
+                device.userId(),
+                device.publicKey(),
+                device.keyVersion(),
+                readMetadataText(device, "nickname"),
+                readMetadataText(device, "deviceModel"),
+                readMetadataText(device, "platform"),
+                device.status().name(),
+                device.metadataJson(),
+                device.updatedAt().toString()
         );
     }
 
