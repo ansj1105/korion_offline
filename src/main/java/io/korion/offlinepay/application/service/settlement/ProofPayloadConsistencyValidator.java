@@ -5,6 +5,9 @@ import io.korion.offlinepay.application.service.JsonService;
 import io.korion.offlinepay.domain.model.OfflinePaymentProof;
 import io.korion.offlinepay.domain.reason.OfflinePayReasonCode;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.Map;
 import org.springframework.stereotype.Component;
 
@@ -56,6 +59,10 @@ public class ProofPayloadConsistencyValidator {
         }
         if (mismatch(longValue(rawPayload, "expiresAt"), proof.expiresAtMs())) {
             return invalid(OfflinePayReasonCode.PAYLOAD_EXPIRY_MISMATCH, proof, "expiry mismatch");
+        }
+        if (text(rawPayload, "payloadHash") != null
+                && mismatch(text(rawPayload, "payloadHash"), sha256Hex(proof.canonicalPayload()))) {
+            return invalid(OfflinePayReasonCode.PAYLOAD_HASH_MISMATCH, proof, "payloadHash mismatch");
         }
         return ValidationResult.success();
     }
@@ -161,6 +168,20 @@ public class ProofPayloadConsistencyValidator {
 
     private boolean isBlank(String value) {
         return value == null || value.isBlank();
+    }
+
+    private String sha256Hex(String value) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] bytes = digest.digest((value == null ? "" : value).getBytes(StandardCharsets.UTF_8));
+            StringBuilder builder = new StringBuilder();
+            for (byte current : bytes) {
+                builder.append(String.format("%02x", current));
+            }
+            return builder.toString();
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256 algorithm is unavailable", exception);
+        }
     }
 
     public record ValidationResult(

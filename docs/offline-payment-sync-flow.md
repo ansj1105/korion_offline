@@ -1,6 +1,7 @@
 # Offline Payment Sync Flow
 
-관련 앱 모드/연결 정책은 [payment-mode-flow-spec.md](./payment-mode-flow-spec.md)를 기준으로 한다.
+관련 앱 모드/연결 정책은 [payment-mode-flow-spec.md](./payment-mode-flow-spec.md)를 기준으로 한다.  
+로컬 신뢰 앵커, payload 바인딩, 최종 승인 계약은 [offline-trust-anchor-and-approval-contract.md](./offline-trust-anchor-and-approval-contract.md)를 source of truth로 본다.
 
 ## 1. 목적
 

@@ -36,6 +36,8 @@ public interface OfflinePaymentProofRepository {
 
     java.util.Optional<OfflinePaymentProof> findBySenderNonce(String senderDeviceId, String nonce);
 
+    java.util.Optional<OfflinePaymentProof> findBySenderRequestId(String senderDeviceId, String requestId);
+
     java.util.List<OfflinePaymentProof> findByCollateralId(String collateralId);
 
     java.util.List<OfflinePaymentProof> findRecent(int size, OfflineProofStatus status, String channelType);

@@ -9,6 +9,7 @@ public final class OfflinePayReasonCode {
     public static final String INVALID_DEVICE_BINDING = "INVALID_DEVICE_BINDING";
     public static final String INVALID_DEVICE_SIGNATURE = "INVALID_DEVICE_SIGNATURE";
     public static final String DUPLICATE_SETTLEMENT = "DUPLICATE_SETTLEMENT";
+    public static final String REQUEST_ID_REPLAYED = "REQUEST_ID_REPLAYED";
     public static final String DEVICE_NOT_ACTIVE = "DEVICE_NOT_ACTIVE";
     public static final String KEY_VERSION_MISMATCH = "KEY_VERSION_MISMATCH";
 

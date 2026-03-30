@@ -4,10 +4,15 @@ import com.fasterxml.jackson.databind.JsonNode;
 import io.korion.offlinepay.application.service.JsonService;
 import io.korion.offlinepay.domain.model.Device;
 import io.korion.offlinepay.domain.model.OfflinePaymentProof;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import org.springframework.stereotype.Service;
 
 @Service
 public class DeviceBindingVerificationService {
+
+    private static final String DEVICE_BINDING_NAMESPACE = "korion-offline-pay:device-binding";
 
     private final JsonService jsonService;
 
@@ -18,11 +23,13 @@ public class DeviceBindingVerificationService {
     public VerificationResult verify(Device device, OfflinePaymentProof proof) {
         JsonNode payloadNode = jsonService.readTree(proof.rawPayloadJson());
         String deviceRegistrationId = textValue(payloadNode.get("deviceRegistrationId"));
+        String deviceBindingKey = textValue(payloadNode.get("deviceBindingKey"));
         String authMethod = textValue(payloadNode.get("authMethod"));
         Long signedUserId = longValue(payloadNode.get("signedUserId"));
 
         boolean hasBindingFields =
                 deviceRegistrationId != null ||
+                deviceBindingKey != null ||
                 authMethod != null ||
                 signedUserId != null;
 
@@ -35,10 +42,23 @@ public class DeviceBindingVerificationService {
         if (!device.id().equals(deviceRegistrationId)) {
             return VerificationResult.invalidResult("device registration id mismatch");
         }
+        if (deviceBindingKey != null && !deviceBindingKey.equals(buildDeviceBindingKey(device))) {
+            return VerificationResult.invalidResult("device binding key mismatch");
+        }
         if (device.userId() != signedUserId) {
             return VerificationResult.invalidResult("signed user mismatch");
         }
         return VerificationResult.validResult();
+    }
+
+    public static String buildDeviceBindingKey(Device device) {
+        return sha256Hex(String.join(
+                "|",
+                DEVICE_BINDING_NAMESPACE,
+                device.id(),
+                device.publicKey(),
+                String.valueOf(device.keyVersion())
+        ));
     }
 
     private String textValue(JsonNode node) {
@@ -68,6 +88,20 @@ public class DeviceBindingVerificationService {
             return Long.parseLong(text);
         } catch (NumberFormatException exception) {
             return null;
+        }
+    }
+
+    private static String sha256Hex(String value) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] bytes = digest.digest(value.getBytes(StandardCharsets.UTF_8));
+            StringBuilder builder = new StringBuilder();
+            for (byte current : bytes) {
+                builder.append(String.format("%02x", current));
+            }
+            return builder.toString();
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256 algorithm is unavailable", exception);
         }
     }
 

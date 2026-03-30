@@ -432,6 +432,133 @@ class SettlementApplicationServiceTest {
     }
 
     @Test
+    void finalizeSettlementRejectsReplayedRequestId() {
+        SettlementRequest request = new SettlementRequest(
+                "settlement-request-replay",
+                "batch-request-replay",
+                "collateral-request-replay",
+                "proof-request-replay",
+                SettlementStatus.VALIDATING,
+                null,
+                false,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        CollateralLock collateral = new CollateralLock(
+                "collateral-request-replay",
+                77L,
+                "device-1",
+                "USDT",
+                new BigDecimal("150"),
+                new BigDecimal("100"),
+                "GENESIS",
+                1,
+                CollateralStatus.LOCKED,
+                "lock-request-replay",
+                OffsetDateTime.now().plusDays(1),
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        long now = System.currentTimeMillis();
+        long expiresAt = now + 60_000;
+        String hash = spendingProofHashService.computeNewStateHash("GENESIS", new BigDecimal("10"), 1L, "device-1", "nonce-request-replay");
+        String canonicalPayload = "{\"voucherId\":\"voucher-request-replay\",\"deviceId\":\"device-1\",\"counterpartyDeviceId\":\"device-2\",\"amount\":\"10\",\"expiresAt\":\""
+                + expiresAt
+                + "\",\"spendingProof\":{\"deviceId\":\"device-1\",\"amount\":\"10\",\"monotonicCounter\":\"1\",\"nonce\":\"nonce-request-replay\",\"newStateHash\":\""
+                + hash
+                + "\",\"prevStateHash\":\"GENESIS\",\"signature\":\"local_sig_fake\",\"timestamp\":\""
+                + now
+                + "\"}}";
+        OfflinePaymentProof proof = new OfflinePaymentProof(
+                "proof-request-replay",
+                "batch-request-replay",
+                "voucher-request-replay",
+                "collateral-request-replay",
+                "device-1",
+                "device-2",
+                1,
+                1,
+                1L,
+                "nonce-request-replay",
+                hash,
+                "GENESIS",
+                "local_sig_fake",
+                new BigDecimal("10"),
+                now,
+                expiresAt,
+                canonicalPayload,
+                "SENDER",
+                "{\"requestId\":\"request-replay-1\",\"voucherId\":\"voucher-request-replay\",\"deviceId\":\"device-1\",\"counterpartyDeviceId\":\"device-2\",\"amount\":\"10\",\"expiresAt\":\""
+                        + expiresAt
+                        + "\",\"spendingProof\":{\"deviceId\":\"device-1\",\"amount\":\"10\",\"monotonicCounter\":\"1\",\"nonce\":\"nonce-request-replay\",\"newStateHash\":\""
+                        + hash
+                        + "\",\"prevStateHash\":\"GENESIS\",\"signature\":\"local_sig_fake\",\"timestamp\":\""
+                        + now
+                        + "\"},\"deviceRegistrationId\":\"row-1\",\"signedUserId\":77,\"authMethod\":\"PIN\",\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"100\",\"uiMode\":\"SEND\",\"connectionType\":\"FAST_CONTACT\",\"paymentFlow\":\"FAST_PAYMENT\",\"senderAuthRequired\":true,\"ledgerExecutionMode\":\"INTERNAL_LEDGER_ONLY\",\"dualAmountEntered\":false}",
+                OffsetDateTime.now()
+        );
+        OfflinePaymentProof existingProof = new OfflinePaymentProof(
+                "proof-existing-request-replay",
+                "batch-existing-request-replay",
+                "voucher-existing-request-replay",
+                "collateral-existing-request-replay",
+                "device-1",
+                "device-9",
+                1,
+                1,
+                1L,
+                "nonce-existing-request-replay",
+                hash,
+                "GENESIS",
+                "local_sig_existing",
+                new BigDecimal("10"),
+                now,
+                expiresAt,
+                canonicalPayload,
+                "SENDER",
+                "{\"requestId\":\"request-replay-1\"}",
+                OffsetDateTime.now()
+        );
+        Device device = new Device(
+                "row-1",
+                "device-1",
+                77L,
+                "public-key",
+                1,
+                DeviceStatus.ACTIVE,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+
+        when(settlementRepository.findById("settlement-request-replay"))
+                .thenReturn(Optional.of(request))
+                .thenReturn(Optional.of(new SettlementRequest(
+                        "settlement-request-replay",
+                        "batch-request-replay",
+                        "collateral-request-replay",
+                        "proof-request-replay",
+                        SettlementStatus.REJECTED,
+                        "REQUEST_ID_REPLAYED",
+                        false,
+                        "{\"reasonCode\":\"REQUEST_ID_REPLAYED\"}",
+                        OffsetDateTime.now(),
+                        OffsetDateTime.now()
+                )));
+        when(collateralRepository.findById("collateral-request-replay")).thenReturn(Optional.of(collateral));
+        when(proofRepository.findById("proof-request-replay")).thenReturn(Optional.of(proof));
+        when(deviceRepository.findByDeviceId("device-1")).thenReturn(Optional.of(device));
+        when(proofRepository.findBySenderRequestId("device-1", "request-replay-1")).thenReturn(Optional.of(existingProof));
+
+        SettlementRequest result = service.finalizeSettlement("settlement-request-replay");
+
+        assertEquals(SettlementStatus.REJECTED, result.status());
+        assertTrue(result.settlementResultJson().contains("REQUEST_ID_REPLAYED"));
+    }
+
+    @Test
     void finalizeSettlementRejectsInvalidLedgerExecutionMode() {
         SettlementRequest request = new SettlementRequest(
                 "settlement-4",

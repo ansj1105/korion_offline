@@ -410,6 +410,12 @@ public class SettlementApplicationService {
         if (!bindingVerification.valid()) {
             return rejected(OfflinePayReasonCode.INVALID_DEVICE_BINDING, proof, bindingVerification.detail());
         }
+        String requestId = extractRequestId(proof);
+        if (requestId != null && proofRepository.findBySenderRequestId(proof.senderDeviceId(), requestId)
+                .filter(existing -> !existing.id().equals(proof.id()))
+                .isPresent()) {
+            return rejected(OfflinePayReasonCode.REQUEST_ID_REPLAYED, proof, "requestId replay detected");
+        }
         DeviceSignatureVerificationService.VerificationResult signatureVerification = deviceSignatureVerificationService.verify(device, proof);
         if (!signatureVerification.verified() && !signatureVerification.unsupported()) {
             return rejected(OfflinePayReasonCode.INVALID_DEVICE_SIGNATURE, proof, signatureVerification.detail());
@@ -446,6 +452,14 @@ public class SettlementApplicationService {
         );
 
         return settlementPolicyEvaluator.evaluate(proof, collateral, device);
+    }
+
+    private String extractRequestId(OfflinePaymentProof proof) {
+        String requestId = jsonService.readTree(proof.rawPayloadJson()).path("requestId").asText(null);
+        if (requestId == null || requestId.isBlank()) {
+            return null;
+        }
+        return requestId.trim();
     }
 
     private SettlementEvaluation rejected(String reasonCode, OfflinePaymentProof proof, String detailJson) {
