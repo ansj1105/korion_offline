@@ -229,7 +229,7 @@ public class CollateralExternalSyncWorker {
                     releasable,
                     segmentReferenceId
             );
-            collateralRepository.deductRemainingAmount(collateral.id(), releasable);
+            collateralRepository.deductLockedAndRemainingAmount(collateral.id(), releasable);
             boolean fullyReleased = collateral.remainingAmount().compareTo(releasable) <= 0;
             collateralRepository.updateStatus(
                     collateral.id(),

@@ -346,7 +346,7 @@ public class SettlementApplicationService {
                 evaluation.status() == SettlementStatus.SETTLED
         );
         if (evaluation.status() == SettlementStatus.SETTLED) {
-            collateralRepository.deductRemainingAmount(collateral.id(), proof.amount());
+            collateralRepository.deductLockedAndRemainingAmount(collateral.id(), proof.amount());
             issuedProofVerificationService.markConsumed(proof);
         }
 

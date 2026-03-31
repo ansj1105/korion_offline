@@ -213,8 +213,9 @@ public class JdbcCollateralRepository implements CollateralRepository {
     }
 
     @Override
-    public void deductRemainingAmount(String collateralId, BigDecimal amount) {
+    public void deductLockedAndRemainingAmount(String collateralId, BigDecimal amount) {
         String sql = QueryBuilder.update("collateral_locks")
+                .set("locked_amount", "GREATEST(locked_amount - :amount, 0)")
                 .set("remaining_amount", "GREATEST(remaining_amount - :amount, 0)")
                 .touchUpdatedAt()
                 .where("id", QueryBuilder.Op.EQ, ":id")

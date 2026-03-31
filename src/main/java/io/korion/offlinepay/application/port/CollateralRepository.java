@@ -35,7 +35,7 @@ public interface CollateralRepository {
 
     List<CollateralLock> findActiveByUserIdAndAssetCode(long userId, String assetCode);
 
-    void deductRemainingAmount(String collateralId, BigDecimal amount);
+    void deductLockedAndRemainingAmount(String collateralId, BigDecimal amount);
 
     void updateStatus(String collateralId, CollateralStatus status, String metadataJson);
 }
