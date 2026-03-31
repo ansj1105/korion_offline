@@ -1,10 +1,12 @@
 package io.korion.offlinepay.infrastructure.adapter;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.korion.offlinepay.application.port.CoinManageCollateralPort;
 import io.korion.offlinepay.contracts.internal.CoinManageLockCollateralContract;
 import io.korion.offlinepay.contracts.internal.CoinManageLockCollateralResponseContract;
 import io.korion.offlinepay.contracts.internal.CoinManageReleaseCollateralContract;
 import io.korion.offlinepay.contracts.internal.CoinManageReleaseCollateralResponseContract;
+import java.nio.charset.StandardCharsets;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import org.springframework.web.client.RestClient;
@@ -13,15 +15,18 @@ public class CoinManageCollateralAdapter implements CoinManageCollateralPort {
 
     private final RestClient restClient;
     private final String apiKey;
+    private final ObjectMapper objectMapper;
 
-    public CoinManageCollateralAdapter(RestClient restClient, String apiKey) {
+    public CoinManageCollateralAdapter(RestClient restClient, String apiKey, ObjectMapper objectMapper) {
         this.restClient = restClient;
         this.apiKey = apiKey;
+        this.objectMapper = objectMapper;
     }
 
     @Override
     public LockCollateralResult lockCollateral(long userId, String deviceId, String assetCode, BigDecimal amount, String referenceId, int policyVersion) {
-        CoinManageLockCollateralResponseContract response = restClient.post()
+        CoinManageLockCollateralResponseContract response = parseResponse(
+                restClient.post()
                 .uri("/api/internal/offline-pay/collateral/lock")
                 .header("x-internal-api-key", apiKey)
                 .body(new CoinManageLockCollateralContract(
@@ -33,7 +38,10 @@ public class CoinManageCollateralAdapter implements CoinManageCollateralPort {
                         policyVersion
                 ))
                 .retrieve()
-                .body(CoinManageLockCollateralResponseContract.class);
+                .body(byte[].class),
+                CoinManageLockCollateralResponseContract.class,
+                "lock"
+        );
         if (response == null) {
             throw new IllegalStateException("coin_manage lock response is empty");
         }
@@ -42,7 +50,8 @@ public class CoinManageCollateralAdapter implements CoinManageCollateralPort {
 
     @Override
     public ReleaseCollateralResult releaseCollateral(long userId, String deviceId, String collateralId, String assetCode, BigDecimal amount, String referenceId) {
-        CoinManageReleaseCollateralResponseContract response = restClient.post()
+        CoinManageReleaseCollateralResponseContract response = parseResponse(
+                restClient.post()
                 .uri("/api/internal/offline-pay/collateral/release")
                 .header("x-internal-api-key", apiKey)
                 .body(new CoinManageReleaseCollateralContract(
@@ -54,7 +63,10 @@ public class CoinManageCollateralAdapter implements CoinManageCollateralPort {
                         referenceId
                 ))
                 .retrieve()
-                .body(CoinManageReleaseCollateralResponseContract.class);
+                .body(byte[].class),
+                CoinManageReleaseCollateralResponseContract.class,
+                "release"
+        );
         if (response == null) {
             throw new IllegalStateException("coin_manage release response is empty");
         }
@@ -63,5 +75,20 @@ public class CoinManageCollateralAdapter implements CoinManageCollateralPort {
 
     private String formatAmount(BigDecimal amount) {
         return amount.setScale(6, RoundingMode.HALF_UP).toPlainString();
+    }
+
+    private <T> T parseResponse(byte[] body, Class<T> responseType, String operationName) {
+        if (body == null || body.length == 0) {
+            throw new IllegalStateException("coin_manage collateral " + operationName + " response is empty");
+        }
+        try {
+            return objectMapper.readValue(body, responseType);
+        } catch (Exception exception) {
+            String rawBody = new String(body, StandardCharsets.UTF_8);
+            throw new IllegalStateException(
+                    "coin_manage collateral " + operationName + " response parse failed: " + rawBody,
+                    exception
+            );
+        }
     }
 }

@@ -1,5 +1,6 @@
 package io.korion.offlinepay.config;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.korion.offlinepay.application.port.CoinManageCollateralPort;
 import io.korion.offlinepay.application.port.CoinManageSettlementPort;
 import io.korion.offlinepay.application.port.FoxCoinHistoryPort;
@@ -74,11 +75,12 @@ public class InfrastructureFactoryConfig {
     public CoinManageCollateralPort coinManageCollateralPort(
             RestClient coinManageRestClient,
             AppProperties properties,
+            ObjectMapper objectMapper,
             SimpleCircuitBreaker coinManageCollateralCircuitBreaker,
             TelegramAlertService telegramAlertService
     ) {
         return new CircuitBreakingCoinManageCollateralAdapter(
-                new CoinManageCollateralAdapter(coinManageRestClient, properties.coinManage().apiKey()),
+                new CoinManageCollateralAdapter(coinManageRestClient, properties.coinManage().apiKey(), objectMapper),
                 coinManageCollateralCircuitBreaker,
                 telegramAlertService
         );
