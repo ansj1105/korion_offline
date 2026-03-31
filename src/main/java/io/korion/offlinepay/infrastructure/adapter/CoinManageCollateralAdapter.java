@@ -9,6 +9,9 @@ import io.korion.offlinepay.contracts.internal.CoinManageReleaseCollateralRespon
 import java.nio.charset.StandardCharsets;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.io.IOException;
+import org.springframework.http.HttpStatusCode;
+import org.springframework.util.StreamUtils;
 import org.springframework.web.client.RestClient;
 
 public class CoinManageCollateralAdapter implements CoinManageCollateralPort {
@@ -37,8 +40,7 @@ public class CoinManageCollateralAdapter implements CoinManageCollateralPort {
                         referenceId,
                         policyVersion
                 ))
-                .retrieve()
-                .body(byte[].class),
+                .exchange((request, clientResponse) -> readResponseBody(clientResponse.getStatusCode(), clientResponse.getBody())),
                 CoinManageLockCollateralResponseContract.class,
                 "lock"
         );
@@ -62,8 +64,7 @@ public class CoinManageCollateralAdapter implements CoinManageCollateralPort {
                         formatAmount(amount),
                         referenceId
                 ))
-                .retrieve()
-                .body(byte[].class),
+                .exchange((request, clientResponse) -> readResponseBody(clientResponse.getStatusCode(), clientResponse.getBody())),
                 CoinManageReleaseCollateralResponseContract.class,
                 "release"
         );
@@ -89,6 +90,20 @@ public class CoinManageCollateralAdapter implements CoinManageCollateralPort {
                     "coin_manage collateral " + operationName + " response parse failed: " + rawBody,
                     exception
             );
+        }
+    }
+
+    private byte[] readResponseBody(HttpStatusCode statusCode, java.io.InputStream bodyStream) {
+        try {
+            byte[] body = StreamUtils.copyToByteArray(bodyStream);
+            if (statusCode.isError()) {
+                String rawBody = new String(body, StandardCharsets.UTF_8);
+                throw new IllegalStateException("coin_manage collateral request failed with status "
+                        + statusCode.value() + ": " + rawBody);
+            }
+            return body;
+        } catch (IOException exception) {
+            throw new IllegalStateException("failed to read coin_manage collateral response body", exception);
         }
     }
 }
