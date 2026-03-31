@@ -5,6 +5,15 @@ public enum CollateralStatus {
     PARTIALLY_SETTLED,
     RELEASED,
     EXPIRED,
-    FROZEN
-}
+    FROZEN;
 
+    public static CollateralStatus fromPersistence(String value) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException("collateral status is blank");
+        }
+        if ("ACTIVE".equalsIgnoreCase(value)) {
+            return LOCKED;
+        }
+        return CollateralStatus.valueOf(value.toUpperCase());
+    }
+}

@@ -9,11 +9,13 @@ import io.korion.offlinepay.application.service.SimpleCircuitBreaker;
 import io.korion.offlinepay.application.service.TelegramAlertService;
 import io.korion.offlinepay.infrastructure.adapter.CoinManageCollateralAdapter;
 import io.korion.offlinepay.infrastructure.adapter.CoinManageSettlementAdapter;
+import io.korion.offlinepay.infrastructure.adapter.CircuitBreakingCoinManageCollateralAdapter;
 import io.korion.offlinepay.infrastructure.adapter.CircuitBreakingCoinManageSettlementAdapter;
 import io.korion.offlinepay.infrastructure.adapter.CircuitBreakingFoxCoinHistoryAdapter;
 import io.korion.offlinepay.infrastructure.adapter.FoxCoinHistoryAdapter;
 import io.korion.offlinepay.infrastructure.adapter.FoxCoinWalletSnapshotAdapter;
 import io.korion.offlinepay.infrastructure.events.JdbcSettlementBatchEventBus;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -43,6 +45,11 @@ public class InfrastructureFactoryConfig {
     }
 
     @Bean
+    public SimpleCircuitBreaker coinManageCollateralCircuitBreaker(AppProperties properties) {
+        return new SimpleCircuitBreaker(resolveFailureThreshold(properties), resolveResetTimeoutMs(properties));
+    }
+
+    @Bean
     public SimpleCircuitBreaker foxCoinHistoryCircuitBreaker(AppProperties properties) {
         return new SimpleCircuitBreaker(resolveFailureThreshold(properties), resolveResetTimeoutMs(properties));
     }
@@ -51,6 +58,7 @@ public class InfrastructureFactoryConfig {
     public RestClient coinManageRestClient(RestClient.Builder builder, AppProperties properties) {
         return builder
                 .baseUrl(properties.coinManage().baseUrl())
+                .requestFactory(buildRequestFactory(properties.coinManage().timeoutMs()))
                 .build();
     }
 
@@ -58,12 +66,22 @@ public class InfrastructureFactoryConfig {
     public RestClient foxCoinRestClient(RestClient.Builder builder, AppProperties properties) {
         return builder
                 .baseUrl(properties.foxCoin().baseUrl())
+                .requestFactory(buildRequestFactory(properties.foxCoin().timeoutMs()))
                 .build();
     }
 
     @Bean
-    public CoinManageCollateralPort coinManageCollateralPort(RestClient coinManageRestClient, AppProperties properties) {
-        return new CoinManageCollateralAdapter(coinManageRestClient, properties.coinManage().apiKey());
+    public CoinManageCollateralPort coinManageCollateralPort(
+            RestClient coinManageRestClient,
+            AppProperties properties,
+            SimpleCircuitBreaker coinManageCollateralCircuitBreaker,
+            TelegramAlertService telegramAlertService
+    ) {
+        return new CircuitBreakingCoinManageCollateralAdapter(
+                new CoinManageCollateralAdapter(coinManageRestClient, properties.coinManage().apiKey()),
+                coinManageCollateralCircuitBreaker,
+                telegramAlertService
+        );
     }
 
     @Bean
@@ -123,5 +141,12 @@ public class InfrastructureFactoryConfig {
             return 60_000L;
         }
         return properties.alerts().circuitBreaker().resetTimeoutMs();
+    }
+
+    private SimpleClientHttpRequestFactory buildRequestFactory(int timeoutMs) {
+        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+        requestFactory.setConnectTimeout(timeoutMs);
+        requestFactory.setReadTimeout(timeoutMs);
+        return requestFactory;
     }
 }

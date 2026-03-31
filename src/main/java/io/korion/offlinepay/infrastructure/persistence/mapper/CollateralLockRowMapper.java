@@ -22,7 +22,7 @@ public class CollateralLockRowMapper implements RowMapper<CollateralLock> {
                 resultSet.getBigDecimal("remaining_amount"),
                 resultSet.getString("initial_state_root"),
                 resultSet.getInt("policy_version"),
-                CollateralStatus.valueOf(resultSet.getString("status")),
+                CollateralStatus.fromPersistence(resultSet.getString("status")),
                 resultSet.getString("external_lock_id"),
                 resultSet.getObject("expires_at", OffsetDateTime.class),
                 resultSet.getString("metadata"),
@@ -31,4 +31,3 @@ public class CollateralLockRowMapper implements RowMapper<CollateralLock> {
         );
     }
 }
-

@@ -351,7 +351,7 @@ public class CollateralExternalSyncWorker {
                 + ", reason=" + reasonCode
                 + ", error=" + errorMessage;
         if (failureClass == OfflineFailureClass.TRANSPORT || failureClass == OfflineFailureClass.AUTH) {
-            telegramAlertService.notifyCircuitOpened("offline_pay.collateral.dead_letter", alertReason);
+            telegramAlertService.notifyDeadLetter("offline_pay.collateral.dead_letter", alertReason);
             return;
         }
         if (failureClass == OfflineFailureClass.SYSTEM || failureClass == OfflineFailureClass.PARTIAL) {
