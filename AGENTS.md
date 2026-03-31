@@ -46,6 +46,8 @@
 - `foxya_coin_service` 운영 서버는 현재 `52.200.97.155`이고 앱 루트는 `/var/www/fox_coin`이다.
 - 서비스 재배포 시 먼저 원격 앱 루트와 Docker Compose 위치를 확인하고, 이후 `git pull` + `sudo docker compose up -d --build` 순서를 사용한다.
 - Telegram 같은 운영 비밀값은 레포에 커밋하지 않고 각 서버 `.env`에만 유지한다.
+- `coin_manage` 운영 Postgres는 standby가 실제로 붙어 있지 않으면 `synchronous_standby_names`를 비워야 한다. standby 없이 `FIRST 1 (...)`가 남아 있으면 commit이 `SyncRep`에 걸리고 `offline_pay` collateral `lock/release`가 advisory lock chain 뒤에서 timeout 난다.
+- `offline_pay` collateral dead-letter가 `application/octet-stream` parse error에서 `Read timed out`로 바뀌면, 우선 `coin_manage` Postgres의 `show synchronous_standby_names;`, `pg_stat_replication`, `pg_stat_activity`를 확인한다.
 
 ## Offline Pay Policy Rules
 - 오프라인 페이 요구사항 구현 시 UI 데모용 하드코딩 business 데이터를 기본 동작에 남기지 않는다.
