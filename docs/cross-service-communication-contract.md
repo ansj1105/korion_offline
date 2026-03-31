@@ -29,9 +29,9 @@
 
 ### 3.1 foxya
 
-- 사용자 앱에 보이는 총 자산 기준
+- 사용자 앱에 보이는 가용 총 자산 기준
 - 거래내역 / history / projection 기준
-- `total KORI` canonical snapshot source
+- `available KORI` canonical snapshot source
 
 ### 3.2 coin_manage
 
@@ -63,9 +63,10 @@
 
 ### 4.1 총 자산
 
-- `foxya total KORI`
+- `foxya available KORI`
 - 사용자에게 보이는 canonical total
 - 채굴 / 레퍼럴 / 에어드랍 / 내부 정산 반영분 포함
+- `offline_pay` 승인 담보금은 제외한 값
 
 ### 4.2 총담보금
 
@@ -74,14 +75,19 @@
 
 ### 4.3 추가 담보 전환 가능 금액
 
-- `총 자산 - 총담보금`
+- `foxya available KORI`
 - 오프라인/온라인 모두 담보 전환 상한 계산 기준
 
-### 4.4 오프라인 결제 가능 금액
+### 4.4 총 원천 자산
+
+- `foxya available KORI + offline_pay approved collateral locked KORI`
+- 운영 reconciliation과 원장 정합성 비교 기준
+
+### 4.5 오프라인 결제 가능 금액
 
 - `총담보금`에서 사용된 금액과 로컬 pending 사용분을 반영한 값
 
-### 4.5 락원장
+### 4.6 락원장
 
 - `coin_manage available / offline_pay_pending / withdraw_pending`
 - 원장 이동과 정산 보상 기준
@@ -134,7 +140,7 @@
 
 ### 6.1 오프라인
 
-- 앱은 마지막 온라인 `foxya total KORI snapshot` 기준으로 계산한다.
+- 앱은 마지막 온라인 `foxya available KORI snapshot` 기준으로 계산한다.
 - `topup / release / send / receive`는 로컬 큐에 먼저 적재한다.
 - 오프라인 동안은 로컬 projection으로 표시한다.
 
@@ -151,7 +157,7 @@
 - 추천 기준:
 	- 온라인에서는 요청 후 즉시 서버 확정값 재조회
 	- `wallet-refresh` 같은 이벤트 신호가 오면 snapshot 재조회
-- `foxya total KORI` 변동이 있으면 `offline_pay snapshot`도 다시 발급한다.
+- `foxya available KORI` 또는 `offline collateral` 변동이 있으면 `offline_pay snapshot`도 다시 발급한다.
 
 ## 7. 기대 동작
 
@@ -176,4 +182,3 @@
 - `원장 락원장하고 폭시 총자산 gap 확인해줘`
 - `퍼블리셔 워커 사가 상태 확인해줘`
 - `앱 허브에서 총담보금/오프결제가용 문구 손봐줘`
-

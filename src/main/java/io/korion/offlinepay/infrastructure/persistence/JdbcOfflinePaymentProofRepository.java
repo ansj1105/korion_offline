@@ -217,6 +217,41 @@ public class JdbcOfflinePaymentProofRepository implements OfflinePaymentProofRep
         return statement.query(offlinePaymentProofRowMapper).list();
     }
 
+    @Override
+    public java.util.List<OfflinePaymentProof> findRecentByUserIdAndAssetCode(long userId, String assetCode, int size) {
+        String sql = """
+                SELECT offline_payment_proofs.*
+                FROM offline_payment_proofs
+                JOIN collateral_locks ON collateral_locks.id = offline_payment_proofs.collateral_id
+                WHERE UPPER(collateral_locks.asset_code) = :assetCode
+                  AND (
+                    EXISTS (
+                        SELECT 1
+                        FROM devices sender_device
+                        WHERE sender_device.user_id = :userId
+                          AND sender_device.status = 'ACTIVE'
+                          AND sender_device.device_id = offline_payment_proofs.sender_device_id
+                    )
+                    OR EXISTS (
+                        SELECT 1
+                        FROM devices receiver_device
+                        WHERE receiver_device.user_id = :userId
+                          AND receiver_device.status = 'ACTIVE'
+                          AND receiver_device.device_id = offline_payment_proofs.receiver_device_id
+                    )
+                  )
+                ORDER BY COALESCE(offline_payment_proofs.settled_at, offline_payment_proofs.updated_at, offline_payment_proofs.created_at) DESC,
+                         offline_payment_proofs.created_at DESC
+                LIMIT :size
+                """;
+        return jdbcClient.sql(sql)
+                .param("userId", userId)
+                .param("assetCode", assetCode == null || assetCode.isBlank() ? "KORI" : assetCode.trim().toUpperCase())
+                .param("size", size)
+                .query(offlinePaymentProofRowMapper)
+                .list();
+    }
+
     private String normalizeReasonCode(OfflineProofStatus status, String reasonCode) {
         return switch (status) {
             case SETTLED -> reasonCode == null || reasonCode.isBlank() ? OfflinePayReasonCode.SETTLED : reasonCode;
