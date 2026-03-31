@@ -1,17 +1,43 @@
 BEGIN;
 
+DELETE FROM offline_payment_proofs
+WHERE id IN (
+    '70000000-0000-0000-0000-000000000001',
+    '70000000-0000-0000-0000-000000000002',
+    '70000000-0000-0000-0000-000000000003'
+);
+
+DELETE FROM settlement_batches
+WHERE id IN (
+    '60000000-0000-0000-0000-000000000001',
+    '60000000-0000-0000-0000-000000000002',
+    '60000000-0000-0000-0000-000000000003'
+);
+
+DELETE FROM collateral_operations
+WHERE id IN (
+    '50000000-0000-0000-0000-000000000001',
+    '50000000-0000-0000-0000-000000000002'
+);
+
+DELETE FROM collateral_locks
+WHERE id IN (
+    '30000000-0000-0000-0000-000000000001',
+    '40000000-0000-0000-0000-000000000001'
+);
+
+DELETE FROM devices
+WHERE id IN (
+    '10000000-0000-0000-0000-000000000001',
+    '10000000-0000-0000-0000-000000000002',
+    '20000000-0000-0000-0000-000000000001'
+);
+
 INSERT INTO devices (id, device_id, user_id, public_key, key_version, status, metadata)
 VALUES
     ('10000000-0000-0000-0000-000000000001', 'seed-user1-phone', 1, 'seed-public-key-user1-phone', 1, 'ACTIVE', '{"nickname":"User1 Seed Phone","platform":"ANDROID"}'::jsonb),
     ('10000000-0000-0000-0000-000000000002', 'seed-user1-tablet', 1, 'seed-public-key-user1-tablet', 1, 'ACTIVE', '{"nickname":"User1 Seed Tablet","platform":"ANDROID"}'::jsonb),
-    ('20000000-0000-0000-0000-000000000001', 'seed-user2-store', 2, 'seed-public-key-user2-store', 1, 'ACTIVE', '{"nickname":"Seed Store POS","platform":"ANDROID"}'::jsonb)
-ON CONFLICT (device_id) DO UPDATE
-SET user_id = EXCLUDED.user_id,
-    public_key = EXCLUDED.public_key,
-    key_version = EXCLUDED.key_version,
-    status = EXCLUDED.status,
-    metadata = EXCLUDED.metadata,
-    updated_at = NOW();
+    ('20000000-0000-0000-0000-000000000001', 'seed-user2-store', 2, 'seed-public-key-user2-store', 1, 'ACTIVE', '{"nickname":"Seed Store POS","platform":"ANDROID"}'::jsonb);
 
 INSERT INTO collateral_locks (
     id,
@@ -61,20 +87,7 @@ VALUES
         '{"description":"User 2 seed collateral"}'::jsonb,
         NOW() - INTERVAL '4 days',
         NOW() - INTERVAL '90 minutes'
-    )
-ON CONFLICT (id) DO UPDATE
-SET user_id = EXCLUDED.user_id,
-    device_id = EXCLUDED.device_id,
-    asset_code = EXCLUDED.asset_code,
-    locked_amount = EXCLUDED.locked_amount,
-    remaining_amount = EXCLUDED.remaining_amount,
-    initial_state_root = EXCLUDED.initial_state_root,
-    policy_version = EXCLUDED.policy_version,
-    status = EXCLUDED.status,
-    external_lock_id = EXCLUDED.external_lock_id,
-    expires_at = EXCLUDED.expires_at,
-    metadata = EXCLUDED.metadata,
-    updated_at = NOW();
+    );
 
 INSERT INTO collateral_operations (
     id,
@@ -118,17 +131,7 @@ VALUES
         '{"description":"오프라인 담보 해제"}'::jsonb,
         NOW() - INTERVAL '1 day',
         NOW() - INTERVAL '1 day'
-    )
-ON CONFLICT (reference_id) DO UPDATE
-SET collateral_id = EXCLUDED.collateral_id,
-    user_id = EXCLUDED.user_id,
-    device_id = EXCLUDED.device_id,
-    asset_code = EXCLUDED.asset_code,
-    operation_type = EXCLUDED.operation_type,
-    amount = EXCLUDED.amount,
-    status = EXCLUDED.status,
-    metadata = EXCLUDED.metadata,
-    updated_at = NOW();
+    );
 
 INSERT INTO settlement_batches (
     id,
@@ -174,14 +177,7 @@ VALUES
         '{"history":"seed"}'::jsonb,
         NOW() - INTERVAL '12 hours',
         NOW() - INTERVAL '12 hours'
-    )
-ON CONFLICT (idempotency_key) DO UPDATE
-SET source_device_id = EXCLUDED.source_device_id,
-    status = EXCLUDED.status,
-    last_reason_code = EXCLUDED.last_reason_code,
-    proofs_count = EXCLUDED.proofs_count,
-    summary = EXCLUDED.summary,
-    updated_at = NOW();
+    );
 
 INSERT INTO offline_payment_proofs (
     id,
@@ -307,33 +303,6 @@ VALUES
         NOW() - INTERVAL '12 hours',
         NOW() - INTERVAL '12 hours',
         NOW() - INTERVAL '12 hours'
-    )
-ON CONFLICT (voucher_id) DO UPDATE
-SET batch_id = EXCLUDED.batch_id,
-    collateral_id = EXCLUDED.collateral_id,
-    sender_device_id = EXCLUDED.sender_device_id,
-    receiver_device_id = EXCLUDED.receiver_device_id,
-    key_version = EXCLUDED.key_version,
-    policy_version = EXCLUDED.policy_version,
-    counter = EXCLUDED.counter,
-    nonce = EXCLUDED.nonce,
-    hash_chain_head = EXCLUDED.hash_chain_head,
-    previous_hash = EXCLUDED.previous_hash,
-    signature = EXCLUDED.signature,
-    amount = EXCLUDED.amount,
-    timestamp_ms = EXCLUDED.timestamp_ms,
-    expires_at_ms = EXCLUDED.expires_at_ms,
-    canonical_payload = EXCLUDED.canonical_payload,
-    uploader_type = EXCLUDED.uploader_type,
-    channel_type = EXCLUDED.channel_type,
-    status = EXCLUDED.status,
-    reason_code = EXCLUDED.reason_code,
-    raw_payload = EXCLUDED.raw_payload,
-    issued_at = EXCLUDED.issued_at,
-    uploaded_at = EXCLUDED.uploaded_at,
-    consumed_at = EXCLUDED.consumed_at,
-    verified_at = EXCLUDED.verified_at,
-    settled_at = EXCLUDED.settled_at,
-    updated_at = NOW();
+    );
 
 COMMIT;
