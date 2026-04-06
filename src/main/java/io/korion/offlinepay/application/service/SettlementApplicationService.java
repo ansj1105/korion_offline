@@ -294,6 +294,12 @@ public class SettlementApplicationService {
         return settlementRepository.findById(settlementId).orElseThrow();
     }
 
+    @Transactional(readOnly = true)
+    public SettlementRequest getSettlement(String settlementId) {
+        return settlementRepository.findById(settlementId)
+                .orElseThrow(() -> new IllegalArgumentException("settlement not found: " + settlementId));
+    }
+
     @Transactional
     public BatchFailureOutcome recordBatchProcessingFailure(String batchId, String errorMessage, int maxAttempts) {
         SettlementBatch batch = batchRepository.findById(batchId)

@@ -41,6 +41,12 @@ public class SettlementController {
         return settlementResponseFactory.toBatchDetail(batch);
     }
 
+    @GetMapping("/requests/{settlementId}")
+    public Object getSettlement(@PathVariable String settlementId) {
+        var settlement = settlementApplicationService.getSettlement(settlementId);
+        return settlementResponseFactory.toDetailResponse(settlement);
+    }
+
     @PostMapping("/{settlementId}/finalize")
     public Object finalizeSettlement(@PathVariable String settlementId) {
         var settlement = settlementApplicationService.finalizeSettlement(settlementId);
