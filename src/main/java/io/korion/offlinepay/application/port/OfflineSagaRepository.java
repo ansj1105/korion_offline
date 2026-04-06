@@ -4,6 +4,7 @@ import io.korion.offlinepay.domain.model.OfflineSaga;
 import io.korion.offlinepay.domain.status.OfflineSagaStatus;
 import io.korion.offlinepay.domain.status.OfflineSagaType;
 import java.util.List;
+import java.util.Optional;
 
 public interface OfflineSagaRepository {
 
@@ -24,6 +25,8 @@ public interface OfflineSagaRepository {
             String lastReasonCode,
             String payloadJson
     );
+
+    Optional<OfflineSaga> findBySagaTypeAndReferenceId(OfflineSagaType sagaType, String referenceId);
 
     List<OfflineSaga> findRecent(int limit, OfflineSagaType sagaType, OfflineSagaStatus status);
 }

@@ -43,7 +43,7 @@ public class SettlementController {
 
     @GetMapping("/requests/{settlementId}")
     public Object getSettlement(@PathVariable String settlementId) {
-        var settlement = settlementApplicationService.getSettlement(settlementId);
+        var settlement = settlementApplicationService.getSettlementDetail(settlementId);
         return settlementResponseFactory.toDetailResponse(settlement);
     }
 

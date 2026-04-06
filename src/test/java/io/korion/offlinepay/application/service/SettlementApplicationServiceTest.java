@@ -20,6 +20,7 @@ import io.korion.offlinepay.application.port.CollateralRepository;
 import io.korion.offlinepay.application.port.DeviceRepository;
 import io.korion.offlinepay.application.port.FoxCoinHistoryPort;
 import io.korion.offlinepay.application.port.OfflinePaymentProofRepository;
+import io.korion.offlinepay.application.port.OfflineSagaRepository;
 import io.korion.offlinepay.application.port.ReconciliationCaseRepository;
 import io.korion.offlinepay.application.port.SettlementBatchEventBus;
 import io.korion.offlinepay.application.port.SettlementBatchRepository;
@@ -41,10 +42,15 @@ import io.korion.offlinepay.domain.status.IssuedProofStatus;
 import io.korion.offlinepay.domain.model.CollateralLock;
 import io.korion.offlinepay.domain.model.Device;
 import io.korion.offlinepay.domain.model.OfflinePaymentProof;
+import io.korion.offlinepay.domain.model.OfflineSaga;
+import io.korion.offlinepay.domain.model.ReconciliationCase;
 import io.korion.offlinepay.domain.model.SettlementBatch;
 import io.korion.offlinepay.domain.model.SettlementRequest;
 import io.korion.offlinepay.domain.status.CollateralStatus;
 import io.korion.offlinepay.domain.status.DeviceStatus;
+import io.korion.offlinepay.domain.status.OfflineSagaStatus;
+import io.korion.offlinepay.domain.status.OfflineSagaType;
+import io.korion.offlinepay.domain.status.ReconciliationCaseStatus;
 import io.korion.offlinepay.domain.status.SettlementBatchStatus;
 import io.korion.offlinepay.domain.status.SettlementStatus;
 import java.math.BigDecimal;
@@ -64,6 +70,7 @@ class SettlementApplicationServiceTest {
     private final SettlementRepository settlementRepository = Mockito.mock(SettlementRepository.class);
     private final SettlementResultRepository settlementResultRepository = Mockito.mock(SettlementResultRepository.class);
     private final ReconciliationCaseRepository reconciliationCaseRepository = Mockito.mock(ReconciliationCaseRepository.class);
+    private final OfflineSagaRepository offlineSagaRepository = Mockito.mock(OfflineSagaRepository.class);
     private final SettlementConflictRepository settlementConflictRepository = Mockito.mock(SettlementConflictRepository.class);
     private final SettlementBatchEventBus eventBus = Mockito.mock(SettlementBatchEventBus.class);
     private final OfflineSagaService offlineSagaService = Mockito.mock(OfflineSagaService.class);
@@ -79,6 +86,7 @@ class SettlementApplicationServiceTest {
             settlementRepository,
             settlementResultRepository,
             reconciliationCaseRepository,
+            offlineSagaRepository,
             settlementConflictRepository,
             eventBus,
             offlineSagaService,
@@ -228,6 +236,59 @@ class SettlementApplicationServiceTest {
         );
         verify(settlementRepository).update(anyString(), any(SettlementStatus.class), any(), anyBoolean(), anyString());
         assertEquals(SettlementStatus.SETTLED, result.status());
+    }
+
+    @Test
+    void getSettlementDetailIncludesSagaAndReconciliationState() {
+        SettlementRequest request = new SettlementRequest(
+                "settlement-1",
+                "batch-1",
+                "collateral-1",
+                "proof-1",
+                SettlementStatus.SETTLED,
+                "SETTLED",
+                false,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        OfflineSaga saga = new OfflineSaga(
+                "saga-1",
+                OfflineSagaType.SETTLEMENT,
+                "settlement-1",
+                OfflineSagaStatus.COMPENSATION_REQUIRED,
+                "COMPENSATION_REQUIRED",
+                "HISTORY_SYNC_FAIL",
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        ReconciliationCase reconciliationCase = new ReconciliationCase(
+                "case-1",
+                "settlement-1",
+                "batch-1",
+                "proof-1",
+                "voucher-1",
+                "HISTORY_SYNC_FAILED",
+                ReconciliationCaseStatus.OPEN,
+                "HISTORY_SYNC_FAIL",
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now(),
+                null
+        );
+
+        when(settlementRepository.findById("settlement-1")).thenReturn(Optional.of(request));
+        when(offlineSagaRepository.findBySagaTypeAndReferenceId(OfflineSagaType.SETTLEMENT, "settlement-1"))
+                .thenReturn(Optional.of(saga));
+        when(reconciliationCaseRepository.findLatestOpenBySettlementId("settlement-1"))
+                .thenReturn(Optional.of(reconciliationCase));
+
+        SettlementApplicationService.SettlementDetailView detail = service.getSettlementDetail("settlement-1");
+
+        assertEquals("settlement-1", detail.settlementRequest().id());
+        assertEquals(OfflineSagaStatus.COMPENSATION_REQUIRED, detail.settlementSaga().status());
+        assertEquals("HISTORY_SYNC_FAILED", detail.reconciliationCase().caseType());
     }
 
     @Test

@@ -10,6 +10,7 @@ import io.korion.offlinepay.application.port.CollateralRepository;
 import io.korion.offlinepay.application.port.DeviceRepository;
 import io.korion.offlinepay.application.port.FoxCoinHistoryPort;
 import io.korion.offlinepay.application.port.OfflinePaymentProofRepository;
+import io.korion.offlinepay.application.port.OfflineSagaRepository;
 import io.korion.offlinepay.application.port.ReconciliationCaseRepository;
 import io.korion.offlinepay.application.port.SettlementBatchEventBus;
 import io.korion.offlinepay.application.port.SettlementBatchRepository;
@@ -30,6 +31,8 @@ import io.korion.offlinepay.application.service.settlement.IssuedProofVerificati
 import io.korion.offlinepay.domain.model.CollateralLock;
 import io.korion.offlinepay.domain.model.Device;
 import io.korion.offlinepay.domain.model.OfflinePaymentProof;
+import io.korion.offlinepay.domain.model.OfflineSaga;
+import io.korion.offlinepay.domain.model.ReconciliationCase;
 import io.korion.offlinepay.domain.model.SettlementBatch;
 import io.korion.offlinepay.domain.model.SettlementRequest;
 import io.korion.offlinepay.domain.reason.OfflinePayReasonCode;
@@ -57,6 +60,7 @@ public class SettlementApplicationService {
     private final SettlementRepository settlementRepository;
     private final SettlementResultRepository settlementResultRepository;
     private final ReconciliationCaseRepository reconciliationCaseRepository;
+    private final OfflineSagaRepository offlineSagaRepository;
     private final SettlementConflictRepository settlementConflictRepository;
     private final SettlementBatchEventBus eventBus;
     private final OfflineSagaService offlineSagaService;
@@ -82,6 +86,7 @@ public class SettlementApplicationService {
             SettlementRepository settlementRepository,
             SettlementResultRepository settlementResultRepository,
             ReconciliationCaseRepository reconciliationCaseRepository,
+            OfflineSagaRepository offlineSagaRepository,
             SettlementConflictRepository settlementConflictRepository,
             SettlementBatchEventBus eventBus,
             OfflineSagaService offlineSagaService,
@@ -108,6 +113,7 @@ public class SettlementApplicationService {
         this.settlementRepository = settlementRepository;
         this.settlementResultRepository = settlementResultRepository;
         this.reconciliationCaseRepository = reconciliationCaseRepository;
+        this.offlineSagaRepository = offlineSagaRepository;
         this.settlementConflictRepository = settlementConflictRepository;
         this.eventBus = eventBus;
         this.offlineSagaService = offlineSagaService;
@@ -298,6 +304,18 @@ public class SettlementApplicationService {
     public SettlementRequest getSettlement(String settlementId) {
         return settlementRepository.findById(settlementId)
                 .orElseThrow(() -> new IllegalArgumentException("settlement not found: " + settlementId));
+    }
+
+    @Transactional(readOnly = true)
+    public SettlementDetailView getSettlementDetail(String settlementId) {
+        SettlementRequest settlementRequest = getSettlement(settlementId);
+        OfflineSaga settlementSaga = offlineSagaRepository
+                .findBySagaTypeAndReferenceId(OfflineSagaType.SETTLEMENT, settlementId)
+                .orElse(null);
+        ReconciliationCase reconciliationCase = reconciliationCaseRepository
+                .findLatestOpenBySettlementId(settlementId)
+                .orElse(null);
+        return new SettlementDetailView(settlementRequest, settlementSaga, reconciliationCase);
     }
 
     @Transactional
@@ -816,5 +834,11 @@ public class SettlementApplicationService {
             String batchId,
             int attemptCount,
             boolean deadLettered
+    ) {}
+
+    public record SettlementDetailView(
+            SettlementRequest settlementRequest,
+            OfflineSaga settlementSaga,
+            ReconciliationCase reconciliationCase
     ) {}
 }

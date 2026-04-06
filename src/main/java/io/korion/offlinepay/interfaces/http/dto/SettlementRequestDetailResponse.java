@@ -6,5 +6,12 @@ public record SettlementRequestDetailResponse(
         String status,
         String reasonCode,
         boolean conflictDetected,
-        String updatedAt
+        String updatedAt,
+        String sagaStatus,
+        String sagaStep,
+        String recoveryMode,
+        String sagaReasonCode,
+        String reconciliationCaseType,
+        String reconciliationStatus,
+        String reconciliationReasonCode
 ) {}

@@ -24,6 +24,8 @@ public interface ReconciliationCaseRepository {
 
     List<ReconciliationCase> findOpenRetryable(int size);
 
+    Optional<ReconciliationCase> findLatestOpenBySettlementId(String settlementId);
+
     Optional<ReconciliationCase> findOpenBySettlementIdAndCaseType(String settlementId, String caseType);
 
     Optional<ReconciliationCase> findOpenByBatchIdAndCaseType(String batchId, String caseType);

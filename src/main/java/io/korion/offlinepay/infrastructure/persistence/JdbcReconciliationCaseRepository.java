@@ -140,6 +140,22 @@ public class JdbcReconciliationCaseRepository implements ReconciliationCaseRepos
     }
 
     @Override
+    public Optional<ReconciliationCase> findLatestOpenBySettlementId(String settlementId) {
+        requireNonBlank(settlementId, "settlementId");
+        String sql = QueryBuilder.select("reconciliation_cases")
+                .where("settlement_id", Op.EQ, ":settlementId")
+                .where("status", Op.EQ, ":status")
+                .orderBy("created_at DESC")
+                .limit(1)
+                .build();
+        return jdbcClient.sql(sql)
+                .param("settlementId", java.util.UUID.fromString(settlementId))
+                .param("status", ReconciliationCaseStatus.OPEN.name())
+                .query(rowMapper)
+                .optional();
+    }
+
+    @Override
     public Optional<ReconciliationCase> findOpenBySettlementIdAndCaseType(String settlementId, String caseType) {
         requireNonBlank(settlementId, "settlementId");
         requireNonBlank(caseType, "caseType");

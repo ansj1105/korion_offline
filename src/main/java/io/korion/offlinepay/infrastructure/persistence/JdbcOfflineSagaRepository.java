@@ -6,6 +6,7 @@ import io.korion.offlinepay.domain.status.OfflineSagaStatus;
 import io.korion.offlinepay.domain.status.OfflineSagaType;
 import io.korion.offlinepay.infrastructure.persistence.mapper.OfflineSagaRowMapper;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
@@ -64,6 +65,21 @@ public class JdbcOfflineSagaRepository implements OfflineSagaRepository {
             String payloadJson
     ) {
         return saveOrReplace(sagaType, referenceId, status, currentStep, lastReasonCode, payloadJson);
+    }
+
+    @Override
+    public Optional<OfflineSaga> findBySagaTypeAndReferenceId(OfflineSagaType sagaType, String referenceId) {
+        String sql = QueryBuilder.select("offline_sagas")
+                .where("saga_type", QueryBuilder.Op.EQ, ":sagaType")
+                .where("reference_id", QueryBuilder.Op.EQ, ":referenceId")
+                .orderBy("updated_at DESC")
+                .limit(1)
+                .build();
+        return jdbcClient.sql(sql)
+                .param("sagaType", sagaType.name())
+                .param("referenceId", referenceId)
+                .query(rowMapper)
+                .optional();
     }
 
     @Override
