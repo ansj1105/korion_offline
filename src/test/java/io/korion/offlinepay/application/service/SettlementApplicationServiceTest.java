@@ -4,9 +4,11 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -16,6 +18,7 @@ import io.korion.offlinepay.application.factory.SettlementRequestFactory;
 import io.korion.offlinepay.application.factory.SettlementStreamEventFactory;
 import io.korion.offlinepay.application.factory.SettlementSyncCommandFactory;
 import io.korion.offlinepay.application.port.CoinManageSettlementPort;
+import io.korion.offlinepay.application.port.CollateralOperationRepository;
 import io.korion.offlinepay.application.port.CollateralRepository;
 import io.korion.offlinepay.application.port.DeviceRepository;
 import io.korion.offlinepay.application.port.FoxCoinHistoryPort;
@@ -40,6 +43,7 @@ import io.korion.offlinepay.application.service.settlement.IssuedProofVerificati
 import io.korion.offlinepay.domain.model.IssuedOfflineProof;
 import io.korion.offlinepay.domain.status.IssuedProofStatus;
 import io.korion.offlinepay.domain.model.CollateralLock;
+import io.korion.offlinepay.domain.model.CollateralOperation;
 import io.korion.offlinepay.domain.model.Device;
 import io.korion.offlinepay.domain.model.OfflinePaymentProof;
 import io.korion.offlinepay.domain.model.OfflineSaga;
@@ -47,6 +51,8 @@ import io.korion.offlinepay.domain.model.ReconciliationCase;
 import io.korion.offlinepay.domain.model.SettlementBatch;
 import io.korion.offlinepay.domain.model.SettlementRequest;
 import io.korion.offlinepay.domain.status.CollateralStatus;
+import io.korion.offlinepay.domain.status.CollateralOperationStatus;
+import io.korion.offlinepay.domain.status.CollateralOperationType;
 import io.korion.offlinepay.domain.status.DeviceStatus;
 import io.korion.offlinepay.domain.status.OfflineSagaStatus;
 import io.korion.offlinepay.domain.status.OfflineSagaType;
@@ -64,6 +70,7 @@ class SettlementApplicationServiceTest {
     private final SpendingProofHashService spendingProofHashService = new SpendingProofHashService();
 
     private final CollateralRepository collateralRepository = Mockito.mock(CollateralRepository.class);
+    private final CollateralOperationRepository collateralOperationRepository = Mockito.mock(CollateralOperationRepository.class);
     private final DeviceRepository deviceRepository = Mockito.mock(DeviceRepository.class);
     private final OfflinePaymentProofRepository proofRepository = Mockito.mock(OfflinePaymentProofRepository.class);
     private final SettlementBatchRepository batchRepository = Mockito.mock(SettlementBatchRepository.class);
@@ -80,6 +87,7 @@ class SettlementApplicationServiceTest {
     private final JsonService jsonService = new JsonService(new ObjectMapper());
     private final SettlementApplicationService service = new SettlementApplicationService(
             collateralRepository,
+            collateralOperationRepository,
             deviceRepository,
             proofRepository,
             batchRepository,
@@ -130,6 +138,30 @@ class SettlementApplicationServiceTest {
                         )
                 )
         );
+        Mockito.lenient().when(collateralOperationRepository.saveRequested(
+                any(),
+                anyLong(),
+                anyString(),
+                anyString(),
+                any(),
+                any(),
+                anyString(),
+                anyString()
+        )).thenAnswer(invocation -> new CollateralOperation(
+                "op-" + invocation.getArgument(6, String.class),
+                invocation.getArgument(0, String.class),
+                invocation.getArgument(1, Long.class),
+                invocation.getArgument(2, String.class),
+                invocation.getArgument(3, String.class),
+                invocation.getArgument(4, CollateralOperationType.class),
+                invocation.getArgument(5, BigDecimal.class),
+                CollateralOperationStatus.REQUESTED,
+                invocation.getArgument(6, String.class),
+                null,
+                invocation.getArgument(7, String.class),
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        ));
     }
 
     @Test
@@ -181,6 +213,8 @@ class SettlementApplicationServiceTest {
                 "device-1",
                 "nonce-1"
         );
+        long proofTimestamp = System.currentTimeMillis();
+        long proofExpiresAt = proofTimestamp + 60_000;
         OfflinePaymentProof proof = new OfflinePaymentProof(
                 "proof-1",
                 "batch-1",
@@ -194,13 +228,19 @@ class SettlementApplicationServiceTest {
                 "nonce-1",
                 proofHash,
                 "GENESIS",
-                "signature",
+                "local_sig_settled",
                 new BigDecimal("100"),
-                System.currentTimeMillis(),
-                System.currentTimeMillis() + 60_000,
-                "{\"voucherId\":\"voucher-1\"}",
+                proofTimestamp,
+                proofExpiresAt,
+                "{\"voucherId\":\"voucher-1\",\"counterpartyDeviceId\":\"device-2\"}",
                 "SENDER",
-                "{\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"100\",\"uiMode\":\"SEND\",\"connectionType\":\"FAST_CONTACT\",\"paymentFlow\":\"FAST_PAYMENT\",\"senderAuthRequired\":true,\"ledgerExecutionMode\":\"INTERNAL_LEDGER_ONLY\",\"dualAmountEntered\":false}",
+                "{\"voucherId\":\"voucher-1\",\"deviceId\":\"device-1\",\"counterpartyDeviceId\":\"device-2\",\"amount\":\"100\",\"expiresAt\":\""
+                        + proofExpiresAt
+                        + "\",\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"100\",\"uiMode\":\"SEND\",\"connectionType\":\"FAST_CONTACT\",\"paymentFlow\":\"FAST_PAYMENT\",\"senderAuthRequired\":true,\"ledgerExecutionMode\":\"INTERNAL_LEDGER_ONLY\",\"dualAmountEntered\":false,\"spendingProof\":{\"deviceId\":\"device-1\",\"amount\":\"100\",\"monotonicCounter\":\"1\",\"nonce\":\"nonce-1\",\"newStateHash\":\""
+                        + proofHash
+                        + "\",\"prevStateHash\":\"GENESIS\",\"signature\":\"local_sig_settled\",\"timestamp\":\""
+                        + proofTimestamp
+                        + "\"}}",
                 OffsetDateTime.now()
         );
         Device device = new Device(
@@ -289,6 +329,155 @@ class SettlementApplicationServiceTest {
         assertEquals("settlement-1", detail.settlementRequest().id());
         assertEquals(OfflineSagaStatus.COMPENSATION_REQUIRED, detail.settlementSaga().status());
         assertEquals("HISTORY_SYNC_FAILED", detail.reconciliationCase().caseType());
+    }
+
+    @Test
+    void finalizeSettlementRejectCreatesCollateralReleaseInsteadOfLedgerSync() {
+        SettlementRequest request = new SettlementRequest(
+                "settlement-1",
+                "batch-1",
+                "collateral-1",
+                "proof-1",
+                SettlementStatus.VALIDATING,
+                null,
+                false,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        CollateralLock collateral = new CollateralLock(
+                "collateral-1",
+                77L,
+                "device-1",
+                "USDT",
+                new BigDecimal("150"),
+                new BigDecimal("100"),
+                "GENESIS",
+                1,
+                CollateralStatus.LOCKED,
+                "lock-1",
+                OffsetDateTime.now().plusDays(1),
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        String failedProofHash = spendingProofHashService.computeNewStateHash(
+                "GENESIS",
+                new BigDecimal("10"),
+                1L,
+                "device-1",
+                "nonce-1"
+        );
+        long failedProofTimestamp = System.currentTimeMillis();
+        long failedProofExpiresAt = failedProofTimestamp + 60_000;
+        OfflinePaymentProof proof = new OfflinePaymentProof(
+                "proof-1",
+                "batch-1",
+                "voucher-1",
+                "collateral-1",
+                "device-1",
+                "device-2",
+                1,
+                1,
+                1L,
+                "nonce-1",
+                failedProofHash,
+                "GENESIS",
+                "local_sig_failed",
+                new BigDecimal("10"),
+                failedProofTimestamp,
+                failedProofExpiresAt,
+                "{\"voucherId\":\"voucher-1\",\"counterpartyDeviceId\":\"device-2\"}",
+                "SENDER",
+                "{\"voucherId\":\"voucher-1\",\"deviceId\":\"device-1\",\"counterpartyDeviceId\":\"device-2\",\"amount\":\"10\",\"expiresAt\":\""
+                        + failedProofExpiresAt
+                        + "\",\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"100\",\"uiMode\":\"SEND\",\"connectionType\":\"FAST_CONTACT\",\"paymentFlow\":\"FAST_PAYMENT\",\"senderAuthRequired\":true,\"ledgerExecutionMode\":\"INTERNAL_LEDGER_ONLY\",\"dualAmountEntered\":false,\"spendingProof\":{\"deviceId\":\"device-1\",\"amount\":\"10\",\"monotonicCounter\":\"1\",\"nonce\":\"nonce-1\",\"newStateHash\":\""
+                        + failedProofHash
+                        + "\",\"prevStateHash\":\"GENESIS\",\"signature\":\"local_sig_failed\",\"timestamp\":\""
+                        + failedProofTimestamp
+                        + "\"}}",
+                OffsetDateTime.now()
+        );
+        Device inactiveDevice = new Device(
+                "device-row-1",
+                "device-1",
+                77L,
+                "public-key",
+                1,
+                DeviceStatus.FROZEN,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        CollateralOperation releaseOperation = new CollateralOperation(
+                "op-1",
+                "collateral-1",
+                77L,
+                "device-1",
+                "USDT",
+                CollateralOperationType.RELEASE,
+                new BigDecimal("10"),
+                CollateralOperationStatus.REQUESTED,
+                "release:settlement-1:failed_settlement",
+                null,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+
+        when(settlementRepository.findById("settlement-1")).thenReturn(
+                Optional.of(request),
+                Optional.of(new SettlementRequest(
+                        "settlement-1",
+                        "batch-1",
+                        "collateral-1",
+                        "proof-1",
+                        SettlementStatus.REJECTED,
+                        "DEVICE_NOT_ACTIVE",
+                        false,
+                        "{}",
+                        OffsetDateTime.now(),
+                        OffsetDateTime.now()
+                ))
+        );
+        when(proofRepository.findById("proof-1")).thenReturn(Optional.of(proof));
+        when(collateralRepository.findById("collateral-1")).thenReturn(Optional.of(collateral));
+        when(deviceRepository.findByDeviceId("device-1")).thenReturn(Optional.of(inactiveDevice));
+        when(collateralOperationRepository.saveRequested(
+                eq("collateral-1"),
+                eq(77L),
+                eq("device-1"),
+                eq("USDT"),
+                eq(CollateralOperationType.RELEASE),
+                eq(new BigDecimal("10")),
+                eq("release:settlement-1:failed_settlement"),
+                anyString()
+        )).thenReturn(releaseOperation);
+
+        service.finalizeSettlement("settlement-1");
+
+        verify(eventBus, never()).publishExternalSyncRequested(
+                eq("LEDGER_SYNC_REQUESTED"),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString()
+        );
+        verify(eventBus).publishCollateralOperationRequested(
+                eq("op-1"),
+                eq("RELEASE"),
+                eq("USDT"),
+                eq("release:settlement-1:failed_settlement"),
+                anyString()
+        );
+        verify(offlineSagaService).markFailed(
+                eq(OfflineSagaType.SETTLEMENT),
+                eq("settlement-1"),
+                eq("SETTLEMENT_REJECTED"),
+                eq("DEVICE_NOT_ACTIVE"),
+                any()
+        );
     }
 
     @Test
@@ -446,7 +635,7 @@ class SettlementApplicationServiceTest {
                 "nonce-3",
                 spendingProofHashService.computeNewStateHash("GENESIS", new BigDecimal("10"), 1L, "device-1", "nonce-3"),
                 "GENESIS",
-                "signature",
+                "local_sig_ledger_fail",
                 new BigDecimal("10"),
                 System.currentTimeMillis(),
                 System.currentTimeMillis() + 60_000,
@@ -662,7 +851,7 @@ class SettlementApplicationServiceTest {
                 "nonce-4",
                 spendingProofHashService.computeNewStateHash("GENESIS", new BigDecimal("10"), 1L, "device-1", "nonce-4"),
                 "GENESIS",
-                "signature",
+                "local_sig_ledger_fail",
                 new BigDecimal("10"),
                 System.currentTimeMillis(),
                 System.currentTimeMillis() + 60_000,
@@ -751,7 +940,7 @@ class SettlementApplicationServiceTest {
                 "nonce-5",
                 spendingProofHashService.computeNewStateHash("GENESIS", new BigDecimal("10"), 1L, "device-1", "nonce-5"),
                 "GENESIS",
-                "signature",
+                "local_sig_ledger_fail",
                 new BigDecimal("10"),
                 System.currentTimeMillis(),
                 System.currentTimeMillis() + 60_000,
@@ -1053,6 +1242,8 @@ class SettlementApplicationServiceTest {
                 "device-1",
                 "nonce-ledger-fail"
         );
+        long ledgerFailTimestamp = System.currentTimeMillis();
+        long ledgerFailExpiresAt = ledgerFailTimestamp + 60_000;
         OfflinePaymentProof proof = new OfflinePaymentProof(
                 "proof-ledger-fail",
                 "batch-ledger-fail",
@@ -1066,13 +1257,19 @@ class SettlementApplicationServiceTest {
                 "nonce-ledger-fail",
                 proofHash,
                 "GENESIS",
-                "signature",
+                "local_sig_ledger_fail",
                 new BigDecimal("100"),
-                System.currentTimeMillis(),
-                System.currentTimeMillis() + 60_000,
-                "{\"voucherId\":\"voucher-ledger-fail\"}",
+                ledgerFailTimestamp,
+                ledgerFailExpiresAt,
+                "{\"voucherId\":\"voucher-ledger-fail\",\"counterpartyDeviceId\":\"device-2\"}",
                 "SENDER",
-                "{\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"100\",\"uiMode\":\"SEND\",\"connectionType\":\"FAST_CONTACT\",\"paymentFlow\":\"FAST_PAYMENT\",\"senderAuthRequired\":true,\"ledgerExecutionMode\":\"INTERNAL_LEDGER_ONLY\",\"dualAmountEntered\":false}",
+                "{\"voucherId\":\"voucher-ledger-fail\",\"deviceId\":\"device-1\",\"counterpartyDeviceId\":\"device-2\",\"amount\":\"100\",\"expiresAt\":\""
+                        + ledgerFailExpiresAt
+                        + "\",\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"100\",\"uiMode\":\"SEND\",\"connectionType\":\"FAST_CONTACT\",\"paymentFlow\":\"FAST_PAYMENT\",\"senderAuthRequired\":true,\"ledgerExecutionMode\":\"INTERNAL_LEDGER_ONLY\",\"dualAmountEntered\":false,\"spendingProof\":{\"deviceId\":\"device-1\",\"amount\":\"100\",\"monotonicCounter\":\"1\",\"nonce\":\"nonce-ledger-fail\",\"newStateHash\":\""
+                        + proofHash
+                        + "\",\"prevStateHash\":\"GENESIS\",\"signature\":\"local_sig_ledger_fail\",\"timestamp\":\""
+                        + ledgerFailTimestamp
+                        + "\"}}",
                 OffsetDateTime.now()
         );
         Device device = new Device(
@@ -1156,6 +1353,8 @@ class SettlementApplicationServiceTest {
                 "device-1",
                 "nonce-history-fail"
         );
+        long historyFailTimestamp = System.currentTimeMillis();
+        long historyFailExpiresAt = historyFailTimestamp + 60_000;
         OfflinePaymentProof proof = new OfflinePaymentProof(
                 "proof-history-fail",
                 "batch-history-fail",
@@ -1169,13 +1368,19 @@ class SettlementApplicationServiceTest {
                 "nonce-history-fail",
                 proofHash,
                 "GENESIS",
-                "signature",
+                "local_sig_history_fail",
                 new BigDecimal("100"),
-                System.currentTimeMillis(),
-                System.currentTimeMillis() + 60_000,
-                "{\"voucherId\":\"voucher-history-fail\"}",
+                historyFailTimestamp,
+                historyFailExpiresAt,
+                "{\"voucherId\":\"voucher-history-fail\",\"counterpartyDeviceId\":\"device-2\"}",
                 "SENDER",
-                "{\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"100\",\"uiMode\":\"SEND\",\"connectionType\":\"FAST_CONTACT\",\"paymentFlow\":\"FAST_PAYMENT\",\"senderAuthRequired\":true,\"ledgerExecutionMode\":\"INTERNAL_LEDGER_ONLY\",\"dualAmountEntered\":false}",
+                "{\"voucherId\":\"voucher-history-fail\",\"deviceId\":\"device-1\",\"counterpartyDeviceId\":\"device-2\",\"amount\":\"100\",\"expiresAt\":\""
+                        + historyFailExpiresAt
+                        + "\",\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"100\",\"uiMode\":\"SEND\",\"connectionType\":\"FAST_CONTACT\",\"paymentFlow\":\"FAST_PAYMENT\",\"senderAuthRequired\":true,\"ledgerExecutionMode\":\"INTERNAL_LEDGER_ONLY\",\"dualAmountEntered\":false,\"spendingProof\":{\"deviceId\":\"device-1\",\"amount\":\"100\",\"monotonicCounter\":\"1\",\"nonce\":\"nonce-history-fail\",\"newStateHash\":\""
+                        + proofHash
+                        + "\",\"prevStateHash\":\"GENESIS\",\"signature\":\"local_sig_history_fail\",\"timestamp\":\""
+                        + historyFailTimestamp
+                        + "\"}}",
                 OffsetDateTime.now()
         );
         Device device = new Device(
@@ -1259,6 +1464,8 @@ class SettlementApplicationServiceTest {
                 "device-1",
                 "nonce-ledger-open"
         );
+        long ledgerOpenTimestamp = System.currentTimeMillis();
+        long ledgerOpenExpiresAt = ledgerOpenTimestamp + 60_000;
         OfflinePaymentProof proof = new OfflinePaymentProof(
                 "proof-ledger-open",
                 "batch-ledger-open",
@@ -1272,13 +1479,19 @@ class SettlementApplicationServiceTest {
                 "nonce-ledger-open",
                 proofHash,
                 "GENESIS",
-                "signature",
+                "local_sig_ledger_open",
                 new BigDecimal("100"),
-                System.currentTimeMillis(),
-                System.currentTimeMillis() + 60_000,
-                "{\"voucherId\":\"voucher-ledger-open\"}",
+                ledgerOpenTimestamp,
+                ledgerOpenExpiresAt,
+                "{\"voucherId\":\"voucher-ledger-open\",\"counterpartyDeviceId\":\"device-2\"}",
                 "SENDER",
-                "{\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"100\",\"uiMode\":\"SEND\",\"connectionType\":\"FAST_CONTACT\",\"paymentFlow\":\"FAST_PAYMENT\",\"senderAuthRequired\":true,\"ledgerExecutionMode\":\"INTERNAL_LEDGER_ONLY\",\"dualAmountEntered\":false}",
+                "{\"voucherId\":\"voucher-ledger-open\",\"deviceId\":\"device-1\",\"counterpartyDeviceId\":\"device-2\",\"amount\":\"100\",\"expiresAt\":\""
+                        + ledgerOpenExpiresAt
+                        + "\",\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"100\",\"uiMode\":\"SEND\",\"connectionType\":\"FAST_CONTACT\",\"paymentFlow\":\"FAST_PAYMENT\",\"senderAuthRequired\":true,\"ledgerExecutionMode\":\"INTERNAL_LEDGER_ONLY\",\"dualAmountEntered\":false,\"spendingProof\":{\"deviceId\":\"device-1\",\"amount\":\"100\",\"monotonicCounter\":\"1\",\"nonce\":\"nonce-ledger-open\",\"newStateHash\":\""
+                        + proofHash
+                        + "\",\"prevStateHash\":\"GENESIS\",\"signature\":\"local_sig_ledger_open\",\"timestamp\":\""
+                        + ledgerOpenTimestamp
+                        + "\"}}",
                 OffsetDateTime.now()
         );
         Device device = new Device(
@@ -1361,6 +1574,8 @@ class SettlementApplicationServiceTest {
                 "device-1",
                 "nonce-history-open"
         );
+        long historyOpenTimestamp = System.currentTimeMillis();
+        long historyOpenExpiresAt = historyOpenTimestamp + 60_000;
         OfflinePaymentProof proof = new OfflinePaymentProof(
                 "proof-history-open",
                 "batch-history-open",
@@ -1374,13 +1589,19 @@ class SettlementApplicationServiceTest {
                 "nonce-history-open",
                 proofHash,
                 "GENESIS",
-                "signature",
+                "local_sig_history_open",
                 new BigDecimal("100"),
-                System.currentTimeMillis(),
-                System.currentTimeMillis() + 60_000,
-                "{\"voucherId\":\"voucher-history-open\"}",
+                historyOpenTimestamp,
+                historyOpenExpiresAt,
+                "{\"voucherId\":\"voucher-history-open\",\"counterpartyDeviceId\":\"device-2\"}",
                 "SENDER",
-                "{\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"100\",\"uiMode\":\"SEND\",\"connectionType\":\"FAST_CONTACT\",\"paymentFlow\":\"FAST_PAYMENT\",\"senderAuthRequired\":true,\"ledgerExecutionMode\":\"INTERNAL_LEDGER_ONLY\",\"dualAmountEntered\":false}",
+                "{\"voucherId\":\"voucher-history-open\",\"deviceId\":\"device-1\",\"counterpartyDeviceId\":\"device-2\",\"amount\":\"100\",\"expiresAt\":\""
+                        + historyOpenExpiresAt
+                        + "\",\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"100\",\"uiMode\":\"SEND\",\"connectionType\":\"FAST_CONTACT\",\"paymentFlow\":\"FAST_PAYMENT\",\"senderAuthRequired\":true,\"ledgerExecutionMode\":\"INTERNAL_LEDGER_ONLY\",\"dualAmountEntered\":false,\"spendingProof\":{\"deviceId\":\"device-1\",\"amount\":\"100\",\"monotonicCounter\":\"1\",\"nonce\":\"nonce-history-open\",\"newStateHash\":\""
+                        + proofHash
+                        + "\",\"prevStateHash\":\"GENESIS\",\"signature\":\"local_sig_history_open\",\"timestamp\":\""
+                        + historyOpenTimestamp
+                        + "\"}}",
                 OffsetDateTime.now()
         );
         Device device = new Device(

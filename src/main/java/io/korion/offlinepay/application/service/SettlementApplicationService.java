@@ -7,6 +7,7 @@ import io.korion.offlinepay.application.factory.SettlementStreamEventFactory;
 import io.korion.offlinepay.application.factory.SettlementSyncCommandFactory;
 import io.korion.offlinepay.application.port.CoinManageSettlementPort;
 import io.korion.offlinepay.application.port.CollateralRepository;
+import io.korion.offlinepay.application.port.CollateralOperationRepository;
 import io.korion.offlinepay.application.port.DeviceRepository;
 import io.korion.offlinepay.application.port.FoxCoinHistoryPort;
 import io.korion.offlinepay.application.port.OfflinePaymentProofRepository;
@@ -54,6 +55,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class SettlementApplicationService {
 
     private final CollateralRepository collateralRepository;
+    private final CollateralOperationRepository collateralOperationRepository;
     private final DeviceRepository deviceRepository;
     private final OfflinePaymentProofRepository proofRepository;
     private final SettlementBatchRepository batchRepository;
@@ -80,6 +82,7 @@ public class SettlementApplicationService {
 
     public SettlementApplicationService(
             CollateralRepository collateralRepository,
+            CollateralOperationRepository collateralOperationRepository,
             DeviceRepository deviceRepository,
             OfflinePaymentProofRepository proofRepository,
             SettlementBatchRepository batchRepository,
@@ -107,6 +110,7 @@ public class SettlementApplicationService {
             IssuedProofVerificationService issuedProofVerificationService
     ) {
         this.collateralRepository = collateralRepository;
+        this.collateralOperationRepository = collateralOperationRepository;
         this.deviceRepository = deviceRepository;
         this.proofRepository = proofRepository;
         this.batchRepository = batchRepository;
@@ -357,6 +361,18 @@ public class SettlementApplicationService {
                 .orElseThrow(() -> new IllegalArgumentException("proof not found: " + request.proofId()));
         CollateralLock collateral = collateralRepository.findById(request.collateralId())
                 .orElseThrow(() -> new IllegalArgumentException("collateral not found: " + request.collateralId()));
+        offlineSagaService.markProcessing(
+                OfflineSagaType.SETTLEMENT,
+                request.id(),
+                "VALIDATING",
+                Map.of(
+                        "settlementId", request.id(),
+                        "batchId", request.batchId(),
+                        "proofId", proof.id(),
+                        "collateralId", collateral.id(),
+                        "voucherId", proof.voucherId()
+                )
+        );
 
         proofRepository.updateLifecycle(proof.id(), OfflineProofStatus.CONSUMED_PENDING_SETTLEMENT, null, true, false, false);
         SettlementEvaluation evaluation = evaluateProof(proof, collateral);
@@ -401,7 +417,37 @@ public class SettlementApplicationService {
                 ))
         );
 
-        syncExternalSettlement(collateral, proof, request, evaluation);
+        if (evaluation.status() == SettlementStatus.SETTLED || evaluation.conflictDetected()) {
+            offlineSagaService.markProcessing(
+                    OfflineSagaType.SETTLEMENT,
+                    request.id(),
+                    "EXTERNAL_SYNC_REQUESTED",
+                    Map.of(
+                            "settlementId", request.id(),
+                            "batchId", request.batchId(),
+                            "proofId", proof.id(),
+                            "collateralId", collateral.id(),
+                            "reasonCode", terminalReasonCode
+                    )
+            );
+            syncExternalSettlement(collateral, proof, request, evaluation);
+        } else {
+            scheduleFailedSettlementRelease(collateral, proof, request, terminalReasonCode);
+            offlineSagaService.markFailed(
+                    OfflineSagaType.SETTLEMENT,
+                    request.id(),
+                    "SETTLEMENT_REJECTED",
+                    terminalReasonCode,
+                    Map.of(
+                            "settlementId", request.id(),
+                            "batchId", request.batchId(),
+                            "proofId", proof.id(),
+                            "collateralId", collateral.id(),
+                            "reasonCode", terminalReasonCode,
+                            "status", evaluation.status().name()
+                    )
+            );
+        }
         return evaluation;
     }
 
@@ -632,6 +678,52 @@ public class SettlementApplicationService {
                 ReconciliationCaseStatus.OPEN,
                 reasonCode,
                 evaluation.resultJson()
+        );
+    }
+
+    private void scheduleFailedSettlementRelease(
+            CollateralLock collateral,
+            OfflinePaymentProof proof,
+            SettlementRequest request,
+            String reasonCode
+    ) {
+        String referenceId = "release:" + request.id() + ":failed_settlement";
+        var operation = collateralOperationRepository.saveRequested(
+                collateral.id(),
+                collateral.userId(),
+                collateral.deviceId(),
+                collateral.assetCode(),
+                io.korion.offlinepay.domain.status.CollateralOperationType.RELEASE,
+                proof.amount(),
+                referenceId,
+                jsonService.write(Map.of(
+                        "amount", proof.amount(),
+                        "reason", "failed_settlement_release",
+                        "settlementId", request.id(),
+                        "proofId", proof.id(),
+                        "reasonCode", reasonCode
+                ))
+        );
+        eventBus.publishCollateralOperationRequested(
+                operation.id(),
+                operation.operationType().name(),
+                operation.assetCode(),
+                operation.referenceId(),
+                operation.createdAt().toString()
+        );
+        offlineSagaService.start(
+                OfflineSagaType.COLLATERAL_RELEASE,
+                operation.id(),
+                "SERVER_ACCEPTED",
+                Map.of(
+                        "operationId", operation.id(),
+                        "assetCode", operation.assetCode(),
+                        "referenceId", operation.referenceId(),
+                        "amount", operation.amount().toPlainString(),
+                        "settlementId", request.id(),
+                        "proofId", proof.id(),
+                        "reasonCode", reasonCode
+                )
         );
     }
 
