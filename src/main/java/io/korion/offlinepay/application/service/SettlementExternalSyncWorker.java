@@ -185,6 +185,18 @@ public class SettlementExternalSyncWorker {
         if (OfflineWorkflowEventType.RECEIVER_HISTORY_SYNC_REQUESTED.name().equals(message.eventType())) {
             FoxCoinHistoryPort.SettlementHistoryCommand receiverCommand = toHistoryCommand(payload.path("receiverHistoryCommand"));
             foxCoinHistoryPort.recordSettlementHistory(receiverCommand);
+            offlineSagaService.markCompleted(
+                    OfflineSagaType.SETTLEMENT,
+                    message.settlementId(),
+                    "RECEIVER_HISTORY_SYNCED",
+                    Map.of(
+                            "settlementId", message.settlementId(),
+                            "batchId", message.batchId(),
+                            "proofId", message.proofId(),
+                            "receiverHistorySynced", true,
+                            "eventType", message.eventType()
+                    )
+            );
             return;
         }
 

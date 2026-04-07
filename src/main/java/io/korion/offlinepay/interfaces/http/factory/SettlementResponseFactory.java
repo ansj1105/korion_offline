@@ -39,6 +39,9 @@ public class SettlementResponseFactory {
         OfflinePaymentProof proof = detailView.proof();
         CollateralLock collateral = detailView.collateral();
         JsonNode ledgerResult = settlementSaga == null ? null : jsonService.readTree(settlementSaga.payloadJson()).path("ledgerResult");
+        String sagaCurrentStep = settlementSaga == null ? null : settlementSaga.currentStep();
+        String senderHistoryStatus = resolveSenderHistoryStatus(sagaCurrentStep);
+        String receiverHistoryStatus = resolveReceiverHistoryStatus(sagaCurrentStep, proof);
         return new SettlementRequestDetailResponse(
                 settlementRequest.id(),
                 settlementRequest.batchId(),
@@ -65,8 +68,30 @@ public class SettlementResponseFactory {
                 boolOrNull(ledgerResult, "duplicated"),
                 decimalOrNull(ledgerResult, "postAvailableBalance"),
                 decimalOrNull(ledgerResult, "postLockedBalance"),
-                decimalOrNull(ledgerResult, "postOfflinePayPendingBalance")
+                decimalOrNull(ledgerResult, "postOfflinePayPendingBalance"),
+                senderHistoryStatus,
+                receiverHistoryStatus
         );
+    }
+
+    private String resolveSenderHistoryStatus(String sagaStep) {
+        if (sagaStep == null) {
+            return "PENDING";
+        }
+        return switch (sagaStep) {
+            case "HISTORY_SYNCED", "RECEIVER_HISTORY_SYNCED" -> "SYNCED";
+            default -> "PENDING";
+        };
+    }
+
+    private String resolveReceiverHistoryStatus(String sagaStep, OfflinePaymentProof proof) {
+        if (proof == null || proof.receiverDeviceId() == null || proof.receiverDeviceId().isBlank()) {
+            return "N/A";
+        }
+        if ("RECEIVER_HISTORY_SYNCED".equals(sagaStep)) {
+            return "SYNCED";
+        }
+        return "PENDING";
     }
 
     private String textOrNull(JsonNode node, String field) {

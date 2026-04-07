@@ -31,5 +31,9 @@ public record SettlementRequestDetailResponse(
         Boolean ledgerDuplicated,
         BigDecimal postAvailableBalance,
         BigDecimal postLockedBalance,
-        BigDecimal postOfflinePayPendingBalance
+        BigDecimal postOfflinePayPendingBalance,
+        // sender / receiver leg 정산 상태 (saga step 기반)
+        // SYNCED | PENDING | N/A
+        String senderHistoryStatus,
+        String receiverHistoryStatus
 ) {}
