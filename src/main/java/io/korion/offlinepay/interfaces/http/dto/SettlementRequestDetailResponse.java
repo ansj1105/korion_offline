@@ -29,6 +29,7 @@ public record SettlementRequestDetailResponse(
         String accountingSide,
         String receiverSettlementMode,
         String settlementModel,
+        String reconciliationTrackingOwner,
         Boolean ledgerDuplicated,
         BigDecimal postAvailableBalance,
         BigDecimal postLockedBalance,

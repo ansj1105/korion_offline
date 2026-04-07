@@ -28,31 +28,33 @@
 
 ### LD-2. sender / receiver accounting 책임 명확화
 
-- 상태: `1차 반영`
+- 상태: `정책 확정`
 - 해야 할 일:
   - [x] ledger 결과에 `accountingSide=SENDER`, `receiverSettlementMode=EXTERNAL_HISTORY_SYNC` 명시
   - [x] `settlementModel=SENDER_LEDGER_PLUS_RECEIVER_HISTORY` 명시
-  - [ ] receiver leg를 독립 원장 단계로 승격할지 여부 최종 결정
+  - [x] receiver leg를 `coin_manage` 독립 원장으로 승격하지 않음 — sender collateral ledger + receiver history 구조 유지
   - [x] `offline_pay`, `foxya_coin_service` 응답/문서에도 동일 의미 1차 반영
 
 ### LD-3. compensation / reconciliation 가시성
 
-- 상태: `1차 반영`
+- 상태: `반영`
 - 해야 할 일:
   - [x] ledger 결과에 `ledgerOutcome=FINALIZED|COMPENSATED`, `duplicated` 노출
   - [x] reconciliation case 상태를 `offline_pay` settlement detail 응답에 노출
   - [x] admin/API 응답에서 compensation/reconciliation 연결값 1차 추가
-  - [ ] `coin_manage` contract까지 reconciliation linkage를 동일 레벨로 올릴지 검토
+  - [x] `coin_manage` contract까지 reconciliation linkage(`reconciliationTrackingOwner=OFFLINE_PAY_SAGA`)를 동일 레벨로 반영
 
 ### LD-4. 담보 direct path 정책
 
-- 상태: `대기`
+- 상태: `정책 확정`
 - 해야 할 일:
-  - online collateral topup/release에 대해 queue-first 외 별도 direct path가 필요한지 검토
+  - [x] online collateral topup/release는 `QUEUE_FIRST_IMMEDIATE_SYNC` 유지 — 별도 direct path 미도입
 
 ## 현재 결론
 
 - 구현 가능한 항목은 `1차 반영` 기준 대부분 완료됐다.
-- 원장/정산 기준으로 남은 실질 미완료는 아래 두 가지다.
-  - `receiver leg`를 `coin_manage` 독립 원장 단계로 승격할지에 대한 정책 결정
-  - `online collateral direct path`를 queue-first와 분리할지에 대한 정책 결정
+- 구현 가능한 항목은 완료됐다.
+- 원장/정산 기준 남은 미완료는 없다.
+- 현재 정책 고정값:
+  - `receiver leg`는 `coin_manage` 독립 원장으로 올리지 않고 `SENDER_LEDGER_PLUS_RECEIVER_HISTORY` 유지
+  - online collateral topup/release는 별도 direct path 없이 `QUEUE_FIRST_IMMEDIATE_SYNC` 유지

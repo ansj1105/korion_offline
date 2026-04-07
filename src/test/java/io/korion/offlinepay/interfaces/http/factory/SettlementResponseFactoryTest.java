@@ -53,6 +53,7 @@ class SettlementResponseFactoryTest {
                                 "accountingSide", "SENDER",
                                 "receiverSettlementMode", "EXTERNAL_HISTORY_SYNC",
                                 "settlementModel", "SENDER_LEDGER_PLUS_RECEIVER_HISTORY",
+                                "reconciliationTrackingOwner", "OFFLINE_PAY_SAGA",
                                 "duplicated", false,
                                 "postAvailableBalance", "1020.923524",
                                 "postLockedBalance", "0.000000",
@@ -74,6 +75,7 @@ class SettlementResponseFactoryTest {
         assertEquals("SENDER", response.accountingSide());
         assertEquals("EXTERNAL_HISTORY_SYNC", response.receiverSettlementMode());
         assertEquals("SENDER_LEDGER_PLUS_RECEIVER_HISTORY", response.settlementModel());
+        assertEquals("OFFLINE_PAY_SAGA", response.reconciliationTrackingOwner());
         assertEquals("1020.923524", response.postAvailableBalance().toPlainString());
         assertTrue(response.retryable());
         assertEquals("RETRY_EXTERNAL_SYNC", response.nextAction());

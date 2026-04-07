@@ -209,6 +209,7 @@ class SettlementWorkerTest {
                         "SENDER",
                         "EXTERNAL_HISTORY_SYNC",
                         "SENDER_LEDGER_PLUS_RECEIVER_HISTORY",
+                        "OFFLINE_PAY_SAGA",
                         new BigDecimal("10.000000"),
                         new BigDecimal("140.000000"),
                         new BigDecimal("140.000000")

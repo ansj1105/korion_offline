@@ -50,6 +50,7 @@ public interface CoinManageSettlementPort {
             String accountingSide,
             String receiverSettlementMode,
             String settlementModel,
+            String reconciliationTrackingOwner,
             BigDecimal postAvailableBalance,
             BigDecimal postLockedBalance,
             BigDecimal postOfflinePayPendingBalance

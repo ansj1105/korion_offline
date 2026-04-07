@@ -103,16 +103,18 @@ public class SettlementExternalSyncWorker {
                             "batchId", message.batchId(),
                             "proofId", message.proofId(),
                             "eventType", message.eventType(),
-                            "ledgerResult", Map.of(
-                                    "settlementId", ledgerResult.settlementId(),
-                                    "ledgerOutcome", ledgerResult.ledgerOutcome(),
-                                    "releaseAction", ledgerResult.releaseAction(),
-                                    "duplicated", ledgerResult.duplicated(),
-                                    "accountingSide", ledgerResult.accountingSide(),
-                                    "receiverSettlementMode", ledgerResult.receiverSettlementMode(),
-                                    "postAvailableBalance", ledgerResult.postAvailableBalance().toPlainString(),
-                                    "postLockedBalance", ledgerResult.postLockedBalance().toPlainString(),
-                                    "postOfflinePayPendingBalance", ledgerResult.postOfflinePayPendingBalance().toPlainString()
+                            "ledgerResult", Map.ofEntries(
+                                    Map.entry("settlementId", ledgerResult.settlementId()),
+                                    Map.entry("ledgerOutcome", ledgerResult.ledgerOutcome()),
+                                    Map.entry("releaseAction", ledgerResult.releaseAction()),
+                                    Map.entry("duplicated", ledgerResult.duplicated()),
+                                    Map.entry("accountingSide", ledgerResult.accountingSide()),
+                                    Map.entry("receiverSettlementMode", ledgerResult.receiverSettlementMode()),
+                                    Map.entry("settlementModel", ledgerResult.settlementModel()),
+                                    Map.entry("reconciliationTrackingOwner", ledgerResult.reconciliationTrackingOwner()),
+                                    Map.entry("postAvailableBalance", ledgerResult.postAvailableBalance().toPlainString()),
+                                    Map.entry("postLockedBalance", ledgerResult.postLockedBalance().toPlainString()),
+                                    Map.entry("postOfflinePayPendingBalance", ledgerResult.postOfflinePayPendingBalance().toPlainString())
                             )
                     )
             );
@@ -223,16 +225,18 @@ public class SettlementExternalSyncWorker {
                             "batchId", message.batchId(),
                             "proofId", message.proofId(),
                             "eventType", message.eventType(),
-                            "ledgerResult", Map.of(
-                                    "settlementId", ledgerResult.settlementId(),
-                                    "ledgerOutcome", ledgerResult.ledgerOutcome(),
-                                    "releaseAction", ledgerResult.releaseAction(),
-                                    "duplicated", ledgerResult.duplicated(),
-                                    "accountingSide", ledgerResult.accountingSide(),
-                                    "receiverSettlementMode", ledgerResult.receiverSettlementMode(),
-                                    "postAvailableBalance", ledgerResult.postAvailableBalance().toPlainString(),
-                                    "postLockedBalance", ledgerResult.postLockedBalance().toPlainString(),
-                                    "postOfflinePayPendingBalance", ledgerResult.postOfflinePayPendingBalance().toPlainString()
+                            "ledgerResult", Map.ofEntries(
+                                    Map.entry("settlementId", ledgerResult.settlementId()),
+                                    Map.entry("ledgerOutcome", ledgerResult.ledgerOutcome()),
+                                    Map.entry("releaseAction", ledgerResult.releaseAction()),
+                                    Map.entry("duplicated", ledgerResult.duplicated()),
+                                    Map.entry("accountingSide", ledgerResult.accountingSide()),
+                                    Map.entry("receiverSettlementMode", ledgerResult.receiverSettlementMode()),
+                                    Map.entry("settlementModel", ledgerResult.settlementModel()),
+                                    Map.entry("reconciliationTrackingOwner", ledgerResult.reconciliationTrackingOwner()),
+                                    Map.entry("postAvailableBalance", ledgerResult.postAvailableBalance().toPlainString()),
+                                    Map.entry("postLockedBalance", ledgerResult.postLockedBalance().toPlainString()),
+                                    Map.entry("postOfflinePayPendingBalance", ledgerResult.postOfflinePayPendingBalance().toPlainString())
                             )
                     )
             );

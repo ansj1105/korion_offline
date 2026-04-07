@@ -22,6 +22,7 @@ public record ReconciliationCaseAdminResponse(
         String accountingSide,
         String receiverSettlementMode,
         String settlementModel,
+        String reconciliationTrackingOwner,
         Boolean ledgerDuplicated,
         BigDecimal postAvailableBalance,
         BigDecimal postLockedBalance,

@@ -10,6 +10,7 @@ public record CoinManageSettlementResponseContract(
         String accountingSide,
         String receiverSettlementMode,
         String settlementModel,
+        String reconciliationTrackingOwner,
         String postAvailableBalance,
         String postLockedBalance,
         String postOfflinePayPendingBalance
