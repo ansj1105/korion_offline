@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 
 public record FoxCoinRecordSettlementHistoryContract(
         String settlementId,
+        String transferRef,
         String batchId,
         String collateralId,
         String proofId,

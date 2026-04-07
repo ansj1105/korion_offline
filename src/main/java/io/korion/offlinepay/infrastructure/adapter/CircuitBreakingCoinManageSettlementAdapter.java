@@ -21,13 +21,14 @@ public class CircuitBreakingCoinManageSettlementAdapter implements CoinManageSet
     }
 
     @Override
-    public void finalizeSettlement(SettlementLedgerCommand command) {
+    public SettlementLedgerResult finalizeSettlement(SettlementLedgerCommand command) {
         try {
             circuitBreaker.assertCallable();
-            delegate.finalizeSettlement(command);
+            SettlementLedgerResult result = delegate.finalizeSettlement(command);
             if (circuitBreaker.onSuccess()) {
                 alertService.notifyCircuitRecovered("offline_pay -> coin_manage");
             }
+            return result;
         } catch (RuntimeException exception) {
             boolean opened = circuitBreaker.onFailure();
             if (opened) {
@@ -38,13 +39,14 @@ public class CircuitBreakingCoinManageSettlementAdapter implements CoinManageSet
     }
 
     @Override
-    public void compensateSettlement(SettlementCompensationCommand command) {
+    public SettlementLedgerResult compensateSettlement(SettlementCompensationCommand command) {
         try {
             circuitBreaker.assertCallable();
-            delegate.compensateSettlement(command);
+            SettlementLedgerResult result = delegate.compensateSettlement(command);
             if (circuitBreaker.onSuccess()) {
                 alertService.notifyCircuitRecovered("offline_pay -> coin_manage");
             }
+            return result;
         } catch (RuntimeException exception) {
             boolean opened = circuitBreaker.onFailure();
             if (opened) {

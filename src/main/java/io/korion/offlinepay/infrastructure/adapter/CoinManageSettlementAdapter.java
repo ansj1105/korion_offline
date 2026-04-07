@@ -3,7 +3,8 @@ package io.korion.offlinepay.infrastructure.adapter;
 import io.korion.offlinepay.application.port.CoinManageSettlementPort;
 import io.korion.offlinepay.contracts.internal.CoinManageCompensateSettlementContract;
 import io.korion.offlinepay.contracts.internal.CoinManageFinalizeSettlementContract;
-import io.korion.offlinepay.contracts.internal.InternalAckResponseContract;
+import io.korion.offlinepay.contracts.internal.CoinManageSettlementResponseContract;
+import java.math.BigDecimal;
 import java.math.RoundingMode;
 import org.springframework.web.client.RestClient;
 
@@ -18,8 +19,8 @@ public class CoinManageSettlementAdapter implements CoinManageSettlementPort {
     }
 
     @Override
-    public void finalizeSettlement(SettlementLedgerCommand command) {
-        InternalAckResponseContract response = restClient.post()
+    public SettlementLedgerResult finalizeSettlement(SettlementLedgerCommand command) {
+        CoinManageSettlementResponseContract response = restClient.post()
                 .uri("/api/internal/offline-pay/settlements/finalize")
                 .header("x-internal-api-key", apiKey)
                 .body(new CoinManageFinalizeSettlementContract(
@@ -42,15 +43,16 @@ public class CoinManageSettlementAdapter implements CoinManageSettlementPort {
                         command.signature()
                 ))
                 .retrieve()
-                .body(InternalAckResponseContract.class);
+                .body(CoinManageSettlementResponseContract.class);
         if (response == null) {
             throw new IllegalStateException("coin_manage settlement finalize response is empty");
         }
+        return toSettlementLedgerResult(response);
     }
 
     @Override
-    public void compensateSettlement(SettlementCompensationCommand command) {
-        InternalAckResponseContract response = restClient.post()
+    public SettlementLedgerResult compensateSettlement(SettlementCompensationCommand command) {
+        CoinManageSettlementResponseContract response = restClient.post()
                 .uri("/api/internal/offline-pay/settlements/compensate")
                 .header("x-internal-api-key", apiKey)
                 .body(new CoinManageCompensateSettlementContract(
@@ -67,9 +69,24 @@ public class CoinManageSettlementAdapter implements CoinManageSettlementPort {
                         command.compensationReason()
                 ))
                 .retrieve()
-                .body(InternalAckResponseContract.class);
+                .body(CoinManageSettlementResponseContract.class);
         if (response == null) {
             throw new IllegalStateException("coin_manage settlement compensate response is empty");
         }
+        return toSettlementLedgerResult(response);
+    }
+
+    private SettlementLedgerResult toSettlementLedgerResult(CoinManageSettlementResponseContract response) {
+        return new SettlementLedgerResult(
+                response.settlementId(),
+                response.ledgerOutcome(),
+                response.releaseAction(),
+                response.duplicated(),
+                response.accountingSide(),
+                response.receiverSettlementMode(),
+                new BigDecimal(response.postAvailableBalance()),
+                new BigDecimal(response.postLockedBalance()),
+                new BigDecimal(response.postOfflinePayPendingBalance())
+        );
     }
 }

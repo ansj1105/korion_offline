@@ -85,4 +85,7 @@ public final class OfflinePayReasonCode {
     public static final String PARTIAL_SETTLEMENT = "PARTIAL_SETTLEMENT";
     public static final String UNKNOWN_CONFLICT = "UNKNOWN_CONFLICT";
     public static final String SETTLED = "SETTLED";
+
+    public static final String TRUST_CONTRACT_NOT_MET = "TRUST_CONTRACT_NOT_MET";
+    public static final String TRUST_LEVEL_DEGRADED = "TRUST_LEVEL_DEGRADED";
 }

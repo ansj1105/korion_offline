@@ -8,6 +8,7 @@ import io.korion.offlinepay.config.AppProperties;
 import io.korion.offlinepay.domain.model.CollateralLock;
 import io.korion.offlinepay.domain.model.Device;
 import io.korion.offlinepay.domain.model.IssuedOfflineProof;
+import io.korion.offlinepay.domain.policy.SettlementPolicyConstants;
 import com.fasterxml.jackson.databind.JsonNode;
 import java.time.OffsetDateTime;
 import org.springframework.stereotype.Service;
@@ -77,7 +78,8 @@ public class OfflineSnapshotService {
                         collateral.initialStateRoot(),
                         collateral.externalLockId(),
                         collateral.expiresAt() == null ? "" : collateral.expiresAt().toString(),
-                        collateral.updatedAt().toString()
+                        collateral.updatedAt().toString(),
+                        collateral.updatedAt().toInstant().toEpochMilli()
                 ),
                 issuedProof == null ? null : new IssuedProofSnapshot(
                         issuedProof.id(),
@@ -95,7 +97,8 @@ public class OfflineSnapshotService {
                 ),
                 walletSnapshot,
                 true,
-                OffsetDateTime.now().toString()
+                OffsetDateTime.now().toString(),
+                SettlementPolicyConstants.COLLATERAL_SNAPSHOT_STALE_AFTER_MS
         );
     }
 
@@ -140,7 +143,8 @@ public class OfflineSnapshotService {
             IssuedProofSnapshot issuedProof,
             WalletSnapshot wallet,
             boolean walletRefreshRequired,
-            String refreshedAt
+            String refreshedAt,
+            long staleAfterMs
     ) {}
 
     public record DeviceRegistrationSnapshot(
@@ -184,7 +188,8 @@ public class OfflineSnapshotService {
             String initialStateRoot,
             String externalLockId,
             String expiresAt,
-            String updatedAt
+            String updatedAt,
+            long snapshotVersion
     ) {}
 
     public record WalletSnapshot(

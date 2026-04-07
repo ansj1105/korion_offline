@@ -1,6 +1,7 @@
 package io.korion.offlinepay.application.service.settlement;
 
 import io.korion.offlinepay.application.service.JsonService;
+import io.korion.offlinepay.domain.policy.DeviceTrustContract;
 import io.korion.offlinepay.domain.reason.OfflinePayReasonCode;
 import io.korion.offlinepay.domain.model.CollateralLock;
 import io.korion.offlinepay.domain.model.Device;
@@ -33,6 +34,8 @@ public class SettlementPolicyEvaluator {
         BigDecimal localAvailableAmount = readDecimal(payload, "availableAmount");
         Boolean senderAuthRequired = readBoolean(payload, "senderAuthRequired");
         Boolean dualAmountEntered = readBoolean(payload, "dualAmountEntered");
+        String deviceTrustLevel = readText(payload, "deviceTrustLevel");
+        boolean trustContractMet = DeviceTrustContract.MINIMUM_ATTESTATION_VERDICT.equals(deviceTrustLevel);
 
         if (device.status() != DeviceStatus.ACTIVE) {
             return rejected(OfflinePayReasonCode.DEVICE_NOT_ACTIVE);
@@ -95,17 +98,20 @@ public class SettlementPolicyEvaluator {
         if (collateral.remainingAmount().compareTo(proof.amount()) < 0) {
             return rejected(OfflinePayReasonCode.SERVER_AVAILABLE_AMOUNT_EXCEEDED);
         }
+        Map<String, Object> resultJson = new LinkedHashMap<>();
+        resultJson.put("reasonCode", OfflinePayReasonCode.SETTLED);
+        resultJson.put("uiMode", uiMode);
+        resultJson.put("connectionType", connectionType);
+        resultJson.put("paymentFlow", paymentFlow);
+        resultJson.put("voucherId", proof.voucherId());
+        resultJson.put("deviceTrustLevel", deviceTrustLevel);
+        resultJson.put("trustContractMet", trustContractMet);
+        resultJson.put("contractRequirements", DeviceTrustContract.MINIMUM_ATTESTATION_VERDICT);
         return new SettlementEvaluation(
                 SettlementStatus.SETTLED,
                 false,
                 null,
-                jsonService.write(Map.of(
-                        "reasonCode", OfflinePayReasonCode.SETTLED,
-                        "uiMode", uiMode,
-                        "connectionType", connectionType,
-                        "paymentFlow", paymentFlow,
-                        "voucherId", proof.voucherId()
-                )),
+                jsonService.write(resultJson),
                 proof.amount(),
                 "RELEASE"
         );
@@ -137,6 +143,7 @@ public class SettlementPolicyEvaluator {
         payload.put("ledgerExecutionMode", node.path("ledgerExecutionMode").asText(null));
         payload.put("senderAuthRequired", node.path("senderAuthRequired").asText(null));
         payload.put("dualAmountEntered", node.path("dualAmountEntered").asText(null));
+        payload.put("deviceTrustLevel", node.path("deviceTrustLevel").asText(null));
         return payload;
     }
 

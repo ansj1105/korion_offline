@@ -319,7 +319,11 @@ public class SettlementApplicationService {
         ReconciliationCase reconciliationCase = reconciliationCaseRepository
                 .findLatestOpenBySettlementId(settlementId)
                 .orElse(null);
-        return new SettlementDetailView(settlementRequest, settlementSaga, reconciliationCase);
+        OfflinePaymentProof proof = proofRepository.findById(settlementRequest.proofId())
+                .orElse(null);
+        CollateralLock collateral = collateralRepository.findById(settlementRequest.collateralId())
+                .orElse(null);
+        return new SettlementDetailView(settlementRequest, settlementSaga, reconciliationCase, proof, collateral);
     }
 
     @Transactional
@@ -611,49 +615,83 @@ public class SettlementApplicationService {
                 evaluation.status().name(),
                 evaluation.conflictDetected()
         );
+        // receiver history: only when receiver device is registered in our system and settlement is SETTLED
+        FoxCoinHistoryPort.SettlementHistoryCommand receiverHistoryCommand = null;
+        if (evaluation.status() == SettlementStatus.SETTLED) {
+            receiverHistoryCommand = deviceRepository.findByDeviceId(proof.receiverDeviceId())
+                    .map(receiverDevice -> settlementSyncCommandFactory.createReceiverHistoryCommand(
+                            collateral,
+                            proof.id(),
+                            proof.amount(),
+                            request,
+                            evaluation.status().name(),
+                            receiverDevice
+                    ))
+                    .orElse(null);
+        }
+
+        Map<String, Object> historyCommandMap = Map.ofEntries(
+                Map.entry("settlementId", historyCommand.settlementId()),
+                Map.entry("transferRef", historyCommand.transferRef()),
+                Map.entry("batchId", historyCommand.batchId()),
+                Map.entry("collateralId", historyCommand.collateralId()),
+                Map.entry("proofId", historyCommand.proofId()),
+                Map.entry("userId", historyCommand.userId()),
+                Map.entry("deviceId", historyCommand.deviceId()),
+                Map.entry("assetCode", historyCommand.assetCode()),
+                Map.entry("amount", historyCommand.amount()),
+                Map.entry("settlementStatus", historyCommand.settlementStatus()),
+                Map.entry("historyType", historyCommand.historyType())
+        );
+
+        Map<String, Object> eventPayload = new java.util.LinkedHashMap<>();
+        eventPayload.put("settlementId", request.id());
+        eventPayload.put("batchId", request.batchId());
+        eventPayload.put("proofId", proof.id());
+        eventPayload.put("voucherId", proof.voucherId());
+        eventPayload.put("ledgerCommand", Map.ofEntries(
+                Map.entry("settlementId", ledgerCommand.settlementId()),
+                Map.entry("batchId", ledgerCommand.batchId()),
+                Map.entry("collateralId", ledgerCommand.collateralId()),
+                Map.entry("proofId", ledgerCommand.proofId()),
+                Map.entry("userId", ledgerCommand.userId()),
+                Map.entry("deviceId", ledgerCommand.deviceId()),
+                Map.entry("assetCode", ledgerCommand.assetCode()),
+                Map.entry("amount", ledgerCommand.amount()),
+                Map.entry("settlementStatus", ledgerCommand.settlementStatus()),
+                Map.entry("releaseAction", ledgerCommand.releaseAction()),
+                Map.entry("conflictDetected", ledgerCommand.conflictDetected()),
+                Map.entry("proofFingerprint", ledgerCommand.proofFingerprint()),
+                Map.entry("newStateHash", ledgerCommand.newStateHash()),
+                Map.entry("previousHash", ledgerCommand.previousHash()),
+                Map.entry("monotonicCounter", ledgerCommand.monotonicCounter()),
+                Map.entry("nonce", ledgerCommand.nonce()),
+                Map.entry("signature", ledgerCommand.signature())
+        ));
+        eventPayload.put("historyCommand", historyCommandMap);
+        if (receiverHistoryCommand != null) {
+            eventPayload.put("receiverHistoryCommand", Map.ofEntries(
+                    Map.entry("settlementId", receiverHistoryCommand.settlementId()),
+                    Map.entry("transferRef", receiverHistoryCommand.transferRef()),
+                    Map.entry("batchId", receiverHistoryCommand.batchId()),
+                    Map.entry("collateralId", receiverHistoryCommand.collateralId()),
+                    Map.entry("proofId", receiverHistoryCommand.proofId()),
+                    Map.entry("userId", receiverHistoryCommand.userId()),
+                    Map.entry("deviceId", receiverHistoryCommand.deviceId()),
+                    Map.entry("assetCode", receiverHistoryCommand.assetCode()),
+                    Map.entry("amount", receiverHistoryCommand.amount()),
+                    Map.entry("settlementStatus", receiverHistoryCommand.settlementStatus()),
+                    Map.entry("historyType", receiverHistoryCommand.historyType())
+            ));
+        }
+        eventPayload.put("requestedAt", OffsetDateTime.now().toString());
+
         eventBus.publishExternalSyncRequested(
                 "LEDGER_SYNC_REQUESTED",
                 request.id(),
                 request.batchId(),
                 proof.id(),
-                jsonService.write(Map.ofEntries(
-                        Map.entry("settlementId", request.id()),
-                        Map.entry("batchId", request.batchId()),
-                        Map.entry("proofId", proof.id()),
-                        Map.entry("voucherId", proof.voucherId()),
-                        Map.entry("ledgerCommand", Map.ofEntries(
-                                Map.entry("settlementId", ledgerCommand.settlementId()),
-                                Map.entry("batchId", ledgerCommand.batchId()),
-                                Map.entry("collateralId", ledgerCommand.collateralId()),
-                                Map.entry("proofId", ledgerCommand.proofId()),
-                                Map.entry("userId", ledgerCommand.userId()),
-                                Map.entry("deviceId", ledgerCommand.deviceId()),
-                                Map.entry("assetCode", ledgerCommand.assetCode()),
-                                Map.entry("amount", ledgerCommand.amount()),
-                                Map.entry("settlementStatus", ledgerCommand.settlementStatus()),
-                                Map.entry("releaseAction", ledgerCommand.releaseAction()),
-                                Map.entry("conflictDetected", ledgerCommand.conflictDetected()),
-                                Map.entry("proofFingerprint", ledgerCommand.proofFingerprint()),
-                                Map.entry("newStateHash", ledgerCommand.newStateHash()),
-                                Map.entry("previousHash", ledgerCommand.previousHash()),
-                                Map.entry("monotonicCounter", ledgerCommand.monotonicCounter()),
-                                Map.entry("nonce", ledgerCommand.nonce()),
-                                Map.entry("signature", ledgerCommand.signature())
-                        )),
-                        Map.entry("historyCommand", Map.ofEntries(
-                                Map.entry("settlementId", historyCommand.settlementId()),
-                                Map.entry("batchId", historyCommand.batchId()),
-                                Map.entry("collateralId", historyCommand.collateralId()),
-                                Map.entry("proofId", historyCommand.proofId()),
-                                Map.entry("userId", historyCommand.userId()),
-                                Map.entry("deviceId", historyCommand.deviceId()),
-                                Map.entry("assetCode", historyCommand.assetCode()),
-                                Map.entry("amount", historyCommand.amount()),
-                                Map.entry("settlementStatus", historyCommand.settlementStatus()),
-                                Map.entry("historyType", historyCommand.historyType())
-                        )),
-                        Map.entry("requestedAt", OffsetDateTime.now().toString())
-                )),
+                jsonService.write(eventPayload),
                 OffsetDateTime.now().toString()
         );
     }
@@ -895,7 +933,8 @@ public class SettlementApplicationService {
             UploaderType uploaderType,
             String uploaderDeviceId,
             String idempotencyKey,
-            List<ProofSubmission> proofs
+            List<ProofSubmission> proofs,
+            String triggerMode
     ) {}
 
     public record ProofSubmission(
@@ -931,6 +970,8 @@ public class SettlementApplicationService {
     public record SettlementDetailView(
             SettlementRequest settlementRequest,
             OfflineSaga settlementSaga,
-            ReconciliationCase reconciliationCase
+            ReconciliationCase reconciliationCase,
+            OfflinePaymentProof proof,
+            CollateralLock collateral
     ) {}
 }

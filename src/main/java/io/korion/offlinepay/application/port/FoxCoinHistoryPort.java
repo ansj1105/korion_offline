@@ -8,6 +8,7 @@ public interface FoxCoinHistoryPort {
 
     record SettlementHistoryCommand(
             String settlementId,
+            String transferRef,
             String batchId,
             String collateralId,
             String proofId,

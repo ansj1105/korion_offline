@@ -93,7 +93,7 @@ public class SettlementExternalSyncWorker {
         JsonNode payload = jsonService.readTree(message.payloadJson());
         if (OfflineWorkflowEventType.LEDGER_SYNC_REQUESTED.name().equals(message.eventType())) {
             CoinManageSettlementPort.SettlementLedgerCommand command = toLedgerCommand(payload.path("ledgerCommand"));
-            coinManageSettlementPort.finalizeSettlement(command);
+            CoinManageSettlementPort.SettlementLedgerResult ledgerResult = coinManageSettlementPort.finalizeSettlement(command);
             offlineSagaService.markPartiallyApplied(
                     OfflineSagaType.SETTLEMENT,
                     message.settlementId(),
@@ -102,7 +102,18 @@ public class SettlementExternalSyncWorker {
                             "settlementId", message.settlementId(),
                             "batchId", message.batchId(),
                             "proofId", message.proofId(),
-                            "eventType", message.eventType()
+                            "eventType", message.eventType(),
+                            "ledgerResult", Map.of(
+                                    "settlementId", ledgerResult.settlementId(),
+                                    "ledgerOutcome", ledgerResult.ledgerOutcome(),
+                                    "releaseAction", ledgerResult.releaseAction(),
+                                    "duplicated", ledgerResult.duplicated(),
+                                    "accountingSide", ledgerResult.accountingSide(),
+                                    "receiverSettlementMode", ledgerResult.receiverSettlementMode(),
+                                    "postAvailableBalance", ledgerResult.postAvailableBalance().toPlainString(),
+                                    "postLockedBalance", ledgerResult.postLockedBalance().toPlainString(),
+                                    "postOfflinePayPendingBalance", ledgerResult.postOfflinePayPendingBalance().toPlainString()
+                            )
                     )
             );
             resolveReconciliationCases(
@@ -111,18 +122,21 @@ public class SettlementExternalSyncWorker {
                     "LEDGER_SYNC_RESOLVED",
                     message.eventType()
             );
+            Map<String, Object> historyPayload = new java.util.LinkedHashMap<>();
+            historyPayload.put("settlementId", message.settlementId());
+            historyPayload.put("batchId", message.batchId());
+            historyPayload.put("proofId", message.proofId());
+            historyPayload.put("historyCommand", payload.path("historyCommand"));
+            historyPayload.put("requestedAt", OffsetDateTime.now().toString());
+            if (!payload.path("receiverHistoryCommand").isMissingNode()) {
+                historyPayload.put("receiverHistoryCommand", payload.path("receiverHistoryCommand"));
+            }
             eventBus.publishExternalSyncRequested(
                     OfflineWorkflowEventType.HISTORY_SYNC_REQUESTED.name(),
                     message.settlementId(),
                     message.batchId(),
                     message.proofId(),
-                    jsonService.write(Map.of(
-                            "settlementId", message.settlementId(),
-                            "batchId", message.batchId(),
-                            "proofId", message.proofId(),
-                            "historyCommand", payload.path("historyCommand"),
-                            "requestedAt", OffsetDateTime.now().toString()
-                    )),
+                    jsonService.write(historyPayload),
                     OffsetDateTime.now().toString()
             );
             return;
@@ -131,6 +145,23 @@ public class SettlementExternalSyncWorker {
         if (OfflineWorkflowEventType.HISTORY_SYNC_REQUESTED.name().equals(message.eventType())) {
             FoxCoinHistoryPort.SettlementHistoryCommand command = toHistoryCommand(payload.path("historyCommand"));
             foxCoinHistoryPort.recordSettlementHistory(command);
+            // receiver history: chain into separate step to keep sender history idempotency separate
+            if (!payload.path("receiverHistoryCommand").isMissingNode()) {
+                eventBus.publishExternalSyncRequested(
+                        OfflineWorkflowEventType.RECEIVER_HISTORY_SYNC_REQUESTED.name(),
+                        message.settlementId(),
+                        message.batchId(),
+                        message.proofId(),
+                        jsonService.write(Map.of(
+                                "settlementId", message.settlementId(),
+                                "batchId", message.batchId(),
+                                "proofId", message.proofId(),
+                                "receiverHistoryCommand", payload.path("receiverHistoryCommand"),
+                                "requestedAt", OffsetDateTime.now().toString()
+                        )),
+                        OffsetDateTime.now().toString()
+                );
+            }
             offlineSagaService.markCompleted(
                     OfflineSagaType.SETTLEMENT,
                     message.settlementId(),
@@ -151,6 +182,12 @@ public class SettlementExternalSyncWorker {
             return;
         }
 
+        if (OfflineWorkflowEventType.RECEIVER_HISTORY_SYNC_REQUESTED.name().equals(message.eventType())) {
+            FoxCoinHistoryPort.SettlementHistoryCommand receiverCommand = toHistoryCommand(payload.path("receiverHistoryCommand"));
+            foxCoinHistoryPort.recordSettlementHistory(receiverCommand);
+            return;
+        }
+
         if (OfflineWorkflowEventType.LEDGER_COMPENSATION_REQUESTED.name().equals(message.eventType())) {
             CoinManageSettlementPort.SettlementCompensationCommand command = toCompensationCommand(payload.path("compensationCommand"));
             offlineSagaService.markCompensating(
@@ -164,7 +201,7 @@ public class SettlementExternalSyncWorker {
                             "eventType", message.eventType()
                     )
             );
-            coinManageSettlementPort.compensateSettlement(command);
+            CoinManageSettlementPort.SettlementLedgerResult ledgerResult = coinManageSettlementPort.compensateSettlement(command);
             offlineSagaService.markCompensated(
                     OfflineSagaType.SETTLEMENT,
                     message.settlementId(),
@@ -173,7 +210,18 @@ public class SettlementExternalSyncWorker {
                             "settlementId", message.settlementId(),
                             "batchId", message.batchId(),
                             "proofId", message.proofId(),
-                            "eventType", message.eventType()
+                            "eventType", message.eventType(),
+                            "ledgerResult", Map.of(
+                                    "settlementId", ledgerResult.settlementId(),
+                                    "ledgerOutcome", ledgerResult.ledgerOutcome(),
+                                    "releaseAction", ledgerResult.releaseAction(),
+                                    "duplicated", ledgerResult.duplicated(),
+                                    "accountingSide", ledgerResult.accountingSide(),
+                                    "receiverSettlementMode", ledgerResult.receiverSettlementMode(),
+                                    "postAvailableBalance", ledgerResult.postAvailableBalance().toPlainString(),
+                                    "postLockedBalance", ledgerResult.postLockedBalance().toPlainString(),
+                                    "postOfflinePayPendingBalance", ledgerResult.postOfflinePayPendingBalance().toPlainString()
+                            )
                     )
             );
             resolveReconciliationCases(
@@ -421,8 +469,11 @@ public class SettlementExternalSyncWorker {
     }
 
     private FoxCoinHistoryPort.SettlementHistoryCommand toHistoryCommand(JsonNode node) {
+        String settlementId = requireText(node, "settlementId");
+        String transferRef = node.hasNonNull("transferRef") ? node.path("transferRef").asText() : settlementId;
         return new FoxCoinHistoryPort.SettlementHistoryCommand(
-                requireText(node, "settlementId"),
+                settlementId,
+                transferRef,
                 requireText(node, "batchId"),
                 requireText(node, "collateralId"),
                 requireText(node, "proofId"),

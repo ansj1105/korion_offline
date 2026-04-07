@@ -323,6 +323,8 @@ class SettlementApplicationServiceTest {
                 .thenReturn(Optional.of(saga));
         when(reconciliationCaseRepository.findLatestOpenBySettlementId("settlement-1"))
                 .thenReturn(Optional.of(reconciliationCase));
+        when(proofRepository.findById("proof-1")).thenReturn(Optional.empty());
+        when(collateralRepository.findById("collateral-1")).thenReturn(Optional.empty());
 
         SettlementApplicationService.SettlementDetailView detail = service.getSettlementDetail("settlement-1");
 

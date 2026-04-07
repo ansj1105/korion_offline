@@ -4,9 +4,9 @@ import java.math.BigDecimal;
 
 public interface CoinManageSettlementPort {
 
-    void finalizeSettlement(SettlementLedgerCommand command);
+    SettlementLedgerResult finalizeSettlement(SettlementLedgerCommand command);
 
-    void compensateSettlement(SettlementCompensationCommand command);
+    SettlementLedgerResult compensateSettlement(SettlementCompensationCommand command);
 
     record SettlementLedgerCommand(
             String settlementId,
@@ -40,5 +40,17 @@ public interface CoinManageSettlementPort {
             String releaseAction,
             String proofFingerprint,
             String compensationReason
+    ) {}
+
+    record SettlementLedgerResult(
+            String settlementId,
+            String ledgerOutcome,
+            String releaseAction,
+            boolean duplicated,
+            String accountingSide,
+            String receiverSettlementMode,
+            BigDecimal postAvailableBalance,
+            BigDecimal postLockedBalance,
+            BigDecimal postOfflinePayPendingBalance
     ) {}
 }

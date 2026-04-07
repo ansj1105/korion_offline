@@ -13,10 +13,14 @@ import java.util.Map;
 public record SubmitSettlementBatchRequest(
         @NotBlank String uploaderType,
         @NotBlank String uploaderDeviceId,
-        @NotEmpty List<@Valid ProofRequest> proofs
+        @NotEmpty List<@Valid ProofRequest> proofs,
+        String triggerMode
 ) {
 
     public SettlementApplicationService.SubmitSettlementBatchCommand toCommand(String idempotencyKey) {
+        String resolvedTriggerMode = (triggerMode != null && !triggerMode.isBlank())
+                ? triggerMode.toUpperCase()
+                : "MANUAL";
         return new SettlementApplicationService.SubmitSettlementBatchCommand(
                 SettlementApplicationService.UploaderType.valueOf(uploaderType),
                 uploaderDeviceId,
@@ -40,7 +44,8 @@ public record SubmitSettlementBatchRequest(
                                 proof.canonicalPayload(),
                                 proof.payload()
                         ))
-                        .toList()
+                        .toList(),
+                resolvedTriggerMode
         );
     }
 

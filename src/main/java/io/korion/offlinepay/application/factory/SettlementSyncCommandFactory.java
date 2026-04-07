@@ -3,6 +3,7 @@ package io.korion.offlinepay.application.factory;
 import io.korion.offlinepay.application.port.CoinManageSettlementPort;
 import io.korion.offlinepay.application.port.FoxCoinHistoryPort;
 import io.korion.offlinepay.domain.model.CollateralLock;
+import io.korion.offlinepay.domain.model.Device;
 import io.korion.offlinepay.domain.model.OfflinePaymentProof;
 import io.korion.offlinepay.domain.model.SettlementRequest;
 import java.math.BigDecimal;
@@ -69,6 +70,7 @@ public class SettlementSyncCommandFactory {
     ) {
         return new FoxCoinHistoryPort.SettlementHistoryCommand(
                 request.id(),
+                request.id(), // transferRef = settlementId for sender
                 request.batchId(),
                 collateral.id(),
                 proofId,
@@ -78,6 +80,29 @@ public class SettlementSyncCommandFactory {
                 amount,
                 settlementStatus,
                 conflictDetected ? "OFFLINE_PAY_CONFLICT" : "OFFLINE_PAY_SETTLEMENT"
+        );
+    }
+
+    public FoxCoinHistoryPort.SettlementHistoryCommand createReceiverHistoryCommand(
+            CollateralLock collateral,
+            String proofId,
+            BigDecimal amount,
+            SettlementRequest request,
+            String settlementStatus,
+            Device receiverDevice
+    ) {
+        return new FoxCoinHistoryPort.SettlementHistoryCommand(
+                request.id(),
+                request.id() + ":R", // transferRef distinct from sender to avoid unique key conflict
+                request.batchId(),
+                collateral.id(),
+                proofId,
+                receiverDevice.userId(),
+                receiverDevice.deviceId(),
+                collateral.assetCode(),
+                amount,
+                settlementStatus,
+                "OFFLINE_PAY_RECEIVE"
         );
     }
 }

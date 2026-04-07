@@ -24,7 +24,8 @@ public class SettlementBatchFactory {
                 command.proofs().size(),
                 jsonService.write(Map.of(
                         "submittedAt", OffsetDateTime.now().toString(),
-                        "uploaderType", command.uploaderType().name()
+                        "uploaderType", command.uploaderType().name(),
+                        "triggerMode", command.triggerMode() != null ? command.triggerMode() : "MANUAL"
                 ))
         );
     }

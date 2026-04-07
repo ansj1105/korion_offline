@@ -22,6 +22,7 @@ public class FoxCoinHistoryAdapter implements FoxCoinHistoryPort {
                 .header("x-internal-api-key", apiKey)
                 .body(new FoxCoinRecordSettlementHistoryContract(
                         command.settlementId(),
+                        command.transferRef(),
                         command.batchId(),
                         command.collateralId(),
                         command.proofId(),
