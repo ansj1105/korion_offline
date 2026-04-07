@@ -7,6 +7,7 @@ import io.korion.offlinepay.domain.model.SettlementRequest;
 import io.korion.offlinepay.application.service.JsonService;
 import io.korion.offlinepay.application.service.SettlementApplicationService.SettlementDetailView;
 import io.korion.offlinepay.interfaces.http.dto.FinalizeSettlementResponse;
+import io.korion.offlinepay.interfaces.http.dto.ReconciliationCaseAdminResponse;
 import io.korion.offlinepay.interfaces.http.dto.SettlementBatchDetailResponse;
 import io.korion.offlinepay.interfaces.http.dto.SettlementRequestDetailResponse;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -65,12 +66,53 @@ public class SettlementResponseFactory {
                 textOrNull(ledgerResult, "ledgerOutcome"),
                 textOrNull(ledgerResult, "accountingSide"),
                 textOrNull(ledgerResult, "receiverSettlementMode"),
+                textOrNull(ledgerResult, "settlementModel"),
                 boolOrNull(ledgerResult, "duplicated"),
                 decimalOrNull(ledgerResult, "postAvailableBalance"),
                 decimalOrNull(ledgerResult, "postLockedBalance"),
                 decimalOrNull(ledgerResult, "postOfflinePayPendingBalance"),
                 senderHistoryStatus,
                 receiverHistoryStatus
+        );
+    }
+
+    public ReconciliationCaseAdminResponse toReconciliationCaseAdminResponse(
+            io.korion.offlinepay.application.service.AdminOperationsService.ReconciliationCaseView view
+    ) {
+        var reconciliationCase = view.reconciliationCase();
+        var settlementSaga = view.settlementSaga();
+        JsonNode detail = reconciliationCase == null ? null : jsonService.readTree(reconciliationCase.detailJson());
+        JsonNode ledgerResult = settlementSaga == null ? null : jsonService.readTree(settlementSaga.payloadJson()).path("ledgerResult");
+        return new ReconciliationCaseAdminResponse(
+                reconciliationCase.id(),
+                reconciliationCase.settlementId(),
+                reconciliationCase.batchId(),
+                reconciliationCase.proofId(),
+                reconciliationCase.voucherId(),
+                reconciliationCase.caseType(),
+                reconciliationCase.status() == null ? null : reconciliationCase.status().name(),
+                reconciliationCase.reasonCode(),
+                reconciliationCase.createdAt() == null ? null : reconciliationCase.createdAt().toString(),
+                reconciliationCase.updatedAt() == null ? null : reconciliationCase.updatedAt().toString(),
+                reconciliationCase.resolvedAt() == null ? null : reconciliationCase.resolvedAt().toString(),
+                settlementSaga == null || settlementSaga.status() == null ? null : settlementSaga.status().name(),
+                settlementSaga == null ? null : settlementSaga.currentStep(),
+                settlementSaga == null ? null : settlementSaga.recoveryMode(),
+                settlementSaga == null ? null : settlementSaga.lastReasonCode(),
+                textOrNull(ledgerResult, "ledgerOutcome"),
+                textOrNull(ledgerResult, "accountingSide"),
+                textOrNull(ledgerResult, "receiverSettlementMode"),
+                textOrNull(ledgerResult, "settlementModel"),
+                boolOrNull(ledgerResult, "duplicated"),
+                decimalOrNull(ledgerResult, "postAvailableBalance"),
+                decimalOrNull(ledgerResult, "postLockedBalance"),
+                decimalOrNull(ledgerResult, "postOfflinePayPendingBalance"),
+                boolOrNull(detail, "retryable"),
+                textOrNull(detail, "nextAction"),
+                textOrNull(detail, "eventType"),
+                textOrNull(detail, "errorMessage"),
+                textOrNull(detail, "lastManualRetryAt"),
+                textOrNull(detail, "nextRetryAt")
         );
     }
 

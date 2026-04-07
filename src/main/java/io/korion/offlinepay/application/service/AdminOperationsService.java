@@ -5,9 +5,9 @@ import io.korion.offlinepay.application.factory.SettlementStreamEventFactory;
 import io.korion.offlinepay.application.port.CollateralOperationRepository;
 import io.korion.offlinepay.application.port.DeviceRepository;
 import io.korion.offlinepay.application.port.OfflineEventLogRepository;
+import io.korion.offlinepay.application.port.OfflinePaymentProofRepository;
 import io.korion.offlinepay.application.port.OfflineSagaRepository;
 import io.korion.offlinepay.application.port.OfflineWorkflowStateRepository;
-import io.korion.offlinepay.application.port.OfflinePaymentProofRepository;
 import io.korion.offlinepay.application.port.ReconciliationCaseRepository;
 import io.korion.offlinepay.application.port.SettlementBatchEventBus;
 import io.korion.offlinepay.application.port.SettlementBatchRepository;
@@ -16,8 +16,8 @@ import io.korion.offlinepay.application.port.SettlementOutboxEventRepository;
 import io.korion.offlinepay.domain.model.CollateralOperation;
 import io.korion.offlinepay.domain.model.Device;
 import io.korion.offlinepay.domain.model.OfflineEventLog;
-import io.korion.offlinepay.domain.model.OfflineSaga;
 import io.korion.offlinepay.domain.model.OfflinePaymentProof;
+import io.korion.offlinepay.domain.model.OfflineSaga;
 import io.korion.offlinepay.domain.model.OfflineWorkflowState;
 import io.korion.offlinepay.domain.model.ReconciliationCase;
 import io.korion.offlinepay.domain.model.SettlementBatch;
@@ -298,10 +298,10 @@ public class AdminOperationsService {
         long pendingBatchCount = 0L;
         long proofCountTotal = 0L;
         for (SettlementTimeseriesBucket bucket : metrics.items()) {
-            requestedBatchCount += bucket.created + bucket.uploaded + bucket.validating + bucket.partiallySettled + bucket.settled + bucket.failed + bucket.closed;
-            settledBatchCount += bucket.settled;
-            conflictBatchCount += bucket.conflicts;
-            pendingBatchCount += bucket.created + bucket.uploaded + bucket.validating;
+            requestedBatchCount += bucket.created() + bucket.uploaded() + bucket.validating() + bucket.partiallySettled() + bucket.settled() + bucket.failed() + bucket.closed();
+            settledBatchCount += bucket.settled();
+            conflictBatchCount += bucket.conflicts();
+            pendingBatchCount += bucket.created() + bucket.uploaded() + bucket.validating();
         }
         for (SettlementBatch recentBatch : recentBatches) {
             proofCountTotal += recentBatch.proofsCount();
@@ -319,11 +319,11 @@ public class AdminOperationsService {
                 metrics.items().stream()
                         .map(bucket -> new OfflinePayDailyMetric(
                                 bucket.bucketAt(),
-                                bucket.created + bucket.uploaded + bucket.validating + bucket.partiallySettled + bucket.settled + bucket.failed + bucket.closed,
-                                bucket.settled,
-                                bucket.conflicts,
-                                bucket.failed,
-                                bucket.created + bucket.uploaded + bucket.validating + bucket.partiallySettled + bucket.settled + bucket.failed + bucket.closed
+                                bucket.created() + bucket.uploaded() + bucket.validating() + bucket.partiallySettled() + bucket.settled() + bucket.failed() + bucket.closed(),
+                                bucket.settled(),
+                                bucket.conflicts(),
+                                bucket.failed(),
+                                bucket.created() + bucket.uploaded() + bucket.validating() + bucket.partiallySettled() + bucket.settled() + bucket.failed() + bucket.closed()
                         ))
                         .toList(),
                 recentBatches.stream()
@@ -409,6 +409,25 @@ public class AdminOperationsService {
                 caseType,
                 reasonCode
         );
+    }
+
+    @Transactional(readOnly = true)
+    public List<ReconciliationCaseView> listReconciliationCaseViews(
+            int size,
+            String status,
+            String caseType,
+            String reasonCode
+    ) {
+        return listReconciliationCases(size, status, caseType, reasonCode)
+                .stream()
+                .map(item -> new ReconciliationCaseView(
+                        item,
+                        item.settlementId() == null || item.settlementId().isBlank()
+                                ? null
+                                : offlineSagaRepository.findBySagaTypeAndReferenceId(OfflineSagaType.SETTLEMENT, item.settlementId())
+                                        .orElse(null)
+                ))
+                .toList();
     }
 
     @Transactional(readOnly = true)
@@ -701,6 +720,11 @@ public class AdminOperationsService {
             long activeCount,
             long revokedCount,
             long frozenCount
+    ) {}
+
+    public record ReconciliationCaseView(
+            ReconciliationCase reconciliationCase,
+            OfflineSaga settlementSaga
     ) {}
 
     private CollateralOperationType parseOperationType(String operationType) {

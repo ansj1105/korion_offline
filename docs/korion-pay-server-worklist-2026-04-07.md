@@ -44,6 +44,7 @@
   - [x] `transferRef` 필드 추가: sender = `settlementId`, receiver = `settlementId:R` (unique key 충돌 방지)
   - [x] `createReceiverHistoryCommand()` factory 메서드 추가 (offline_pay)
   - [x] sender/receiver leg 각각의 정산 상태를 settlement detail 응답에 명시적으로 노출 — `senderHistoryStatus` / `receiverHistoryStatus` 추가, `RECEIVER_HISTORY_SYNCED` saga step으로 추적
+  - [x] `settlementModel=SENDER_LEDGER_PLUS_RECEIVER_HISTORY`를 ledger/admin/log 응답에 공통 노출
 
 ### BE-3. Trust / TEE 최소 계약 정의
 

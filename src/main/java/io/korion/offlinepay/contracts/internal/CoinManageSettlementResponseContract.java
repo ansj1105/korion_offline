@@ -9,6 +9,7 @@ public record CoinManageSettlementResponseContract(
         boolean duplicated,
         String accountingSide,
         String receiverSettlementMode,
+        String settlementModel,
         String postAvailableBalance,
         String postLockedBalance,
         String postOfflinePayPendingBalance

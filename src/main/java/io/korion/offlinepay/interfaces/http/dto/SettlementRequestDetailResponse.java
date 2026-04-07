@@ -28,6 +28,7 @@ public record SettlementRequestDetailResponse(
         String ledgerOutcome,
         String accountingSide,
         String receiverSettlementMode,
+        String settlementModel,
         Boolean ledgerDuplicated,
         BigDecimal postAvailableBalance,
         BigDecimal postLockedBalance,

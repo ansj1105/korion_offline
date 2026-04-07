@@ -1,6 +1,7 @@
 package io.korion.offlinepay.interfaces.http;
 
 import io.korion.offlinepay.application.service.AdminOperationsService;
+import io.korion.offlinepay.interfaces.http.factory.SettlementResponseFactory;
 import java.util.Map;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -14,9 +15,14 @@ import org.springframework.web.bind.annotation.RestController;
 public class AdminAnomalyController {
 
     private final AdminOperationsService adminOperationsService;
+    private final SettlementResponseFactory settlementResponseFactory;
 
-    public AdminAnomalyController(AdminOperationsService adminOperationsService) {
+    public AdminAnomalyController(
+            AdminOperationsService adminOperationsService,
+            SettlementResponseFactory settlementResponseFactory
+    ) {
         this.adminOperationsService = adminOperationsService;
+        this.settlementResponseFactory = settlementResponseFactory;
     }
 
     @GetMapping("/conflicts")
@@ -42,7 +48,10 @@ public class AdminAnomalyController {
             @RequestParam(required = false) String reasonCode
     ) {
         return Map.of(
-                "items", adminOperationsService.listReconciliationCases(size, status, caseType, reasonCode)
+                "items", adminOperationsService.listReconciliationCaseViews(size, status, caseType, reasonCode)
+                        .stream()
+                        .map(settlementResponseFactory::toReconciliationCaseAdminResponse)
+                        .toList()
         );
     }
 

@@ -208,6 +208,7 @@ class SettlementWorkerTest {
                         false,
                         "SENDER",
                         "EXTERNAL_HISTORY_SYNC",
+                        "SENDER_LEDGER_PLUS_RECEIVER_HISTORY",
                         new BigDecimal("10.000000"),
                         new BigDecimal("140.000000"),
                         new BigDecimal("140.000000")

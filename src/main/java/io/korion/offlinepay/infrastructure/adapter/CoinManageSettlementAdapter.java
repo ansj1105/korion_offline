@@ -84,6 +84,7 @@ public class CoinManageSettlementAdapter implements CoinManageSettlementPort {
                 response.duplicated(),
                 response.accountingSide(),
                 response.receiverSettlementMode(),
+                response.settlementModel(),
                 new BigDecimal(response.postAvailableBalance()),
                 new BigDecimal(response.postLockedBalance()),
                 new BigDecimal(response.postOfflinePayPendingBalance())

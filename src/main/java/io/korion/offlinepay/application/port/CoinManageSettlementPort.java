@@ -49,6 +49,7 @@ public interface CoinManageSettlementPort {
             boolean duplicated,
             String accountingSide,
             String receiverSettlementMode,
+            String settlementModel,
             BigDecimal postAvailableBalance,
             BigDecimal postLockedBalance,
             BigDecimal postOfflinePayPendingBalance
