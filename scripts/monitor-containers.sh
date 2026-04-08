@@ -11,6 +11,7 @@ STATE_DIR="${STATE_DIR:-${APP_ROOT}/.monitor-state}"
 STATE_FILE="${STATE_DIR}/container-watch.state"
 LOCK_FILE="${STATE_DIR}/container-watch.lock"
 COOLDOWN_SEC="${CONTAINER_MONITOR_COOLDOWN_SEC:-900}"
+STARTING_GRACE_SEC="${CONTAINER_MONITOR_STARTING_GRACE_SEC:-180}"
 COMPOSE_CONFIG_CACHE="${COMPOSE_CONFIG_CACHE:-}"
 
 mkdir -p "${STATE_DIR}"
@@ -124,7 +125,16 @@ inspect_container_issue() {
 
     local status
     status="$(docker inspect -f '{{.State.Status}}' "${container_id}" 2>/dev/null || echo missing)"
+    local created_at
+    created_at="$(docker inspect -f '{{.Created}}' "${container_id}" 2>/dev/null || true)"
+    local age_sec="999999"
+    if [ -n "${created_at}" ]; then
+        age_sec="$(( $(date +%s) - $(date -d "${created_at}" +%s 2>/dev/null || date +%s) ))"
+    fi
     if [ "${status}" != "running" ]; then
+        if { [ "${status}" = "created" ] || [ "${status}" = "restarting" ]; } && [ "${age_sec}" -lt "${STARTING_GRACE_SEC}" ]; then
+            return
+        fi
         echo "${label}=status:${status}"
         return
     fi
@@ -132,6 +142,9 @@ inspect_container_issue() {
     local health
     health="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "${container_id}" 2>/dev/null || true)"
     if [ -n "${health}" ] && [ "${health}" != "healthy" ]; then
+        if [ "${health}" = "starting" ] && [ "${age_sec}" -lt "${STARTING_GRACE_SEC}" ]; then
+            return
+        fi
         echo "${label}=health:${health}"
         return
     fi
