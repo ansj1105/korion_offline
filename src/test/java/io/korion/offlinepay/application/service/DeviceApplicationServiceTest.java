@@ -54,4 +54,47 @@ class DeviceApplicationServiceTest {
         assertEquals("device-abc", result.deviceId());
         verify(deviceRepository, never()).save(Mockito.anyLong(), Mockito.anyString(), Mockito.anyString(), Mockito.anyInt(), Mockito.anyString());
     }
+
+    @Test
+    void refreshesRegistrationWhenDeviceBelongsToAnotherUser() {
+        Device existing = new Device(
+                "row-id",
+                "device-abc",
+                35L,
+                "pub-key-old",
+                1,
+                DeviceStatus.ACTIVE,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        Device rebound = new Device(
+                "row-id",
+                "device-abc",
+                175L,
+                "pub-key-new",
+                1,
+                DeviceStatus.ACTIVE,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+
+        when(deviceRepository.findByDeviceId("device-abc")).thenReturn(Optional.of(existing));
+        when(deviceRepository.refreshRegistration(Mockito.eq(175L), Mockito.eq("device-abc"), Mockito.eq("pub-key-new"), Mockito.eq(1), Mockito.anyString()))
+                .thenReturn(rebound);
+
+        Device result = service.registerDevice(new DeviceApplicationService.RegisterDeviceCommand(
+                175L,
+                "device-abc",
+                "pub-key-new",
+                1,
+                Map.of("reason", "pin_verified_rebind")
+        ));
+
+        assertNotNull(result);
+        assertEquals(175L, result.userId());
+        assertEquals("pub-key-new", result.publicKey());
+        verify(deviceRepository).refreshRegistration(Mockito.eq(175L), Mockito.eq("device-abc"), Mockito.eq("pub-key-new"), Mockito.eq(1), Mockito.anyString());
+    }
 }

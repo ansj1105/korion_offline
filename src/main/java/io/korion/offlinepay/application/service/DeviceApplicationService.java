@@ -27,10 +27,8 @@ public class DeviceApplicationService {
     public Device registerDevice(RegisterDeviceCommand command) {
         Device registered = deviceRepository.findByDeviceId(command.deviceId())
                 .map(existing -> {
-                    if (existing.userId() != command.userId()) {
-                        throw new IllegalArgumentException("device already belongs to another user: " + command.deviceId());
-                    }
-                    if (!existing.publicKey().equals(command.publicKey())
+                    if (existing.userId() != command.userId()
+                            || !existing.publicKey().equals(command.publicKey())
                             || existing.keyVersion() != command.keyVersion()
                             || existing.status() != io.korion.offlinepay.domain.status.DeviceStatus.ACTIVE) {
                         return deviceRepository.refreshRegistration(
@@ -50,6 +48,9 @@ public class DeviceApplicationService {
                         command.keyVersion(),
                         jsonService.write(command.metadata())
                 ));
+        if (registered.userId() != command.userId()) {
+            throw new IllegalStateException("device registration user mismatch after refresh: " + command.deviceId());
+        }
         offlineSnapshotStreamService.publishDeviceRegistrationChanged(
                 command.userId(),
                 command.deviceId(),
