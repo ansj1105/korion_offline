@@ -42,6 +42,7 @@
   - [x] `RECEIVER_HISTORY_SYNC_REQUESTED` 이벤트 타입 추가 (saga 체이닝)
   - [x] `OFFLINE_PAY_RECEIVE` TransactionType 추가 (foxya_coin_service)
   - [x] `transferRef` 필드 추가: sender = `settlementId`, receiver = `settlementId:R` (unique key 충돌 방지)
+  - [x] `OFFLINE_PAY_COMPENSATION` TransactionType 추가: receiver history 실패 등 후속 leg 실패 시 sender foxya history를 역방향 internal transfer로 되돌림
   - [x] `createReceiverHistoryCommand()` factory 메서드 추가 (offline_pay)
   - [x] sender/receiver leg 각각의 정산 상태를 settlement detail 응답에 명시적으로 노출 — `senderHistoryStatus` / `receiverHistoryStatus` 추가, `RECEIVER_HISTORY_SYNCED` saga step으로 추적
   - [x] `settlementModel=SENDER_LEDGER_PLUS_RECEIVER_HISTORY`를 ledger/admin/log 응답에 공통 노출
@@ -82,6 +83,8 @@
   - [x] `SettlementBatchDetailResponse`에 `triggerMode` 노출
   - [x] `SettlementPolicyConstants` 클래스 생성 — trigger mode, reconciliation 조건, ledger mode 상수 + Javadoc
   - [x] 리컨실 운영 가이드: dead-lettered → `GET /settlements/requests/{id}` 확인 → 외부 원장 수동 보정 → `POST /settlements/{id}/finalize` 호출 → saga 재개. `reconciliationStatus=OPEN`이면 ops 개입 필요 signal
+  - [x] 받은쪽 `Settle now` / `Auto settle`은 receiver history를 재정산하는 기능이 아니라, 완료된 수취 합계를 기존 `COLLATERAL_TOPUP` 경로로 넘기는 담보 전환 트리거로 정의
+  - [x] receiver 수취금은 `OFFLINE_PAY_RECEIVE`로 Wallet 반영 후, 명시적 담보 전환 요청이 성공해야 총담보금/오프라인 결제 가능 금액에 반영
 
 ### BE-6. 사용자 알림 / 운영 알림 경계
 

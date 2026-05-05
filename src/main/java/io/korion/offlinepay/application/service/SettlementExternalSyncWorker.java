@@ -128,6 +128,7 @@ public class SettlementExternalSyncWorker {
             historyPayload.put("settlementId", message.settlementId());
             historyPayload.put("batchId", message.batchId());
             historyPayload.put("proofId", message.proofId());
+            historyPayload.put("ledgerCommand", payload.path("ledgerCommand"));
             historyPayload.put("historyCommand", payload.path("historyCommand"));
             historyPayload.put("requestedAt", OffsetDateTime.now().toString());
             if (!payload.path("receiverHistoryCommand").isMissingNode()) {
@@ -159,22 +160,38 @@ public class SettlementExternalSyncWorker {
                                 "batchId", message.batchId(),
                                 "proofId", message.proofId(),
                                 "receiverHistoryCommand", payload.path("receiverHistoryCommand"),
+                                "ledgerCommand", payload.path("ledgerCommand"),
+                                "historyCompensationCommand", toHistoryCompensationPayload(payload.path("historyCommand")),
                                 "requestedAt", OffsetDateTime.now().toString()
                         )),
                         OffsetDateTime.now().toString()
                 );
+                offlineSagaService.markPartiallyApplied(
+                        OfflineSagaType.SETTLEMENT,
+                        message.settlementId(),
+                        "HISTORY_SYNCED",
+                        Map.of(
+                                "settlementId", message.settlementId(),
+                                "batchId", message.batchId(),
+                                "proofId", message.proofId(),
+                                "eventType", message.eventType(),
+                                "senderHistorySynced", true,
+                                "receiverHistoryPending", true
+                        )
+                );
+            } else {
+                offlineSagaService.markCompleted(
+                        OfflineSagaType.SETTLEMENT,
+                        message.settlementId(),
+                        "HISTORY_SYNCED",
+                        Map.of(
+                                "settlementId", message.settlementId(),
+                                "batchId", message.batchId(),
+                                "proofId", message.proofId(),
+                                "eventType", message.eventType()
+                        )
+                );
             }
-            offlineSagaService.markCompleted(
-                    OfflineSagaType.SETTLEMENT,
-                    message.settlementId(),
-                    "HISTORY_SYNCED",
-                    Map.of(
-                            "settlementId", message.settlementId(),
-                            "batchId", message.batchId(),
-                            "proofId", message.proofId(),
-                            "eventType", message.eventType()
-                    )
-            );
             resolveReconciliationCases(
                     message.settlementId(),
                     List.of("HISTORY_SYNC_FAILED", "HISTORY_CIRCUIT_OPEN"),
@@ -216,6 +233,11 @@ public class SettlementExternalSyncWorker {
                     )
             );
             CoinManageSettlementPort.SettlementLedgerResult ledgerResult = coinManageSettlementPort.compensateSettlement(command);
+            if (!payload.path("historyCompensationCommand").isMissingNode()) {
+                FoxCoinHistoryPort.SettlementHistoryCommand historyCompensationCommand =
+                        toHistoryCommand(payload.path("historyCompensationCommand"));
+                foxCoinHistoryPort.recordSettlementHistory(historyCompensationCommand);
+            }
             offlineSagaService.markCompensated(
                     OfflineSagaType.SETTLEMENT,
                     message.settlementId(),
@@ -265,8 +287,13 @@ public class SettlementExternalSyncWorker {
         String errorMessage = exception.getMessage() == null ? "unknown external sync failure" : exception.getMessage();
         OfflineFailureClass failureClass = OfflineFailurePolicy.classify(reasonCode, errorMessage);
         boolean retryable = OfflineFailurePolicy.isRetryable(failureClass);
-        if (OfflineWorkflowEventType.HISTORY_SYNC_REQUESTED.name().equals(message.eventType())) {
-            JsonNode ledgerCommand = payload.path("ledgerCommand");
+        if (OfflineWorkflowEventType.HISTORY_SYNC_REQUESTED.name().equals(message.eventType())
+                || OfflineWorkflowEventType.RECEIVER_HISTORY_SYNC_REQUESTED.name().equals(message.eventType())) {
+            JsonNode compensationCommandNode = payload.path("compensationCommand");
+            Object compensationCommand = compensationCommandNode;
+            if (compensationCommandNode.isMissingNode() || compensationCommandNode.isNull() || !compensationCommandNode.isObject()) {
+                compensationCommand = toCompensationPayload(payload.path("ledgerCommand"), reasonCode);
+            }
             offlineSagaService.markCompensationRequired(
                     OfflineSagaType.SETTLEMENT,
                     message.settlementId(),
@@ -285,24 +312,10 @@ public class SettlementExternalSyncWorker {
                     message.settlementId(),
                     message.batchId(),
                     message.proofId(),
-                    jsonService.write(Map.ofEntries(
-                            Map.entry("settlementId", message.settlementId()),
-                            Map.entry("batchId", message.batchId()),
-                            Map.entry("proofId", message.proofId()),
-                            Map.entry("compensationCommand", Map.ofEntries(
-                                    Map.entry("settlementId", message.settlementId()),
-                                    Map.entry("batchId", message.batchId()),
-                                    Map.entry("collateralId", requireText(ledgerCommand, "collateralId")),
-                                    Map.entry("proofId", message.proofId()),
-                                    Map.entry("userId", ledgerCommand.path("userId").asLong()),
-                                    Map.entry("deviceId", requireText(ledgerCommand, "deviceId")),
-                                    Map.entry("assetCode", requireText(ledgerCommand, "assetCode")),
-                                    Map.entry("amount", ledgerCommand.path("amount").decimalValue()),
-                                    Map.entry("releaseAction", requireText(ledgerCommand, "releaseAction")),
-                                    Map.entry("proofFingerprint", requireText(ledgerCommand, "proofFingerprint")),
-                                    Map.entry("compensationReason", reasonCode)
-                            )),
-                            Map.entry("requestedAt", OffsetDateTime.now().toString())
+                    jsonService.write(buildCompensationEventPayload(
+                            message,
+                            compensationCommand,
+                            payload.path("historyCompensationCommand")
                     )),
                     OffsetDateTime.now().toString()
             );
@@ -410,7 +423,8 @@ public class SettlementExternalSyncWorker {
         if (OfflineWorkflowEventType.LEDGER_SYNC_REQUESTED.name().equals(eventType)) {
             return circuitOpen ? "LEDGER_CIRCUIT_OPEN" : "LEDGER_SYNC_FAILED";
         }
-        if (OfflineWorkflowEventType.HISTORY_SYNC_REQUESTED.name().equals(eventType)) {
+        if (OfflineWorkflowEventType.HISTORY_SYNC_REQUESTED.name().equals(eventType)
+                || OfflineWorkflowEventType.RECEIVER_HISTORY_SYNC_REQUESTED.name().equals(eventType)) {
             return circuitOpen ? "HISTORY_CIRCUIT_OPEN" : "HISTORY_SYNC_FAILED";
         }
         if (OfflineWorkflowEventType.LEDGER_COMPENSATION_REQUESTED.name().equals(eventType)) {
@@ -424,7 +438,8 @@ public class SettlementExternalSyncWorker {
         if (OfflineWorkflowEventType.LEDGER_SYNC_REQUESTED.name().equals(eventType)) {
             return circuitOpen ? OfflinePayReasonCode.LEDGER_CIRCUIT_OPEN : OfflinePayReasonCode.LEDGER_SYNC_FAIL;
         }
-        if (OfflineWorkflowEventType.HISTORY_SYNC_REQUESTED.name().equals(eventType)) {
+        if (OfflineWorkflowEventType.HISTORY_SYNC_REQUESTED.name().equals(eventType)
+                || OfflineWorkflowEventType.RECEIVER_HISTORY_SYNC_REQUESTED.name().equals(eventType)) {
             return circuitOpen ? OfflinePayReasonCode.HISTORY_CIRCUIT_OPEN : OfflinePayReasonCode.HISTORY_SYNC_FAIL;
         }
         if (OfflineWorkflowEventType.LEDGER_COMPENSATION_REQUESTED.name().equals(eventType)) {
@@ -444,6 +459,56 @@ public class SettlementExternalSyncWorker {
     private boolean isCircuitOpen(RuntimeException exception) {
         String message = exception.getMessage();
         return message != null && message.toLowerCase().contains("circuit is open");
+    }
+
+    private Map<String, Object> buildCompensationEventPayload(
+            SettlementBatchEventBus.QueuedExternalSyncMessage message,
+            Object compensationCommand,
+            JsonNode historyCompensationCommand
+    ) {
+        java.util.LinkedHashMap<String, Object> payload = new java.util.LinkedHashMap<>();
+        payload.put("settlementId", message.settlementId());
+        payload.put("batchId", message.batchId());
+        payload.put("proofId", message.proofId());
+        payload.put("compensationCommand", compensationCommand);
+        if (!historyCompensationCommand.isMissingNode() && !historyCompensationCommand.isNull()) {
+            payload.put("historyCompensationCommand", historyCompensationCommand);
+        }
+        payload.put("requestedAt", OffsetDateTime.now().toString());
+        return payload;
+    }
+
+    private Map<String, Object> toCompensationPayload(JsonNode ledgerCommand, String compensationReason) {
+        return Map.ofEntries(
+                Map.entry("settlementId", requireText(ledgerCommand, "settlementId")),
+                Map.entry("batchId", requireText(ledgerCommand, "batchId")),
+                Map.entry("collateralId", requireText(ledgerCommand, "collateralId")),
+                Map.entry("proofId", requireText(ledgerCommand, "proofId")),
+                Map.entry("userId", ledgerCommand.path("userId").asLong()),
+                Map.entry("deviceId", requireText(ledgerCommand, "deviceId")),
+                Map.entry("assetCode", requireText(ledgerCommand, "assetCode")),
+                Map.entry("amount", ledgerCommand.path("amount").decimalValue()),
+                Map.entry("releaseAction", requireText(ledgerCommand, "releaseAction")),
+                Map.entry("proofFingerprint", requireText(ledgerCommand, "proofFingerprint")),
+                Map.entry("compensationReason", compensationReason)
+        );
+    }
+
+    private Map<String, Object> toHistoryCompensationPayload(JsonNode historyCommand) {
+        String settlementId = requireText(historyCommand, "settlementId");
+        return Map.ofEntries(
+                Map.entry("settlementId", settlementId),
+                Map.entry("transferRef", settlementId + ":C"),
+                Map.entry("batchId", requireText(historyCommand, "batchId")),
+                Map.entry("collateralId", requireText(historyCommand, "collateralId")),
+                Map.entry("proofId", requireText(historyCommand, "proofId")),
+                Map.entry("userId", historyCommand.path("userId").asLong()),
+                Map.entry("deviceId", requireText(historyCommand, "deviceId")),
+                Map.entry("assetCode", requireText(historyCommand, "assetCode")),
+                Map.entry("amount", historyCommand.path("amount").decimalValue()),
+                Map.entry("settlementStatus", "COMPENSATED"),
+                Map.entry("historyType", "OFFLINE_PAY_COMPENSATION")
+        );
     }
 
     private CoinManageSettlementPort.SettlementLedgerCommand toLedgerCommand(JsonNode node) {

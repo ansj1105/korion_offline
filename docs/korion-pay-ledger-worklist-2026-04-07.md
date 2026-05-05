@@ -43,6 +43,7 @@
   - [x] reconciliation case 상태를 `offline_pay` settlement detail 응답에 노출
   - [x] admin/API 응답에서 compensation/reconciliation 연결값 1차 추가
   - [x] `coin_manage` contract까지 reconciliation linkage(`reconciliationTrackingOwner=OFFLINE_PAY_SAGA`)를 동일 레벨로 반영
+  - [x] receiver history 실패 시 `LEDGER_COMPENSATION_REQUESTED`와 `OFFLINE_PAY_COMPENSATION` foxya history를 함께 발행해 sender 원장/사용자 내역을 되돌림
 
 ### LD-4. 담보 direct path 정책
 
@@ -50,11 +51,22 @@
 - 해야 할 일:
   - [x] online collateral topup/release는 `QUEUE_FIRST_IMMEDIATE_SYNC` 유지 — 별도 direct path 미도입
 
+### LD-5. receiver 수취금 담보 전환 정책
+
+- 상태: `정책 추가`
+- 해야 할 일:
+  - [x] receiver 수취금은 settlement 성공 시 즉시 `receiver collateral`로 직접 편입하지 않는다.
+  - [x] receiver 수취금은 먼저 `foxya user_wallets.balance`와 `OFFLINE_PAY_RECEIVE` history에 반영한다.
+  - [x] 사용자가 받은쪽 `Settle now` 또는 `Auto settle`을 실행하면, 완료된 수취 합계를 기존 `COLLATERAL_TOPUP` 큐로 등록한다.
+  - [x] 담보 전환은 기존 담보 충전 경로와 동일하게 `offline_pay -> coin_manage collateral lock`으로 처리한다.
+  - [x] 중복 전환 방지를 위해 앱은 담보 전환 요청에 사용한 received item id를 로컬 consumed marker로 관리한다.
+
 ## 현재 결론
 
 - 구현 가능한 항목은 `1차 반영` 기준 대부분 완료됐다.
 - 구현 가능한 항목은 완료됐다.
-- 원장/정산 기준 남은 미완료는 없다.
+- 원장/정산 기준 남은 미완료는 없다. 단, receiver 수취금을 담보로 쓰려면 자동 편입이 아니라 명시적 담보 전환 요청을 거친다.
 - 현재 정책 고정값:
   - `receiver leg`는 `coin_manage` 독립 원장으로 올리지 않고 `SENDER_LEDGER_PLUS_RECEIVER_HISTORY` 유지
   - online collateral topup/release는 별도 direct path 없이 `QUEUE_FIRST_IMMEDIATE_SYNC` 유지
+  - receiver 수취금 담보 전환은 `OFFLINE_PAY_RECEIVE -> COLLATERAL_TOPUP` 2단계 모델 유지

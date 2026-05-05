@@ -86,11 +86,25 @@
 ### 4.5 오프라인 결제 가능 금액
 
 - `총담보금`에서 사용된 금액과 로컬 pending 사용분을 반영한 값
+- receiver가 받은 KORI는 수취 확정 직후 자동 포함하지 않는다.
+- 받은쪽 `Settle now` / `Auto settle`이 기존 `COLLATERAL_TOPUP` 경로로 성공한 뒤에만 오프라인 결제 가능 금액에 포함한다.
 
 ### 4.6 락원장
 
 - `coin_manage available / offline_pay_pending / withdraw_pending`
 - 원장 이동과 정산 보상 기준
+- 정산 보상은 `offline_pay` saga가 `LEDGER_COMPENSATION_REQUESTED`를 발행하고, `coin_manage /api/internal/offline-pay/settlements/compensate`가 역분개한다.
+- receiver history 실패처럼 sender foxya history가 이미 반영된 뒤 실패한 경우에는 `OFFLINE_PAY_COMPENSATION` history를 함께 기록해 foxya 사용자 지갑 반영도 되돌린다.
+
+### 4.7 receiver 수취금 담보 전환
+
+- 수취 확정:
+  - `OFFLINE_PAY_RECEIVE` history와 `foxya user_wallets.balance` 반영
+- 담보 전환:
+  - 앱의 받은쪽 `Settle now` / `Auto settle` 실행
+  - 완료된 수취 합계를 `COLLATERAL_TOPUP` 큐로 등록
+  - `offline_pay -> coin_manage collateral lock` 성공 후 총담보금과 오프라인 결제 가능 금액에 반영
+- 정책상 receiver 수취금을 settlement finalize 단계에서 담보로 직접 편입하지 않는다.
 
 ## 5. 상태 별칭
 
