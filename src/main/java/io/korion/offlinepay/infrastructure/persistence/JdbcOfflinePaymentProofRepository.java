@@ -79,8 +79,10 @@ public class JdbcOfflinePaymentProofRepository implements OfflinePaymentProofRep
                         "channel_type",
                         "status",
                         "issued_at",
+                        "payload",
                         "raw_payload"
                 )
+                .value("payload", "CAST(:rawPayload AS jsonb)")
                 .value("raw_payload", "CAST(:rawPayload AS jsonb)")
                 .build();
         jdbcClient.sql(sql)
