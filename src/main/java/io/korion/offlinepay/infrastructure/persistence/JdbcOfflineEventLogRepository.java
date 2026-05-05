@@ -57,8 +57,25 @@ public class JdbcOfflineEventLogRepository implements OfflineEventLogRepository 
                         "metadata"
                 )
                 .value("metadata", "CAST(:metadata AS jsonb)")
-                .build();
-        jdbcClient.sql(sql)
+                .build()
+                + """
+                ON CONFLICT (request_id, event_type, event_status) WHERE request_id IS NOT NULL
+                DO UPDATE SET
+                    user_id = EXCLUDED.user_id,
+                    device_id = EXCLUDED.device_id,
+                    asset_code = EXCLUDED.asset_code,
+                    network_code = EXCLUDED.network_code,
+                    amount = EXCLUDED.amount,
+                    settlement_id = EXCLUDED.settlement_id,
+                    counterparty_device_id = EXCLUDED.counterparty_device_id,
+                    counterparty_actor = EXCLUDED.counterparty_actor,
+                    reason_code = EXCLUDED.reason_code,
+                    message = EXCLUDED.message,
+                    metadata = EXCLUDED.metadata,
+                    updated_at = NOW()
+                RETURNING *
+                """;
+        return jdbcClient.sql(sql)
                 .param("user_id", userId)
                 .param("device_id", deviceId)
                 .param("event_type", eventType.name())
@@ -73,13 +90,6 @@ public class JdbcOfflineEventLogRepository implements OfflineEventLogRepository 
                 .param("reason_code", reasonCode)
                 .param("message", message)
                 .param("metadata", metadataJson)
-                .update();
-
-        String selectSql = QueryBuilder.select("offline_event_logs")
-                .orderBy("created_at DESC")
-                .limit(1)
-                .build();
-        return jdbcClient.sql(selectSql)
                 .query(rowMapper)
                 .optional()
                 .orElseThrow();
