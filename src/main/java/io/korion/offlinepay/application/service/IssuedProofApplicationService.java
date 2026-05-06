@@ -119,14 +119,10 @@ public class IssuedProofApplicationService {
     }
 
     private Optional<CollateralLock> resolveIssuableCollateral(long userId, String deviceId, String assetCode) {
-        Optional<CollateralLock> deviceScopedCollateral = selectLargestRemaining(
+        syncUserAssetCollateralsToDevice(userId, deviceId, assetCode, "ON_DEMAND_PROOF_ISSUE");
+        return selectLargestRemaining(
                 collateralRepository.findActiveByUserIdAndDeviceIdAndAssetCode(userId, deviceId, assetCode)
         );
-        if (deviceScopedCollateral.isPresent()) {
-            return deviceScopedCollateral;
-        }
-        return selectLargestRemaining(collateralRepository.findActiveByUserIdAndAssetCode(userId, assetCode))
-                .map(collateral -> rebindCollateralToCurrentDevice(collateral, deviceId, "ON_DEMAND_PROOF_ISSUE"));
     }
 
     @Scheduled(fixedDelayString = "${offline-pay.worker.collateral-device-sync-delay-ms:60000}")
@@ -141,7 +137,7 @@ public class IssuedProofApplicationService {
                 batchSize
         );
         for (CollateralDeviceRebindCandidate candidate : candidates) {
-            if (!canRebindCollateral(candidate.collateral())) {
+            if (hasOpenSettlement(candidate.collateral())) {
                 continue;
             }
             collateralRepository.rebindDevice(
@@ -153,13 +149,26 @@ public class IssuedProofApplicationService {
         }
     }
 
-    private CollateralLock rebindCollateralToCurrentDevice(CollateralLock collateral, String targetDeviceId, String reason) {
-        if (collateral.deviceId().equals(targetDeviceId)) {
-            return collateral;
+    private void syncUserAssetCollateralsToDevice(long userId, String targetDeviceId, String assetCode, String reason) {
+        List<CollateralLock> collaterals = collateralRepository.findActiveByUserIdAndAssetCode(userId, assetCode);
+        boolean foundMovableCollateral = false;
+        boolean blockedBySettlement = false;
+        for (CollateralLock collateral : collaterals) {
+            if (hasOpenSettlement(collateral)) {
+                blockedBySettlement = true;
+                continue;
+            }
+            foundMovableCollateral = true;
+            if (!collateral.deviceId().equals(targetDeviceId)) {
+                rebindCollateralToCurrentDevice(collateral, targetDeviceId, reason);
+            }
         }
-        if (!canRebindCollateral(collateral)) {
-            throw new IllegalArgumentException("collateral device sync blocked: pending proof or settlement exists");
+        if (!foundMovableCollateral && blockedBySettlement) {
+            throw new IllegalArgumentException("collateral device sync blocked: pending settlement exists");
         }
+    }
+
+    private void rebindCollateralToCurrentDevice(CollateralLock collateral, String targetDeviceId, String reason) {
         boolean updated = collateralRepository.rebindDevice(
                 collateral.id(),
                 collateral.deviceId(),
@@ -169,13 +178,10 @@ public class IssuedProofApplicationService {
         if (!updated) {
             throw new IllegalArgumentException("collateral device sync failed: stale collateral device binding");
         }
-        return collateralRepository.findById(collateral.id())
-                .orElseThrow(() -> new IllegalArgumentException("collateral device sync failed: collateral not found after rebind"));
     }
 
-    private boolean canRebindCollateral(CollateralLock collateral) {
-        return !issuedOfflineProofRepository.existsActiveByCollateralId(collateral.id())
-                && !settlementRepository.existsOpenByCollateralId(collateral.id());
+    private boolean hasOpenSettlement(CollateralLock collateral) {
+        return settlementRepository.existsOpenByCollateralId(collateral.id());
     }
 
     private String buildDeviceSyncMetadata(String previousDeviceId, String targetDeviceId, String reason) {
