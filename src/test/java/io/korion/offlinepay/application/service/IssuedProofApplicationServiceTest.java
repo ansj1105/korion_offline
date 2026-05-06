@@ -167,6 +167,70 @@ class IssuedProofApplicationServiceTest {
     }
 
     @Test
+    void issuesProofForAggregateCurrentDeviceCollateral() {
+        when(properties.assetCode()).thenReturn("KORI");
+        when(properties.defaultCollateralExpiryHours()).thenReturn(24);
+        when(proofIssuerSignatureService.keyId()).thenReturn("issuer-1");
+        when(proofIssuerSignatureService.publicKey()).thenReturn("issuer-public-key");
+        when(proofIssuerSignatureService.sign(anyString())).thenReturn("issuer-signature");
+        when(deviceRepository.findByUserIdAndDeviceId(35L, "new-device"))
+                .thenReturn(Optional.of(device(35L, "new-device")));
+        when(collateralRepository.findActiveByUserIdAndAssetCode(35L, "KORI"))
+                .thenReturn(List.of(
+                        collateral("small-lock", 35L, "new-device", "10"),
+                        collateral("large-lock", 35L, "new-device", "90")
+                ));
+        when(collateralRepository.findActiveByUserIdAndDeviceIdAndAssetCode(35L, "new-device", "KORI"))
+                .thenReturn(List.of(
+                        collateral("small-lock", 35L, "new-device", "10"),
+                        collateral("large-lock", 35L, "new-device", "90")
+                ));
+        when(settlementRepository.existsOpenByCollateralId("small-lock")).thenReturn(false);
+        when(settlementRepository.existsOpenByCollateralId("large-lock")).thenReturn(false);
+        when(issuedOfflineProofRepository.save(
+                anyString(),
+                anyLong(),
+                anyString(),
+                anyString(),
+                anyString(),
+                any(BigDecimal.class),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString(),
+                any(IssuedProofStatus.class),
+                any(OffsetDateTime.class)
+        )).thenAnswer(invocation -> new IssuedOfflineProof(
+                invocation.getArgument(0),
+                invocation.getArgument(1),
+                invocation.getArgument(2),
+                invocation.getArgument(3),
+                invocation.getArgument(4),
+                invocation.getArgument(5),
+                invocation.getArgument(6),
+                invocation.getArgument(7),
+                invocation.getArgument(8),
+                invocation.getArgument(9),
+                invocation.getArgument(10),
+                invocation.getArgument(11),
+                null,
+                invocation.getArgument(12),
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        ));
+
+        IssuedProofApplicationService.IssuedProofEnvelope envelope = service.issue(
+                new IssuedProofApplicationService.IssueCommand(35L, "new-device", "KORI")
+        );
+
+        assertThat(envelope.collateralLockId()).isEqualTo("large-lock");
+        assertThat(envelope.collateralLockIds()).containsExactly("small-lock", "large-lock");
+        assertThat(envelope.usableAmount()).isEqualTo("100");
+        assertThat(envelope.issuedPayload()).contains("\"collateralLockIds\":[\"small-lock\",\"large-lock\"]");
+    }
+
+    @Test
     void blocksDeviceRebindWhenCollateralHasOpenSettlement() {
         when(properties.assetCode()).thenReturn("KORI");
         when(deviceRepository.findByUserIdAndDeviceId(35L, "new-device"))

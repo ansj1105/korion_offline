@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.math.BigDecimal;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -62,23 +63,32 @@ public class IssuedProofApplicationService {
                 : command.assetCode().trim().toUpperCase();
         Device device = deviceRepository.findByUserIdAndDeviceId(command.userId(), command.deviceId())
                 .orElseThrow(() -> new IllegalArgumentException("device binding mismatch: " + command.deviceId()));
-        CollateralLock collateral = resolveIssuableCollateral(command.userId(), command.deviceId(), normalizedAssetCode)
+        List<CollateralLock> collaterals = resolveIssuableCollaterals(command.userId(), command.deviceId(), normalizedAssetCode);
+        CollateralLock collateral = selectPrimaryCollateral(collaterals)
                 .orElseThrow(() -> new IllegalArgumentException("collateral not found for asset: " + normalizedAssetCode));
+        BigDecimal usableAmount = collaterals.stream()
+                .map(CollateralLock::remainingAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
 
         OffsetDateTime issuedAt = OffsetDateTime.now();
-        OffsetDateTime expiresAt = collateral.expiresAt() != null
-                ? collateral.expiresAt()
-                : issuedAt.plusHours(properties.defaultCollateralExpiryHours());
+        OffsetDateTime expiresAt = resolveAggregateExpiresAt(collaterals)
+                .orElse(issuedAt.plusHours(properties.defaultCollateralExpiryHours()));
         String proofId = UUID.randomUUID().toString();
         String nonce = "proof_" + UUID.randomUUID().toString().replace("-", "");
+        List<String> collateralLockIds = collaterals.stream()
+                .map(CollateralLock::id)
+                .toList();
         Map<String, Object> payloadMap = new LinkedHashMap<>();
         payloadMap.put("proofId", proofId);
         payloadMap.put("userId", command.userId());
         payloadMap.put("subjectBindingKey", buildSubjectBindingKey(command.userId(), normalizedAssetCode));
         payloadMap.put("deviceId", command.deviceId());
         payloadMap.put("collateralLockId", collateral.id());
+        payloadMap.put("primaryCollateralLockId", collateral.id());
+        payloadMap.put("collateralLockIds", collateralLockIds);
+        payloadMap.put("collateralCount", collateralLockIds.size());
         payloadMap.put("assetCode", normalizedAssetCode);
-        payloadMap.put("usableAmount", collateral.remainingAmount().toPlainString());
+        payloadMap.put("usableAmount", usableAmount.toPlainString());
         payloadMap.put("issuedAt", issuedAt.toString());
         payloadMap.put("expiresAt", expiresAt.toString());
         payloadMap.put("nonce", nonce);
@@ -92,7 +102,7 @@ public class IssuedProofApplicationService {
                 command.deviceId(),
                 collateral.id(),
                 normalizedAssetCode,
-                collateral.remainingAmount(),
+                usableAmount,
                 nonce,
                 proofIssuerSignatureService.keyId(),
                 proofIssuerSignatureService.publicKey(),
@@ -114,15 +124,14 @@ public class IssuedProofApplicationService {
                 issued.issuerSignature(),
                 issued.issuedPayloadJson(),
                 issued.expiresAt().toString(),
-                issued.createdAt().toString()
+                issued.createdAt().toString(),
+                collateralLockIds
         );
     }
 
-    private Optional<CollateralLock> resolveIssuableCollateral(long userId, String deviceId, String assetCode) {
+    private List<CollateralLock> resolveIssuableCollaterals(long userId, String deviceId, String assetCode) {
         syncUserAssetCollateralsToDevice(userId, deviceId, assetCode, "ON_DEMAND_PROOF_ISSUE");
-        return selectLargestRemaining(
-                collateralRepository.findActiveByUserIdAndDeviceIdAndAssetCode(userId, deviceId, assetCode)
-        );
+        return collateralRepository.findActiveByUserIdAndDeviceIdAndAssetCode(userId, deviceId, assetCode);
     }
 
     @Scheduled(fixedDelayString = "${offline-pay.worker.collateral-device-sync-delay-ms:60000}")
@@ -195,9 +204,16 @@ public class IssuedProofApplicationService {
         ));
     }
 
-    private Optional<CollateralLock> selectLargestRemaining(List<CollateralLock> collaterals) {
+    private Optional<CollateralLock> selectPrimaryCollateral(List<CollateralLock> collaterals) {
         return collaterals.stream()
                 .max(Comparator.comparing(CollateralLock::remainingAmount));
+    }
+
+    private Optional<OffsetDateTime> resolveAggregateExpiresAt(List<CollateralLock> collaterals) {
+        return collaterals.stream()
+                .map(CollateralLock::expiresAt)
+                .filter(java.util.Objects::nonNull)
+                .min(Comparator.naturalOrder());
     }
 
     public static String buildSubjectBindingKey(long userId, String assetCode) {
@@ -237,6 +253,7 @@ public class IssuedProofApplicationService {
             String issuerSignature,
             String issuedPayload,
             String expiresAt,
-            String issuedAt
+            String issuedAt,
+            List<String> collateralLockIds
     ) {}
 }
