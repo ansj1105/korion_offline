@@ -73,6 +73,20 @@ public class JdbcSettlementRepository implements SettlementRepository {
     }
 
     @Override
+    public boolean existsOpenByCollateralId(String collateralId) {
+        String sql = QueryBuilder.select("settlement_requests", "COUNT(*)")
+                .where("collateral_id", QueryBuilder.Op.EQ, "CAST(:collateralId AS uuid)")
+                .where("status", QueryBuilder.Op.IN, "(:statuses)")
+                .build();
+        Integer count = jdbcClient.sql(sql)
+                .param("collateralId", collateralId)
+                .param("statuses", List.of(SettlementStatus.PENDING.name(), SettlementStatus.VALIDATING.name()))
+                .query(Integer.class)
+                .single();
+        return count != null && count > 0;
+    }
+
+    @Override
     public void update(String settlementId, SettlementStatus status, String reasonCode, boolean conflictDetected, String settlementResultJson) {
         String normalizedReasonCode = normalizeReasonCode(status, reasonCode, conflictDetected);
         String sql = QueryBuilder.update("settlement_requests")

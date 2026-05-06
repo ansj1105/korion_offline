@@ -3,7 +3,9 @@ package io.korion.offlinepay.application.service;
 import io.korion.offlinepay.application.port.CollateralRepository;
 import io.korion.offlinepay.application.port.DeviceRepository;
 import io.korion.offlinepay.application.port.IssuedOfflineProofRepository;
+import io.korion.offlinepay.application.port.SettlementRepository;
 import io.korion.offlinepay.config.AppProperties;
+import io.korion.offlinepay.domain.model.CollateralDeviceRebindCandidate;
 import io.korion.offlinepay.domain.model.CollateralLock;
 import io.korion.offlinepay.domain.model.Device;
 import io.korion.offlinepay.domain.model.IssuedOfflineProof;
@@ -12,9 +14,13 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.OffsetDateTime;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,6 +32,7 @@ public class IssuedProofApplicationService {
     private final DeviceRepository deviceRepository;
     private final CollateralRepository collateralRepository;
     private final IssuedOfflineProofRepository issuedOfflineProofRepository;
+    private final SettlementRepository settlementRepository;
     private final ProofIssuerSignatureService proofIssuerSignatureService;
     private final JsonService jsonService;
     private final AppProperties properties;
@@ -34,6 +41,7 @@ public class IssuedProofApplicationService {
             DeviceRepository deviceRepository,
             CollateralRepository collateralRepository,
             IssuedOfflineProofRepository issuedOfflineProofRepository,
+            SettlementRepository settlementRepository,
             ProofIssuerSignatureService proofIssuerSignatureService,
             JsonService jsonService,
             AppProperties properties
@@ -41,6 +49,7 @@ public class IssuedProofApplicationService {
         this.deviceRepository = deviceRepository;
         this.collateralRepository = collateralRepository;
         this.issuedOfflineProofRepository = issuedOfflineProofRepository;
+        this.settlementRepository = settlementRepository;
         this.proofIssuerSignatureService = proofIssuerSignatureService;
         this.jsonService = jsonService;
         this.properties = properties;
@@ -53,11 +62,7 @@ public class IssuedProofApplicationService {
                 : command.assetCode().trim().toUpperCase();
         Device device = deviceRepository.findByUserIdAndDeviceId(command.userId(), command.deviceId())
                 .orElseThrow(() -> new IllegalArgumentException("device binding mismatch: " + command.deviceId()));
-        CollateralLock collateral = collateralRepository.findLatestByUserIdAndDeviceIdAndAssetCode(
-                        command.userId(),
-                        command.deviceId(),
-                        normalizedAssetCode
-                )
+        CollateralLock collateral = resolveIssuableCollateral(command.userId(), command.deviceId(), normalizedAssetCode)
                 .orElseThrow(() -> new IllegalArgumentException("collateral not found for asset: " + normalizedAssetCode));
 
         OffsetDateTime issuedAt = OffsetDateTime.now();
@@ -111,6 +116,82 @@ public class IssuedProofApplicationService {
                 issued.expiresAt().toString(),
                 issued.createdAt().toString()
         );
+    }
+
+    private Optional<CollateralLock> resolveIssuableCollateral(long userId, String deviceId, String assetCode) {
+        Optional<CollateralLock> deviceScopedCollateral = selectLargestRemaining(
+                collateralRepository.findActiveByUserIdAndDeviceIdAndAssetCode(userId, deviceId, assetCode)
+        );
+        if (deviceScopedCollateral.isPresent()) {
+            return deviceScopedCollateral;
+        }
+        return selectLargestRemaining(collateralRepository.findActiveByUserIdAndAssetCode(userId, assetCode))
+                .map(collateral -> rebindCollateralToCurrentDevice(collateral, deviceId, "ON_DEMAND_PROOF_ISSUE"));
+    }
+
+    @Scheduled(fixedDelayString = "${offline-pay.worker.collateral-device-sync-delay-ms:60000}")
+    @Transactional
+    public void syncSingleActiveDeviceCollateralBindings() {
+        if (properties.worker() == null || !properties.worker().enabled()) {
+            return;
+        }
+        int batchSize = Math.max(1, properties.settlementStreamBatchSize());
+        List<CollateralDeviceRebindCandidate> candidates = collateralRepository.findSingleActiveDeviceRebindCandidates(
+                properties.assetCode(),
+                batchSize
+        );
+        for (CollateralDeviceRebindCandidate candidate : candidates) {
+            if (!canRebindCollateral(candidate.collateral())) {
+                continue;
+            }
+            collateralRepository.rebindDevice(
+                    candidate.collateral().id(),
+                    candidate.collateral().deviceId(),
+                    candidate.targetDeviceId(),
+                    buildDeviceSyncMetadata(candidate.collateral().deviceId(), candidate.targetDeviceId(), "SINGLE_ACTIVE_DEVICE_WORKER")
+            );
+        }
+    }
+
+    private CollateralLock rebindCollateralToCurrentDevice(CollateralLock collateral, String targetDeviceId, String reason) {
+        if (collateral.deviceId().equals(targetDeviceId)) {
+            return collateral;
+        }
+        if (!canRebindCollateral(collateral)) {
+            throw new IllegalArgumentException("collateral device sync blocked: pending proof or settlement exists");
+        }
+        boolean updated = collateralRepository.rebindDevice(
+                collateral.id(),
+                collateral.deviceId(),
+                targetDeviceId,
+                buildDeviceSyncMetadata(collateral.deviceId(), targetDeviceId, reason)
+        );
+        if (!updated) {
+            throw new IllegalArgumentException("collateral device sync failed: stale collateral device binding");
+        }
+        return collateralRepository.findById(collateral.id())
+                .orElseThrow(() -> new IllegalArgumentException("collateral device sync failed: collateral not found after rebind"));
+    }
+
+    private boolean canRebindCollateral(CollateralLock collateral) {
+        return !issuedOfflineProofRepository.existsActiveByCollateralId(collateral.id())
+                && !settlementRepository.existsOpenByCollateralId(collateral.id());
+    }
+
+    private String buildDeviceSyncMetadata(String previousDeviceId, String targetDeviceId, String reason) {
+        return jsonService.write(Map.of(
+                "deviceSync", Map.of(
+                        "reason", reason,
+                        "previousDeviceId", previousDeviceId,
+                        "targetDeviceId", targetDeviceId,
+                        "syncedAt", OffsetDateTime.now().toString()
+                )
+        ));
+    }
+
+    private Optional<CollateralLock> selectLargestRemaining(List<CollateralLock> collaterals) {
+        return collaterals.stream()
+                .max(Comparator.comparing(CollateralLock::remainingAmount));
     }
 
     public static String buildSubjectBindingKey(long userId, String assetCode) {

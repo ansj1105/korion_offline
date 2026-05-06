@@ -13,5 +13,7 @@ public interface SettlementRepository {
 
     Optional<SettlementRequest> findById(String settlementId);
 
+    boolean existsOpenByCollateralId(String collateralId);
+
     void update(String settlementId, SettlementStatus status, String reasonCode, boolean conflictDetected, String settlementResultJson);
 }

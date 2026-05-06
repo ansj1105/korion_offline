@@ -105,6 +105,20 @@ public class JdbcIssuedOfflineProofRepository implements IssuedOfflineProofRepos
     }
 
     @Override
+    public boolean existsActiveByCollateralId(String collateralId) {
+        String sql = QueryBuilder.select("issued_offline_proofs", "COUNT(*)")
+                .where("collateral_id", QueryBuilder.Op.EQ, "CAST(:collateralId AS uuid)")
+                .where("status", QueryBuilder.Op.EQ, ":status")
+                .build();
+        Integer count = jdbcClient.sql(sql)
+                .param("collateralId", collateralId)
+                .param("status", IssuedProofStatus.ACTIVE.name())
+                .query(Integer.class)
+                .single();
+        return count != null && count > 0;
+    }
+
+    @Override
     public void updateStatus(String proofId, IssuedProofStatus status, String consumedByProofId) {
         String sql = QueryBuilder.update("issued_offline_proofs")
                 .set("status", ":status")

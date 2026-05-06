@@ -1,6 +1,7 @@
 package io.korion.offlinepay.infrastructure.persistence;
 
 import io.korion.offlinepay.application.port.CollateralRepository;
+import io.korion.offlinepay.domain.model.CollateralDeviceRebindCandidate;
 import io.korion.offlinepay.domain.model.CollateralLock;
 import io.korion.offlinepay.domain.status.CollateralStatus;
 import io.korion.offlinepay.infrastructure.persistence.mapper.CollateralLockRowMapper;
@@ -210,6 +211,51 @@ public class JdbcCollateralRepository implements CollateralRepository {
                 .param("zero", BigDecimal.ZERO)
                 .query(collateralLockRowMapper)
                 .list();
+    }
+
+    @Override
+    public List<CollateralDeviceRebindCandidate> findSingleActiveDeviceRebindCandidates(String assetCode, int size) {
+        String sql = """
+                SELECT c.*, active_devices.target_device_id
+                FROM collateral_locks c
+                JOIN (
+                    SELECT user_id, MIN(device_id) AS target_device_id
+                    FROM devices
+                    WHERE status = 'ACTIVE'
+                    GROUP BY user_id
+                    HAVING COUNT(*) = 1
+                ) active_devices ON active_devices.user_id = c.user_id
+                WHERE c.asset_code = :assetCode
+                  AND c.remaining_amount > 0
+                  AND c.device_id <> active_devices.target_device_id
+                ORDER BY c.updated_at ASC
+                LIMIT :size
+                """;
+        return jdbcClient.sql(sql)
+                .param("assetCode", assetCode)
+                .param("size", size)
+                .query((rs, rowNum) -> new CollateralDeviceRebindCandidate(
+                        collateralLockRowMapper.mapRow(rs, rowNum),
+                        rs.getString("target_device_id")
+                ))
+                .list();
+    }
+
+    @Override
+    public boolean rebindDevice(String collateralId, String previousDeviceId, String targetDeviceId, String metadataJson) {
+        String sql = QueryBuilder.update("collateral_locks")
+                .set("device_id", ":targetDeviceId")
+                .set("metadata", "COALESCE(metadata, '{}'::jsonb) || CAST(:metadata AS jsonb)")
+                .touchUpdatedAt()
+                .where("id", QueryBuilder.Op.EQ, "CAST(:id AS uuid)")
+                .where("device_id", QueryBuilder.Op.EQ, ":previousDeviceId")
+                .build();
+        return jdbcClient.sql(sql)
+                .param("id", collateralId)
+                .param("previousDeviceId", previousDeviceId)
+                .param("targetDeviceId", targetDeviceId)
+                .param("metadata", metadataJson)
+                .update() > 0;
     }
 
     @Override

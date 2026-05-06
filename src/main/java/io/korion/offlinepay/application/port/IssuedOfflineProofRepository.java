@@ -28,5 +28,7 @@ public interface IssuedOfflineProofRepository {
 
     Optional<IssuedOfflineProof> findLatestActiveByUserIdAndDeviceIdAndAssetCode(long userId, String deviceId, String assetCode);
 
+    boolean existsActiveByCollateralId(String collateralId);
+
     void updateStatus(String proofId, IssuedProofStatus status, String consumedByProofId);
 }
