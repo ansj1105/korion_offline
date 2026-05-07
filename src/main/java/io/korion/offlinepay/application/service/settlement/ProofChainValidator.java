@@ -31,19 +31,20 @@ public class ProofChainValidator {
         if (incomingProof.amount().compareTo(collateral.remainingAmount()) > 0) {
             return new ChainValidationResult(false, OfflinePayReasonCode.INSUFFICIENT_REMAINING_AMOUNT, "{}");
         }
-        String expectedNewStateHash = spendingProofHashService.computeNewStateHash(
+        List<String> acceptedNewStateHashes = spendingProofHashService.computeAcceptedNewStateHashes(
                 incomingProof.previousHash(),
                 incomingProof.amount(),
                 incomingProof.monotonicCounter(),
                 incomingProof.senderDeviceId(),
                 incomingProof.nonce()
         );
-        if (!expectedNewStateHash.equals(incomingProof.newStateHash())) {
+        if (!acceptedNewStateHashes.contains(incomingProof.newStateHash())) {
             return new ChainValidationResult(
                     false,
                     OfflinePayReasonCode.INVALID_STATE_HASH,
                     jsonService.write(Map.of(
-                            "expectedNewStateHash", expectedNewStateHash,
+                            "expectedNewStateHash", acceptedNewStateHashes.get(0),
+                            "legacyAcceptedNewStateHash", acceptedNewStateHashes.size() > 1 ? acceptedNewStateHashes.get(1) : acceptedNewStateHashes.get(0),
                             "actualNewStateHash", incomingProof.newStateHash()
                     ))
             );
