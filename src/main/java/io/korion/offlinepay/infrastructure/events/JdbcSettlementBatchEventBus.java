@@ -153,9 +153,7 @@ public class JdbcSettlementBatchEventBus implements SettlementBatchEventBus {
                         "settledCount", settledCount,
                         "failedCount", failedCount,
                         "processedAt", processedAt,
-                        "workflowStage", STATUS_COMPLETED.equals(status)
-                                ? OfflineWorkflowStage.LEDGER_SYNCED.name()
-                                : OfflineWorkflowStage.FAILED.name()
+                        "workflowStage", resolveBatchResultStage(status, settledCount, failedCount)
                 )),
                 null,
                 null
@@ -201,7 +199,12 @@ public class JdbcSettlementBatchEventBus implements SettlementBatchEventBus {
                 WITH claimed AS (
                     SELECT id
                     FROM settlement_outbox_events
-                    WHERE event_type IN (:ledgerEventType, :historyEventType)
+                    WHERE event_type IN (
+                        :ledgerEventType,
+                        :historyEventType,
+                        :receiverHistoryEventType,
+                        :ledgerCompensationEventType
+                    )
                       AND status = :pendingStatus
                     ORDER BY created_at ASC
                     LIMIT :batchSize
@@ -220,6 +223,8 @@ public class JdbcSettlementBatchEventBus implements SettlementBatchEventBus {
         return jdbcClient.sql(sql)
                 .param("ledgerEventType", OfflineWorkflowEventType.LEDGER_SYNC_REQUESTED.name())
                 .param("historyEventType", OfflineWorkflowEventType.HISTORY_SYNC_REQUESTED.name())
+                .param("receiverHistoryEventType", OfflineWorkflowEventType.RECEIVER_HISTORY_SYNC_REQUESTED.name())
+                .param("ledgerCompensationEventType", OfflineWorkflowEventType.LEDGER_COMPENSATION_REQUESTED.name())
                 .param("pendingStatus", STATUS_PENDING)
                 .param("processingStatus", STATUS_PROCESSING)
                 .param("lockOwner", properties.worker().consumerName())
@@ -242,7 +247,12 @@ public class JdbcSettlementBatchEventBus implements SettlementBatchEventBus {
                 WITH claimed AS (
                     SELECT id
                     FROM settlement_outbox_events
-                    WHERE event_type IN (:ledgerEventType, :historyEventType)
+                    WHERE event_type IN (
+                        :ledgerEventType,
+                        :historyEventType,
+                        :receiverHistoryEventType,
+                        :ledgerCompensationEventType
+                    )
                       AND status = :processingStatus
                       AND locked_at IS NOT NULL
                       AND locked_at <= :reclaimBefore
@@ -263,6 +273,8 @@ public class JdbcSettlementBatchEventBus implements SettlementBatchEventBus {
         return jdbcClient.sql(sql)
                 .param("ledgerEventType", OfflineWorkflowEventType.LEDGER_SYNC_REQUESTED.name())
                 .param("historyEventType", OfflineWorkflowEventType.HISTORY_SYNC_REQUESTED.name())
+                .param("receiverHistoryEventType", OfflineWorkflowEventType.RECEIVER_HISTORY_SYNC_REQUESTED.name())
+                .param("ledgerCompensationEventType", OfflineWorkflowEventType.LEDGER_COMPENSATION_REQUESTED.name())
                 .param("processingStatus", STATUS_PROCESSING)
                 .param("lockOwner", properties.worker().consumerName())
                 .param("reclaimBefore", reclaimBefore)
@@ -647,10 +659,22 @@ public class JdbcSettlementBatchEventBus implements SettlementBatchEventBus {
 
     private String normalizeExternalSyncEventType(String eventType) {
         if (OfflineWorkflowEventType.LEDGER_SYNC_REQUESTED.name().equals(eventType)
-                || OfflineWorkflowEventType.HISTORY_SYNC_REQUESTED.name().equals(eventType)) {
+                || OfflineWorkflowEventType.HISTORY_SYNC_REQUESTED.name().equals(eventType)
+                || OfflineWorkflowEventType.RECEIVER_HISTORY_SYNC_REQUESTED.name().equals(eventType)
+                || OfflineWorkflowEventType.LEDGER_COMPENSATION_REQUESTED.name().equals(eventType)) {
             return eventType;
         }
         throw new IllegalArgumentException("unsupported external sync eventType: " + eventType);
+    }
+
+    private String resolveBatchResultStage(String status, int settledCount, int failedCount) {
+        if (settledCount > 0 && failedCount == 0) {
+            return OfflineWorkflowStage.LEDGER_SYNCED.name();
+        }
+        if ("SETTLED".equalsIgnoreCase(status) && failedCount == 0) {
+            return OfflineWorkflowStage.LEDGER_SYNCED.name();
+        }
+        return OfflineWorkflowStage.FAILED.name();
     }
 
     private String resolveCollateralResultStage(String operationType, String status) {
