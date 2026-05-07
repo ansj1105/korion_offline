@@ -3,6 +3,7 @@ package io.korion.offlinepay.application.service.settlement;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.korion.offlinepay.application.port.IssuedOfflineProofRepository;
 import io.korion.offlinepay.application.service.IssuedProofApplicationService;
+import io.korion.offlinepay.application.service.JsonPayloadCanonicalizationService;
 import io.korion.offlinepay.application.service.JsonService;
 import io.korion.offlinepay.application.service.ProofIssuerSignatureService;
 import io.korion.offlinepay.domain.model.IssuedOfflineProof;
@@ -18,15 +19,18 @@ import org.springframework.stereotype.Service;
 public class IssuedProofVerificationService {
 
     private final JsonService jsonService;
+    private final JsonPayloadCanonicalizationService jsonPayloadCanonicalizationService;
     private final IssuedOfflineProofRepository issuedOfflineProofRepository;
     private final ProofIssuerSignatureService proofIssuerSignatureService;
 
     public IssuedProofVerificationService(
             JsonService jsonService,
+            JsonPayloadCanonicalizationService jsonPayloadCanonicalizationService,
             IssuedOfflineProofRepository issuedOfflineProofRepository,
             ProofIssuerSignatureService proofIssuerSignatureService
     ) {
         this.jsonService = jsonService;
+        this.jsonPayloadCanonicalizationService = jsonPayloadCanonicalizationService;
         this.issuedOfflineProofRepository = issuedOfflineProofRepository;
         this.proofIssuerSignatureService = proofIssuerSignatureService;
     }
@@ -80,17 +84,18 @@ public class IssuedProofVerificationService {
         if (mismatch(text(issuedNode, "nonce"), issuedProof.proofNonce())) {
             return VerificationResult.invalid(OfflinePayReasonCode.ISSUED_PROOF_NONCE_MISMATCH, "issued proof nonce mismatch");
         }
+        String signedIssuedPayload = text(issuedNode, "issuedPayload");
         if (mismatch(text(issuedNode, "issuerKeyId"), issuedProof.issuerKeyId())
                 || mismatch(text(issuedNode, "issuerPublicKey"), issuedProof.issuerPublicKey())
                 || mismatch(text(issuedNode, "issuerSignature"), issuedProof.issuerSignature())
-                || mismatch(text(issuedNode, "issuedPayload"), issuedProof.issuedPayloadJson())
+                || !jsonPayloadCanonicalizationService.sameJson(signedIssuedPayload, issuedProof.issuedPayloadJson())
                 || mismatch(text(issuedNode, "assetCode"), issuedProof.assetCode())
                 || mismatch(decimal(issuedNode, "usableAmount"), issuedProof.usableAmount())
                 || mismatch(text(issuedNode, "collateralId"), issuedProof.collateralId())) {
             return VerificationResult.invalid(OfflinePayReasonCode.ISSUED_PROOF_PAYLOAD_MISMATCH, "issued proof payload mismatch");
         }
 
-        JsonNode issuedPayloadNode = jsonService.readTree(issuedProof.issuedPayloadJson());
+        JsonNode issuedPayloadNode = jsonService.readTree(signedIssuedPayload);
         if (mismatch(text(issuedPayloadNode, "proofId"), issuedProof.id())
                 || mismatch(number(issuedPayloadNode, "userId"), issuedProof.userId())
                 || mismatch(text(issuedPayloadNode, "subjectBindingKey"), IssuedProofApplicationService.buildSubjectBindingKey(issuedProof.userId(), issuedProof.assetCode()))
@@ -107,7 +112,7 @@ public class IssuedProofVerificationService {
             return VerificationResult.invalid(OfflinePayReasonCode.ISSUED_PROOF_PAYLOAD_MISMATCH, "issued proof persisted payload mismatch");
         }
         if (!proofIssuerSignatureService.verify(
-                issuedProof.issuedPayloadJson(),
+                signedIssuedPayload,
                 issuedProof.issuerPublicKey(),
                 issuedProof.issuerSignature()
         )) {

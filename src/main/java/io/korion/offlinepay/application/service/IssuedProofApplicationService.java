@@ -125,7 +125,7 @@ public class IssuedProofApplicationService {
                 issued.issuerKeyId(),
                 issued.issuerPublicKey(),
                 issued.issuerSignature(),
-                issued.issuedPayloadJson(),
+                payload,
                 issued.status().name(),
                 issued.expiresAt().toString(),
                 issued.createdAt().toString(),

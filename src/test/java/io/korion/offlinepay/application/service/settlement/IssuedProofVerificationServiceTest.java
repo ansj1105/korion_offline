@@ -6,6 +6,7 @@ import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.korion.offlinepay.application.port.IssuedOfflineProofRepository;
+import io.korion.offlinepay.application.service.JsonPayloadCanonicalizationService;
 import io.korion.offlinepay.application.service.JsonService;
 import io.korion.offlinepay.application.service.ProofIssuerSignatureService;
 import io.korion.offlinepay.config.AppProperties;
@@ -25,6 +26,8 @@ import org.mockito.Mockito;
 class IssuedProofVerificationServiceTest {
 
     private final JsonService jsonService = new JsonService(new ObjectMapper());
+    private final JsonPayloadCanonicalizationService jsonPayloadCanonicalizationService =
+            new JsonPayloadCanonicalizationService(jsonService);
     private final ProofIssuerSignatureService proofIssuerSignatureService = new ProofIssuerSignatureService(
             new AppProperties(
                     "USDT",
@@ -42,6 +45,7 @@ class IssuedProofVerificationServiceTest {
     private final IssuedOfflineProofRepository issuedOfflineProofRepository = Mockito.mock(IssuedOfflineProofRepository.class);
     private final IssuedProofVerificationService service = new IssuedProofVerificationService(
             jsonService,
+            jsonPayloadCanonicalizationService,
             issuedOfflineProofRepository,
             proofIssuerSignatureService
     );
@@ -52,6 +56,23 @@ class IssuedProofVerificationServiceTest {
         when(issuedOfflineProofRepository.findById("issued-proof-1")).thenReturn(Optional.of(issuedProof));
 
         IssuedProofVerificationService.VerificationResult result = service.verify(buildIncomingProof(issuedProof));
+
+        assertTrue(result.valid());
+        assertEquals("issued-proof-1", result.issuedProof().id());
+    }
+
+    @Test
+    void verifyAcceptsSignedPayloadWhenDatabaseJsonbNormalizesStoredPayload() {
+        IssuedProofFixture fixture = buildIssuedProofFixture(false);
+        IssuedOfflineProof normalizedStoredProof = withPersistedPayload(
+                fixture.issuedProof(),
+                jsonService.readTree(fixture.signedPayload()).toPrettyString()
+        );
+        when(issuedOfflineProofRepository.findById("issued-proof-1")).thenReturn(Optional.of(normalizedStoredProof));
+
+        IssuedProofVerificationService.VerificationResult result = service.verify(
+                buildIncomingProof(normalizedStoredProof, fixture.signedPayload())
+        );
 
         assertTrue(result.valid());
         assertEquals("issued-proof-1", result.issuedProof().id());
@@ -79,6 +100,10 @@ class IssuedProofVerificationServiceTest {
     }
 
     private IssuedOfflineProof buildIssuedProof(boolean tamperSignature) {
+        return buildIssuedProofFixture(tamperSignature).issuedProof();
+    }
+
+    private IssuedProofFixture buildIssuedProofFixture(boolean tamperSignature) {
         OffsetDateTime expiresAt = OffsetDateTime.now().plusHours(1);
         Map<String, Object> issuedPayloadMap = new LinkedHashMap<>();
         issuedPayloadMap.put("proofId", "issued-proof-1");
@@ -97,7 +122,7 @@ class IssuedProofVerificationServiceTest {
         if (tamperSignature) {
             signature = signature.substring(0, signature.length() - 2) + "ab";
         }
-        return new IssuedOfflineProof(
+        IssuedOfflineProof issuedProof = new IssuedOfflineProof(
                 "issued-proof-1",
                 77L,
                 "device-1",
@@ -115,9 +140,14 @@ class IssuedProofVerificationServiceTest {
                 OffsetDateTime.now(),
                 OffsetDateTime.now()
         );
+        return new IssuedProofFixture(issuedProof, issuedPayload);
     }
 
     private OfflinePaymentProof buildIncomingProof(IssuedOfflineProof issuedProof) {
+        return buildIncomingProof(issuedProof, issuedProof.issuedPayloadJson());
+    }
+
+    private OfflinePaymentProof buildIncomingProof(IssuedOfflineProof issuedProof, String signedPayload) {
         String canonicalPayload = jsonService.write(Map.of(
                 "issuedProof",
                 Map.of(
@@ -125,7 +155,7 @@ class IssuedProofVerificationServiceTest {
                         "issuerKeyId", issuedProof.issuerKeyId(),
                         "issuerPublicKey", issuedProof.issuerPublicKey(),
                         "issuerSignature", issuedProof.issuerSignature(),
-                        "issuedPayload", issuedProof.issuedPayloadJson(),
+                        "issuedPayload", signedPayload,
                         "assetCode", issuedProof.assetCode(),
                         "usableAmount", issuedProof.usableAmount().toPlainString(),
                         "collateralId", issuedProof.collateralId(),
@@ -140,7 +170,7 @@ class IssuedProofVerificationServiceTest {
                         "issuerKeyId", issuedProof.issuerKeyId(),
                         "issuerPublicKey", issuedProof.issuerPublicKey(),
                         "issuerSignature", issuedProof.issuerSignature(),
-                        "issuedPayload", issuedProof.issuedPayloadJson(),
+                        "issuedPayload", signedPayload,
                         "assetCode", issuedProof.assetCode(),
                         "usableAmount", issuedProof.usableAmount().toPlainString(),
                         "collateralId", issuedProof.collateralId(),
@@ -177,6 +207,27 @@ class IssuedProofVerificationServiceTest {
                 null,
                 OffsetDateTime.now(),
                 OffsetDateTime.now()
+        );
+    }
+
+    private IssuedOfflineProof withPersistedPayload(IssuedOfflineProof issuedProof, String persistedPayload) {
+        return new IssuedOfflineProof(
+                issuedProof.id(),
+                issuedProof.userId(),
+                issuedProof.deviceId(),
+                issuedProof.collateralId(),
+                issuedProof.assetCode(),
+                issuedProof.usableAmount(),
+                issuedProof.proofNonce(),
+                issuedProof.issuerKeyId(),
+                issuedProof.issuerPublicKey(),
+                issuedProof.issuerSignature(),
+                persistedPayload,
+                issuedProof.status(),
+                issuedProof.consumedByProofId(),
+                issuedProof.expiresAt(),
+                issuedProof.createdAt(),
+                issuedProof.updatedAt()
         );
     }
 
@@ -241,4 +292,9 @@ class IssuedProofVerificationServiceTest {
                 OffsetDateTime.now()
         );
     }
+
+    private record IssuedProofFixture(
+            IssuedOfflineProof issuedProof,
+            String signedPayload
+    ) {}
 }
