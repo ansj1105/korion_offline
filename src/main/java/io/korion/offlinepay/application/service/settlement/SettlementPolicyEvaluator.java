@@ -1,5 +1,6 @@
 package io.korion.offlinepay.application.service.settlement;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import io.korion.offlinepay.application.service.JsonService;
 import io.korion.offlinepay.domain.policy.DeviceTrustContract;
 import io.korion.offlinepay.domain.reason.OfflinePayReasonCode;
@@ -18,9 +19,11 @@ import org.springframework.stereotype.Component;
 public class SettlementPolicyEvaluator {
 
     private final JsonService jsonService;
+    private final OfflinePaySettlementFeeCalculator feeCalculator;
 
-    public SettlementPolicyEvaluator(JsonService jsonService) {
+    public SettlementPolicyEvaluator(JsonService jsonService, OfflinePaySettlementFeeCalculator feeCalculator) {
         this.jsonService = jsonService;
+        this.feeCalculator = feeCalculator;
     }
 
     public SettlementEvaluation evaluate(OfflinePaymentProof proof, CollateralLock collateral, Device device) {
@@ -32,6 +35,8 @@ public class SettlementPolicyEvaluator {
         String paymentFlow = readText(payload, "paymentFlow");
         String ledgerExecutionMode = readText(payload, "ledgerExecutionMode");
         BigDecimal localAvailableAmount = readDecimal(payload, "availableAmount");
+        BigDecimal feeAmount = feeCalculator.calculateFee(collateral.assetCode(), proof.amount());
+        BigDecimal settlementTotal = feeCalculator.calculateTotal(collateral.assetCode(), proof.amount());
         Boolean senderAuthRequired = readBoolean(payload, "senderAuthRequired");
         Boolean dualAmountEntered = readBoolean(payload, "dualAmountEntered");
         String deviceTrustLevel = readText(payload, "deviceTrustLevel");
@@ -92,10 +97,10 @@ public class SettlementPolicyEvaluator {
         if (localAvailableAmount == null) {
             return rejected(OfflinePayReasonCode.LOCAL_AVAILABLE_AMOUNT_REQUIRED);
         }
-        if (localAvailableAmount.compareTo(proof.amount()) < 0) {
+        if (localAvailableAmount.compareTo(settlementTotal) < 0) {
             return rejected(OfflinePayReasonCode.LOCAL_AVAILABLE_AMOUNT_EXCEEDED);
         }
-        if (collateral.remainingAmount().compareTo(proof.amount()) < 0) {
+        if (collateral.remainingAmount().compareTo(settlementTotal) < 0) {
             return rejected(OfflinePayReasonCode.SERVER_AVAILABLE_AMOUNT_EXCEEDED);
         }
         Map<String, Object> resultJson = new LinkedHashMap<>();
@@ -103,6 +108,8 @@ public class SettlementPolicyEvaluator {
         resultJson.put("uiMode", uiMode);
         resultJson.put("connectionType", connectionType);
         resultJson.put("paymentFlow", paymentFlow);
+        resultJson.put("feeAmount", feeAmount);
+        resultJson.put("settlementTotal", settlementTotal);
         resultJson.put("voucherId", proof.voucherId());
         resultJson.put("deviceTrustLevel", deviceTrustLevel);
         resultJson.put("trustContractMet", trustContractMet);
@@ -129,22 +136,44 @@ public class SettlementPolicyEvaluator {
     }
 
     private Map<String, Object> extractPayload(OfflinePaymentProof proof) {
-        var node = jsonService.readTree(proof.rawPayloadJson());
-        if (!node.isObject()) {
+        var rawNode = jsonService.readTree(proof.rawPayloadJson());
+        var canonicalNode = jsonService.readTree(proof.canonicalPayload());
+        if (!rawNode.isObject() && !canonicalNode.isObject()) {
             return Map.of();
         }
         Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("network", node.path("network").asText(null));
-        payload.put("token", node.path("token").asText(null));
-        payload.put("uiMode", node.path("uiMode").asText(null));
-        payload.put("connectionType", node.path("connectionType").asText(null));
-        payload.put("paymentFlow", node.path("paymentFlow").asText(null));
-        payload.put("availableAmount", node.path("availableAmount").asText(null));
-        payload.put("ledgerExecutionMode", node.path("ledgerExecutionMode").asText(null));
-        payload.put("senderAuthRequired", node.path("senderAuthRequired").asText(null));
-        payload.put("dualAmountEntered", node.path("dualAmountEntered").asText(null));
-        payload.put("deviceTrustLevel", node.path("deviceTrustLevel").asText(null));
+        payload.put("network", firstText(rawNode, canonicalNode, "network"));
+        payload.put("token", firstText(rawNode, canonicalNode, "token"));
+        payload.put("uiMode", firstText(rawNode, canonicalNode, "uiMode"));
+        payload.put("connectionType", firstText(rawNode, canonicalNode, "connectionType"));
+        payload.put("paymentFlow", firstText(rawNode, canonicalNode, "paymentFlow"));
+        payload.put("availableAmount", firstText(rawNode, canonicalNode, "availableAmount"));
+        payload.put("ledgerExecutionMode", firstText(rawNode, canonicalNode, "ledgerExecutionMode"));
+        payload.put("senderAuthRequired", firstText(rawNode, canonicalNode, "senderAuthRequired"));
+        payload.put("dualAmountEntered", firstText(rawNode, canonicalNode, "dualAmountEntered"));
+        payload.put("deviceTrustLevel", firstText(rawNode, canonicalNode, "deviceTrustLevel"));
         return payload;
+    }
+
+    private String firstText(JsonNode primary, JsonNode fallback, String key) {
+        String value = textOrNull(primary, key);
+        return value != null ? value : textOrNull(fallback, key);
+    }
+
+    private String textOrNull(JsonNode node, String key) {
+        if (node == null || !node.isObject()) {
+            return null;
+        }
+        JsonNode valueNode = node.path(key);
+        if (valueNode.isMissingNode() || valueNode.isNull()) {
+            return null;
+        }
+        String value = valueNode.asText(null);
+        if (value == null) {
+            return null;
+        }
+        value = value.trim();
+        return value.isEmpty() ? null : value;
     }
 
     private String readText(Map<String, Object> payload, String key) {

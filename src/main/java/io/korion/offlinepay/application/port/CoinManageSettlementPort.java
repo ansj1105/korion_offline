@@ -17,6 +17,7 @@ public interface CoinManageSettlementPort {
             String deviceId,
             String assetCode,
             BigDecimal amount,
+            BigDecimal feeAmount,
             String settlementStatus,
             String releaseAction,
             boolean conflictDetected,

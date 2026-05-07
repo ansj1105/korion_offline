@@ -9,6 +9,7 @@ public record CoinManageFinalizeSettlementContract(
         String deviceId,
         String assetCode,
         String amount,
+        String feeAmount,
         String settlementStatus,
         String releaseAction,
         boolean conflictDetected,

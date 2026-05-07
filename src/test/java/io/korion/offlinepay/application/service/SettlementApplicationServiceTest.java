@@ -85,6 +85,8 @@ class SettlementApplicationServiceTest {
     private final FoxCoinHistoryPort foxCoinHistoryPort = Mockito.mock(FoxCoinHistoryPort.class);
     private final IssuedProofVerificationService issuedProofVerificationService = Mockito.mock(IssuedProofVerificationService.class);
     private final JsonService jsonService = new JsonService(new ObjectMapper());
+    private final io.korion.offlinepay.application.service.settlement.OfflinePaySettlementFeeCalculator feeCalculator =
+            new io.korion.offlinepay.application.service.settlement.OfflinePaySettlementFeeCalculator();
     private final SettlementApplicationService service = new SettlementApplicationService(
             collateralRepository,
             collateralOperationRepository,
@@ -104,12 +106,13 @@ class SettlementApplicationServiceTest {
             new SettlementBatchFactory(jsonService),
             new SettlementRequestFactory(jsonService),
             new SettlementStreamEventFactory(),
-            new SettlementSyncCommandFactory(new ProofFingerprintService()),
+            new SettlementSyncCommandFactory(new ProofFingerprintService(), feeCalculator),
+            feeCalculator,
             new ProofSchemaValidator(),
             new ProofPayloadConsistencyValidator(jsonService),
             new ProofConflictDetector(jsonService),
             new ProofChainValidator(jsonService, spendingProofHashService),
-            new SettlementPolicyEvaluator(jsonService),
+            new SettlementPolicyEvaluator(jsonService, new io.korion.offlinepay.application.service.settlement.OfflinePaySettlementFeeCalculator()),
             new DeviceSignatureVerificationService(),
             new DeviceBindingVerificationService(jsonService),
             issuedProofVerificationService

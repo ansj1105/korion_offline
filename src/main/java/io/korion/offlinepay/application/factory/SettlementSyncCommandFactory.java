@@ -2,6 +2,7 @@ package io.korion.offlinepay.application.factory;
 
 import io.korion.offlinepay.application.port.CoinManageSettlementPort;
 import io.korion.offlinepay.application.port.FoxCoinHistoryPort;
+import io.korion.offlinepay.application.service.settlement.OfflinePaySettlementFeeCalculator;
 import io.korion.offlinepay.domain.model.CollateralLock;
 import io.korion.offlinepay.domain.model.Device;
 import io.korion.offlinepay.domain.model.OfflinePaymentProof;
@@ -13,9 +14,14 @@ import org.springframework.stereotype.Component;
 public class SettlementSyncCommandFactory {
 
     private final io.korion.offlinepay.application.service.settlement.ProofFingerprintService proofFingerprintService;
+    private final OfflinePaySettlementFeeCalculator feeCalculator;
 
-    public SettlementSyncCommandFactory(io.korion.offlinepay.application.service.settlement.ProofFingerprintService proofFingerprintService) {
+    public SettlementSyncCommandFactory(
+            io.korion.offlinepay.application.service.settlement.ProofFingerprintService proofFingerprintService,
+            OfflinePaySettlementFeeCalculator feeCalculator
+    ) {
         this.proofFingerprintService = proofFingerprintService;
+        this.feeCalculator = feeCalculator;
     }
 
     public CoinManageSettlementPort.SettlementLedgerCommand createLedgerCommand(
@@ -48,6 +54,7 @@ public class SettlementSyncCommandFactory {
                 collateral.deviceId(),
                 collateral.assetCode(),
                 amount,
+                settlementFeeAmount(collateral.assetCode(), amount, settlementStatus, releaseAction),
                 settlementStatus,
                 releaseAction,
                 conflictDetected,
@@ -58,6 +65,13 @@ public class SettlementSyncCommandFactory {
                 proof.nonce(),
                 proof.signature()
         );
+    }
+
+    private BigDecimal settlementFeeAmount(String assetCode, BigDecimal amount, String settlementStatus, String releaseAction) {
+        if (!"SETTLED".equalsIgnoreCase(settlementStatus) || !"RELEASE".equalsIgnoreCase(releaseAction)) {
+            return BigDecimal.ZERO.setScale(6, java.math.RoundingMode.HALF_UP);
+        }
+        return feeCalculator.calculateFee(assetCode, amount);
     }
 
     public FoxCoinHistoryPort.SettlementHistoryCommand createHistoryCommand(

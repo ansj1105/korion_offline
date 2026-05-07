@@ -22,6 +22,7 @@ import io.korion.offlinepay.application.service.settlement.ChainValidationResult
 import io.korion.offlinepay.application.service.settlement.ConflictDetectionResult;
 import io.korion.offlinepay.application.service.settlement.ProofChainValidator;
 import io.korion.offlinepay.application.service.settlement.ProofConflictDetector;
+import io.korion.offlinepay.application.service.settlement.OfflinePaySettlementFeeCalculator;
 import io.korion.offlinepay.application.service.settlement.ProofSchemaValidator;
 import io.korion.offlinepay.application.service.settlement.ProofPayloadConsistencyValidator;
 import io.korion.offlinepay.application.service.settlement.SettlementEvaluation;
@@ -71,6 +72,7 @@ public class SettlementApplicationService {
     private final SettlementRequestFactory settlementRequestFactory;
     private final SettlementStreamEventFactory settlementStreamEventFactory;
     private final SettlementSyncCommandFactory settlementSyncCommandFactory;
+    private final OfflinePaySettlementFeeCalculator feeCalculator;
     private final ProofSchemaValidator proofSchemaValidator;
     private final ProofPayloadConsistencyValidator proofPayloadConsistencyValidator;
     private final ProofConflictDetector proofConflictDetector;
@@ -100,6 +102,7 @@ public class SettlementApplicationService {
             SettlementRequestFactory settlementRequestFactory,
             SettlementStreamEventFactory settlementStreamEventFactory,
             SettlementSyncCommandFactory settlementSyncCommandFactory,
+            OfflinePaySettlementFeeCalculator feeCalculator,
             ProofSchemaValidator proofSchemaValidator,
             ProofPayloadConsistencyValidator proofPayloadConsistencyValidator,
             ProofConflictDetector proofConflictDetector,
@@ -126,6 +129,7 @@ public class SettlementApplicationService {
         this.settlementRequestFactory = settlementRequestFactory;
         this.settlementStreamEventFactory = settlementStreamEventFactory;
         this.settlementSyncCommandFactory = settlementSyncCommandFactory;
+        this.feeCalculator = feeCalculator;
         this.proofSchemaValidator = proofSchemaValidator;
         this.proofPayloadConsistencyValidator = proofPayloadConsistencyValidator;
         this.proofConflictDetector = proofConflictDetector;
@@ -557,7 +561,7 @@ public class SettlementApplicationService {
             OfflinePaymentProof proof,
             SettlementRequest request
     ) {
-        BigDecimal remainingToDeduct = proof.amount();
+        BigDecimal remainingToDeduct = feeCalculator.calculateTotal(primaryCollateral.assetCode(), proof.amount());
         List<CollateralLock> collaterals = collateralRepository.findActiveByUserIdAndDeviceIdAndAssetCode(
                 primaryCollateral.userId(),
                 proof.senderDeviceId(),
@@ -585,6 +589,8 @@ public class SettlementApplicationService {
                             "lastVoucherId", proof.voucherId(),
                             "lastStatus", SettlementStatus.SETTLED.name(),
                             "deductedAmount", deduction.toPlainString(),
+                            "transferAmount", proof.amount().toPlainString(),
+                            "feeAmount", feeCalculator.calculateFee(primaryCollateral.assetCode(), proof.amount()).toPlainString(),
                             "aggregateSettlement", true
                     ))
             );
@@ -726,6 +732,7 @@ public class SettlementApplicationService {
                 Map.entry("deviceId", ledgerCommand.deviceId()),
                 Map.entry("assetCode", ledgerCommand.assetCode()),
                 Map.entry("amount", ledgerCommand.amount()),
+                Map.entry("feeAmount", ledgerCommand.feeAmount()),
                 Map.entry("settlementStatus", ledgerCommand.settlementStatus()),
                 Map.entry("releaseAction", ledgerCommand.releaseAction()),
                 Map.entry("conflictDetected", ledgerCommand.conflictDetected()),
@@ -992,7 +999,7 @@ public class SettlementApplicationService {
         if (evaluation.status() != SettlementStatus.SETTLED) {
             return collateral.status();
         }
-        return proof.amount().compareTo(collateral.remainingAmount()) >= 0
+        return feeCalculator.calculateTotal(collateral.assetCode(), proof.amount()).compareTo(collateral.remainingAmount()) >= 0
                 ? CollateralStatus.RELEASED
                 : CollateralStatus.PARTIALLY_SETTLED;
     }

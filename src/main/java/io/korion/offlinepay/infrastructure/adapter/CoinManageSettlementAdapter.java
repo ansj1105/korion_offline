@@ -32,6 +32,7 @@ public class CoinManageSettlementAdapter implements CoinManageSettlementPort {
                         command.deviceId(),
                         command.assetCode(),
                         command.amount().setScale(6, RoundingMode.HALF_UP).toPlainString(),
+                        command.feeAmount().setScale(6, RoundingMode.HALF_UP).toPlainString(),
                         command.settlementStatus(),
                         command.releaseAction(),
                         command.conflictDetected(),
