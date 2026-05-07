@@ -196,6 +196,26 @@ public class JdbcOfflinePaymentProofRepository implements OfflinePaymentProofRep
     }
 
     @Override
+    public java.util.List<OfflinePaymentProof> findBySenderDeviceUserAndAsset(String senderDeviceId, long userId, String assetCode) {
+        String sql = """
+                SELECT offline_payment_proofs.*
+                FROM offline_payment_proofs
+                JOIN collateral_locks ON collateral_locks.id = offline_payment_proofs.collateral_id
+                WHERE offline_payment_proofs.sender_device_id = :senderDeviceId
+                  AND collateral_locks.user_id = :userId
+                  AND UPPER(collateral_locks.asset_code) = :assetCode
+                ORDER BY offline_payment_proofs.counter ASC,
+                         offline_payment_proofs.created_at ASC
+                """;
+        return jdbcClient.sql(sql)
+                .param("senderDeviceId", senderDeviceId)
+                .param("userId", userId)
+                .param("assetCode", assetCode == null || assetCode.isBlank() ? "KORI" : assetCode.trim().toUpperCase())
+                .query(offlinePaymentProofRowMapper)
+                .list();
+    }
+
+    @Override
     public java.util.List<OfflinePaymentProof> findRecent(int size, OfflineProofStatus status, String channelType) {
         QueryBuilder.SelectBuilder builder = QueryBuilder.select("offline_payment_proofs");
         if (status != null) {

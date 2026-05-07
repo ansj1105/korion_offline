@@ -505,7 +505,7 @@ public class SettlementApplicationService {
             );
         }
 
-        List<OfflinePaymentProof> existingProofs = proofRepository.findByCollateralId(proof.collateralId()).stream()
+        List<OfflinePaymentProof> existingProofs = findExistingProofChain(collateral, proof).stream()
                 .filter(existing -> !existing.id().equals(proof.id()))
                 .toList();
 
@@ -529,6 +529,18 @@ public class SettlementApplicationService {
         );
 
         return settlementPolicyEvaluator.evaluate(proof, collateral, device);
+    }
+
+    private List<OfflinePaymentProof> findExistingProofChain(CollateralLock collateral, OfflinePaymentProof proof) {
+        List<OfflinePaymentProof> senderAssetProofs = proofRepository.findBySenderDeviceUserAndAsset(
+                proof.senderDeviceId(),
+                collateral.userId(),
+                collateral.assetCode()
+        );
+        if (senderAssetProofs != null && !senderAssetProofs.isEmpty()) {
+            return senderAssetProofs;
+        }
+        return proofRepository.findByCollateralId(proof.collateralId());
     }
 
     private CollateralLock resolveSettlementCollateralScope(CollateralLock primaryCollateral, OfflinePaymentProof proof) {

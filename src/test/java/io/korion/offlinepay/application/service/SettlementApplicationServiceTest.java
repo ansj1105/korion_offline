@@ -331,7 +331,7 @@ class SettlementApplicationServiceTest {
                 "USDT",
                 new BigDecimal("130"),
                 new BigDecimal("130"),
-                "GENESIS",
+                "AGGREGATED",
                 1,
                 CollateralStatus.LOCKED,
                 "lock-primary,lock-secondary",
@@ -441,6 +441,164 @@ class SettlementApplicationServiceTest {
         verify(collateralRepository).deductLockedAndRemainingAmount(eq("collateral-primary"), eq(new BigDecimal("80")));
         verify(collateralRepository).deductLockedAndRemainingAmount(eq("collateral-secondary"), eq(new BigDecimal("40")));
         assertEquals(SettlementStatus.SETTLED, result.status());
+    }
+
+    @Test
+    void settledProofCanContinueDeviceAssetChainAcrossNewCollateralRows() {
+        SettlementRequest request = new SettlementRequest(
+                "settlement-cross-chain",
+                "batch-cross-chain",
+                "collateral-new",
+                "proof-cross-chain",
+                SettlementStatus.VALIDATING,
+                null,
+                false,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        CollateralLock primaryCollateral = new CollateralLock(
+                "collateral-new",
+                77L,
+                "device-1",
+                "USDT",
+                new BigDecimal("6"),
+                new BigDecimal("6"),
+                "GENESIS",
+                1,
+                CollateralStatus.LOCKED,
+                "lock-new",
+                OffsetDateTime.now().plusDays(1),
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        CollateralLock aggregateCollateral = new CollateralLock(
+                "collateral-new",
+                77L,
+                "device-1",
+                "USDT",
+                new BigDecimal("6"),
+                new BigDecimal("6"),
+                "AGGREGATED",
+                1,
+                CollateralStatus.LOCKED,
+                "lock-new",
+                OffsetDateTime.now().plusDays(1),
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        String previousHash = spendingProofHashService.computeNewStateHash(
+                "GENESIS",
+                new BigDecimal("1"),
+                20L,
+                "device-1",
+                "nonce-previous"
+        );
+        String incomingHash = spendingProofHashService.computeNewStateHash(
+                previousHash,
+                new BigDecimal("1"),
+                21L,
+                "device-1",
+                "nonce-current"
+        );
+        long proofTimestamp = System.currentTimeMillis();
+        long proofExpiresAt = proofTimestamp + 60_000;
+        OfflinePaymentProof previousProof = new OfflinePaymentProof(
+                "proof-previous",
+                "batch-previous",
+                "voucher-previous",
+                "collateral-old",
+                "device-1",
+                "device-2",
+                1,
+                1,
+                20L,
+                "nonce-previous",
+                previousHash,
+                "GENESIS",
+                "local_sig_previous",
+                new BigDecimal("1"),
+                proofTimestamp - 1_000,
+                proofExpiresAt,
+                "{\"voucherId\":\"voucher-previous\"}",
+                "SENDER",
+                "{}",
+                OffsetDateTime.now()
+        );
+        OfflinePaymentProof incomingProof = new OfflinePaymentProof(
+                "proof-cross-chain",
+                "batch-cross-chain",
+                "voucher-cross-chain",
+                "collateral-new",
+                "device-1",
+                "device-2",
+                1,
+                1,
+                21L,
+                "nonce-current",
+                incomingHash,
+                previousHash,
+                "local_sig_current",
+                new BigDecimal("1"),
+                proofTimestamp,
+                proofExpiresAt,
+                "{\"voucherId\":\"voucher-cross-chain\",\"counterpartyDeviceId\":\"device-2\"}",
+                "SENDER",
+                "{\"voucherId\":\"voucher-cross-chain\",\"deviceId\":\"device-1\",\"counterpartyDeviceId\":\"device-2\",\"amount\":\"1\",\"expiresAt\":\""
+                        + proofExpiresAt
+                        + "\",\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"6\",\"uiMode\":\"SEND\",\"connectionType\":\"FAST_CONTACT\",\"paymentFlow\":\"FAST_PAYMENT\",\"senderAuthRequired\":true,\"ledgerExecutionMode\":\"INTERNAL_LEDGER_ONLY\",\"dualAmountEntered\":false,\"spendingProof\":{\"deviceId\":\"device-1\",\"amount\":\"1\",\"monotonicCounter\":\"21\",\"nonce\":\"nonce-current\",\"newStateHash\":\""
+                        + incomingHash
+                        + "\",\"prevStateHash\":\""
+                        + previousHash
+                        + "\",\"signature\":\"local_sig_current\",\"timestamp\":\""
+                        + proofTimestamp
+                        + "\"}}",
+                OffsetDateTime.now()
+        );
+        SettlementRequest settled = new SettlementRequest(
+                "settlement-cross-chain",
+                "batch-cross-chain",
+                "collateral-new",
+                "proof-cross-chain",
+                SettlementStatus.SETTLED,
+                "SETTLED",
+                false,
+                "{\"releaseAction\":\"RELEASE\"}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        Device device = new Device(
+                "row-1",
+                "device-1",
+                77L,
+                "public-key",
+                1,
+                DeviceStatus.ACTIVE,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+
+        when(settlementRepository.findById("settlement-cross-chain"))
+                .thenReturn(Optional.of(request))
+                .thenReturn(Optional.of(settled));
+        when(collateralRepository.findById("collateral-new")).thenReturn(Optional.of(primaryCollateral));
+        when(collateralRepository.findAggregateByUserIdAndDeviceIdAndAssetCode(77L, "device-1", "USDT"))
+                .thenReturn(Optional.of(aggregateCollateral));
+        when(collateralRepository.findActiveByUserIdAndDeviceIdAndAssetCode(77L, "device-1", "USDT"))
+                .thenReturn(java.util.List.of(primaryCollateral));
+        when(proofRepository.findById("proof-cross-chain")).thenReturn(Optional.of(incomingProof));
+        when(proofRepository.findBySenderDeviceUserAndAsset("device-1", 77L, "USDT"))
+                .thenReturn(java.util.List.of(previousProof, incomingProof));
+        when(deviceRepository.findByDeviceId("device-1")).thenReturn(Optional.of(device));
+        when(settlementResultRepository.existsByVoucherId("voucher-cross-chain")).thenReturn(false);
+
+        SettlementRequest result = service.finalizeSettlement("settlement-cross-chain");
+
+        assertEquals(SettlementStatus.SETTLED, result.status());
+        verify(collateralRepository).deductLockedAndRemainingAmount(eq("collateral-new"), eq(new BigDecimal("1")));
     }
 
     @Test

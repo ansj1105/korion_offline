@@ -87,4 +87,51 @@ class ProofChainValidatorTest {
 
         assertTrue(result.valid());
     }
+
+    @Test
+    void validateAcceptsGenesisLinkForAggregateCollateralFirstProof() {
+        CollateralLock aggregateCollateral = new CollateralLock(
+                "collateral-aggregate",
+                1L,
+                "device-1",
+                "KORI",
+                new BigDecimal("10.00000000"),
+                new BigDecimal("10.00000000"),
+                "AGGREGATED",
+                1,
+                CollateralStatus.LOCKED,
+                "lock-1,lock-2",
+                OffsetDateTime.now().plusDays(1),
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        String newHash = hashService.computeNewStateHash("GENESIS", new BigDecimal("1"), 1, "device-1", "nonce-1");
+        OfflinePaymentProof proof = new OfflinePaymentProof(
+                "proof-1",
+                "batch-1",
+                "voucher-1",
+                "collateral-1",
+                "device-1",
+                "receiver-device",
+                1,
+                1,
+                1,
+                "nonce-1",
+                newHash,
+                "GENESIS",
+                "signature",
+                new BigDecimal("1.00000000"),
+                System.currentTimeMillis(),
+                System.currentTimeMillis() + 60_000,
+                "{}",
+                "SENDER",
+                "{}",
+                OffsetDateTime.now()
+        );
+
+        ChainValidationResult result = validator.validate(aggregateCollateral, List.of(), proof);
+
+        assertTrue(result.valid());
+    }
 }

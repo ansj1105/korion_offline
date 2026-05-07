@@ -53,7 +53,7 @@ public class ProofChainValidator {
             if (incomingProof.monotonicCounter() != 1) {
                 return new ChainValidationResult(false, OfflinePayReasonCode.INVALID_GENESIS_COUNTER, "{}");
             }
-            if (!collateral.initialStateRoot().equals(incomingProof.prevStateHash())) {
+            if (!matchesInitialStateRoot(collateral, incomingProof)) {
                 return new ChainValidationResult(false, OfflinePayReasonCode.INVALID_GENESIS_LINK, "{}");
             }
             return ChainValidationResult.success();
@@ -83,5 +83,13 @@ public class ProofChainValidator {
             );
         }
         return ChainValidationResult.success();
+    }
+
+    private boolean matchesInitialStateRoot(CollateralLock collateral, OfflinePaymentProof incomingProof) {
+        if (collateral.initialStateRoot().equals(incomingProof.prevStateHash())) {
+            return true;
+        }
+        return "AGGREGATED".equals(collateral.initialStateRoot())
+                && "GENESIS".equals(incomingProof.prevStateHash());
     }
 }
