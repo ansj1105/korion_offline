@@ -39,8 +39,8 @@ public record SubmitSettlementBatchRequest(
                                 proof.prevHash(),
                                 proof.signature(),
                                 proof.amount(),
-                                proof.timestamp(),
-                                proof.expiresAt(),
+                                normalizeEpochMillis(proof.timestamp()),
+                                normalizeEpochMillis(proof.expiresAt()),
                                 proof.canonicalPayload(),
                                 proof.payload()
                         ))
@@ -67,4 +67,11 @@ public record SubmitSettlementBatchRequest(
             String canonicalPayload,
             @NotNull Map<String, Object> payload
     ) {}
+
+    private static long normalizeEpochMillis(long value) {
+        if (value > 0 && value < 10_000_000_000L) {
+            return value * 1000L;
+        }
+        return value;
+    }
 }

@@ -54,10 +54,10 @@ public class ProofPayloadConsistencyValidator {
         if (mismatch(text(spendingProof, "signature"), proof.signature())) {
             return invalid(OfflinePayReasonCode.PAYLOAD_SIGNATURE_MISMATCH, proof, "signature mismatch");
         }
-        if (mismatch(longValue(spendingProof, "timestamp"), proof.timestampMs())) {
+        if (mismatchEpochMillis(longValue(spendingProof, "timestamp"), proof.timestampMs())) {
             return invalid(OfflinePayReasonCode.PAYLOAD_TIMESTAMP_MISMATCH, proof, "timestamp mismatch");
         }
-        if (mismatch(longValue(rawPayload, "expiresAt"), proof.expiresAtMs())) {
+        if (mismatchEpochMillis(longValue(rawPayload, "expiresAt"), proof.expiresAtMs())) {
             return invalid(OfflinePayReasonCode.PAYLOAD_EXPIRY_MISMATCH, proof, "expiry mismatch");
         }
         if (text(rawPayload, "payloadHash") != null
@@ -164,6 +164,17 @@ public class ProofPayloadConsistencyValidator {
 
     private boolean mismatch(Long payloadValue, long actualValue) {
         return payloadValue != null && payloadValue != actualValue;
+    }
+
+    private boolean mismatchEpochMillis(Long payloadValue, long actualValue) {
+        return payloadValue != null && normalizeEpochMillis(payloadValue) != normalizeEpochMillis(actualValue);
+    }
+
+    private long normalizeEpochMillis(long value) {
+        if (value > 0 && value < 10_000_000_000L) {
+            return value * 1000L;
+        }
+        return value;
     }
 
     private boolean isBlank(String value) {

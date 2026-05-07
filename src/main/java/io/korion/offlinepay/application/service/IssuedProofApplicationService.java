@@ -63,15 +63,18 @@ public class IssuedProofApplicationService {
                 : command.assetCode().trim().toUpperCase();
         Device device = deviceRepository.findByUserIdAndDeviceId(command.userId(), command.deviceId())
                 .orElseThrow(() -> new IllegalArgumentException("device binding mismatch: " + command.deviceId()));
-        List<CollateralLock> collaterals = resolveIssuableCollaterals(command.userId(), command.deviceId(), normalizedAssetCode);
+        OffsetDateTime issuedAt = OffsetDateTime.now();
+        List<CollateralLock> collaterals = filterUnexpiredCollaterals(
+                resolveIssuableCollaterals(command.userId(), command.deviceId(), normalizedAssetCode),
+                issuedAt
+        );
         CollateralLock collateral = selectPrimaryCollateral(collaterals)
-                .orElseThrow(() -> new IllegalArgumentException("collateral not found for asset: " + normalizedAssetCode));
+                .orElseThrow(() -> new IllegalArgumentException("collateral expired for asset: " + normalizedAssetCode));
         BigDecimal usableAmount = collaterals.stream()
                 .map(CollateralLock::remainingAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        OffsetDateTime issuedAt = OffsetDateTime.now();
-        OffsetDateTime expiresAt = resolveAggregateExpiresAt(collaterals)
+        OffsetDateTime expiresAt = resolveAggregateExpiresAt(collaterals, issuedAt)
                 .orElse(issuedAt.plusHours(properties.defaultCollateralExpiryHours()));
         String proofId = UUID.randomUUID().toString();
         String nonce = "proof_" + UUID.randomUUID().toString().replace("-", "");
@@ -123,6 +126,7 @@ public class IssuedProofApplicationService {
                 issued.issuerPublicKey(),
                 issued.issuerSignature(),
                 issued.issuedPayloadJson(),
+                issued.status().name(),
                 issued.expiresAt().toString(),
                 issued.createdAt().toString(),
                 collateralLockIds
@@ -209,10 +213,17 @@ public class IssuedProofApplicationService {
                 .max(Comparator.comparing(CollateralLock::remainingAmount));
     }
 
-    private Optional<OffsetDateTime> resolveAggregateExpiresAt(List<CollateralLock> collaterals) {
+    private List<CollateralLock> filterUnexpiredCollaterals(List<CollateralLock> collaterals, OffsetDateTime issuedAt) {
+        return collaterals.stream()
+                .filter(collateral -> collateral.expiresAt() == null || collateral.expiresAt().isAfter(issuedAt))
+                .toList();
+    }
+
+    private Optional<OffsetDateTime> resolveAggregateExpiresAt(List<CollateralLock> collaterals, OffsetDateTime issuedAt) {
         return collaterals.stream()
                 .map(CollateralLock::expiresAt)
                 .filter(java.util.Objects::nonNull)
+                .filter(expiresAt -> expiresAt.isAfter(issuedAt))
                 .min(Comparator.naturalOrder());
     }
 
@@ -252,6 +263,7 @@ public class IssuedProofApplicationService {
             String issuerPublicKey,
             String issuerSignature,
             String issuedPayload,
+            String status,
             String expiresAt,
             String issuedAt,
             List<String> collateralLockIds
