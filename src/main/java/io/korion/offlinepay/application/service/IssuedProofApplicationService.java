@@ -9,6 +9,7 @@ import io.korion.offlinepay.domain.model.CollateralDeviceRebindCandidate;
 import io.korion.offlinepay.domain.model.CollateralLock;
 import io.korion.offlinepay.domain.model.Device;
 import io.korion.offlinepay.domain.model.IssuedOfflineProof;
+import io.korion.offlinepay.domain.status.CollateralStatus;
 import io.korion.offlinepay.domain.status.IssuedProofStatus;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -65,7 +66,7 @@ public class IssuedProofApplicationService {
                 .orElseThrow(() -> new IllegalArgumentException("device binding mismatch: " + command.deviceId()));
         OffsetDateTime issuedAt = OffsetDateTime.now();
         List<CollateralLock> collaterals = filterUnexpiredCollaterals(
-                resolveIssuableCollaterals(command.userId(), command.deviceId(), normalizedAssetCode),
+                resolveIssuableCollaterals(command.userId(), command.deviceId(), normalizedAssetCode, issuedAt),
                 issuedAt
         );
         CollateralLock collateral = selectPrimaryCollateral(collaterals)
@@ -133,8 +134,9 @@ public class IssuedProofApplicationService {
         );
     }
 
-    private List<CollateralLock> resolveIssuableCollaterals(long userId, String deviceId, String assetCode) {
+    private List<CollateralLock> resolveIssuableCollaterals(long userId, String deviceId, String assetCode, OffsetDateTime issuedAt) {
         syncUserAssetCollateralsToDevice(userId, deviceId, assetCode, "ON_DEMAND_PROOF_ISSUE");
+        renewExpiredCollateralsForCurrentSecurityDevice(userId, deviceId, assetCode, issuedAt);
         return collateralRepository.findActiveByUserIdAndDeviceIdAndAssetCode(userId, deviceId, assetCode);
     }
 
@@ -193,6 +195,40 @@ public class IssuedProofApplicationService {
         }
     }
 
+    private void renewExpiredCollateralsForCurrentSecurityDevice(long userId, String deviceId, String assetCode, OffsetDateTime issuedAt) {
+        List<CollateralLock> collaterals = collateralRepository.findActiveByUserIdAndDeviceIdAndAssetCode(userId, deviceId, assetCode);
+        boolean foundRenewableCollateral = false;
+        boolean blockedBySettlement = false;
+        OffsetDateTime renewedExpiresAt = issuedAt.plusHours(properties.defaultCollateralExpiryHours());
+        for (CollateralLock collateral : collaterals) {
+            if (!isRenewableExpiredCollateral(collateral, issuedAt)) {
+                continue;
+            }
+            if (hasOpenSettlement(collateral)) {
+                blockedBySettlement = true;
+                continue;
+            }
+            foundRenewableCollateral = true;
+            collateralRepository.renewExpiry(
+                    collateral.id(),
+                    issuedAt,
+                    renewedExpiresAt,
+                    buildCollateralRenewalMetadata(deviceId, "ON_DEMAND_PROOF_ISSUE")
+            );
+        }
+        if (!foundRenewableCollateral && blockedBySettlement && filterUnexpiredCollaterals(collaterals, issuedAt).isEmpty()) {
+            throw new IllegalArgumentException("collateral renewal blocked: pending settlement exists");
+        }
+    }
+
+    private boolean isRenewableExpiredCollateral(CollateralLock collateral, OffsetDateTime issuedAt) {
+        return (collateral.status() == CollateralStatus.LOCKED
+                || collateral.status() == CollateralStatus.PARTIALLY_SETTLED)
+                && collateral.remainingAmount().signum() > 0
+                && collateral.expiresAt() != null
+                && !collateral.expiresAt().isAfter(issuedAt);
+    }
+
     private boolean hasOpenSettlement(CollateralLock collateral) {
         return settlementRepository.existsOpenByCollateralId(collateral.id());
     }
@@ -204,6 +240,16 @@ public class IssuedProofApplicationService {
                         "previousDeviceId", previousDeviceId,
                         "targetDeviceId", targetDeviceId,
                         "syncedAt", OffsetDateTime.now().toString()
+                )
+        ));
+    }
+
+    private String buildCollateralRenewalMetadata(String deviceId, String reason) {
+        return jsonService.write(Map.of(
+                "expiryRenewal", Map.of(
+                        "reason", reason,
+                        "deviceId", deviceId,
+                        "renewedAt", OffsetDateTime.now().toString()
                 )
         ));
     }

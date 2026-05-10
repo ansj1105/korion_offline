@@ -40,6 +40,8 @@ public interface CollateralRepository {
 
     boolean rebindDevice(String collateralId, String previousDeviceId, String targetDeviceId, String metadataJson);
 
+    boolean renewExpiry(String collateralId, OffsetDateTime referenceTime, OffsetDateTime expiresAt, String metadataJson);
+
     void deductLockedAndRemainingAmount(String collateralId, BigDecimal amount);
 
     void updateStatus(String collateralId, CollateralStatus status, String metadataJson);

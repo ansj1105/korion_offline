@@ -259,6 +259,26 @@ public class JdbcCollateralRepository implements CollateralRepository {
     }
 
     @Override
+    public boolean renewExpiry(String collateralId, OffsetDateTime referenceTime, OffsetDateTime expiresAt, String metadataJson) {
+        String sql = QueryBuilder.update("collateral_locks")
+                .set("expires_at", ":expiresAt")
+                .set("metadata", "COALESCE(metadata, '{}'::jsonb) || CAST(:metadata AS jsonb)")
+                .touchUpdatedAt()
+                .where("id", QueryBuilder.Op.EQ, "CAST(:id AS uuid)")
+                .where("remaining_amount", QueryBuilder.Op.GT, ":zero")
+                .where("expires_at", QueryBuilder.Op.LTE, ":referenceTime")
+                .where("status IN ('LOCKED', 'PARTIALLY_SETTLED')")
+                .build();
+        return jdbcClient.sql(sql)
+                .param("id", collateralId)
+                .param("zero", BigDecimal.ZERO)
+                .param("referenceTime", referenceTime)
+                .param("expiresAt", expiresAt)
+                .param("metadata", metadataJson)
+                .update() > 0;
+    }
+
+    @Override
     public void deductLockedAndRemainingAmount(String collateralId, BigDecimal amount) {
         String sql = QueryBuilder.update("collateral_locks")
                 .set("locked_amount", "GREATEST(locked_amount - :amount, 0)")
