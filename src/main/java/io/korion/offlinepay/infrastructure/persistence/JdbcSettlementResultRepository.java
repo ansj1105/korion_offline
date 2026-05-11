@@ -60,6 +60,14 @@ public class JdbcSettlementResultRepository implements SettlementResultRepositor
                 )
                 .value("detail", "CAST(:detail AS jsonb)")
                 .build();
+        sql = sql + """
+                ON CONFLICT (settlement_id) DO UPDATE SET
+                    status = EXCLUDED.status,
+                    reason_code = EXCLUDED.reason_code,
+                    detail = settlements.detail || EXCLUDED.detail,
+                    settled_amount = EXCLUDED.settled_amount,
+                    processed_at = NOW()
+                """;
         jdbcClient.sql(sql)
                 .param("settlement_id", java.util.UUID.fromString(settlementId))
                 .param("batch_id", java.util.UUID.fromString(batchId))
@@ -73,10 +81,13 @@ public class JdbcSettlementResultRepository implements SettlementResultRepositor
                 .param("settled_amount", settledAmount)
                 .update();
 
-        return findByBatchId(batchId).stream()
-                .filter(item -> item.voucherId().equals(proof.voucherId()))
-                .findFirst()
-                .orElseThrow();
+        String selectSql = QueryBuilder.select("settlements")
+                .where("settlement_id", QueryBuilder.Op.EQ, ":settlementId")
+                .build();
+        return jdbcClient.sql(selectSql)
+                .param("settlementId", java.util.UUID.fromString(settlementId))
+                .query(settlementResultRowMapper)
+                .single();
     }
 
     private String normalizeReasonCode(SettlementStatus status, String reasonCode) {

@@ -46,6 +46,8 @@
 - `foxya_coin_service` 운영 서버는 현재 `52.200.97.155`이고 앱 루트는 `/var/www/fox_coin`이다.
 - 서비스 재배포 시 먼저 원격 앱 루트와 Docker Compose 위치를 확인하고, 이후 `git pull` + `sudo docker compose up -d --build` 순서를 사용한다.
 - Telegram 같은 운영 비밀값은 레포에 커밋하지 않고 각 서버 `.env`에만 유지한다.
+- `offline_pay -> coin_manage` 연동에서 `content type [application/octet-stream]` 파싱 오류가 나면 먼저 `coin_manage`의 Postgres/Redis/worker 상태를 확인한다. 2026-05-12 장애에서는 `coin_manage` Postgres/Redis가 exited 상태였고 worker가 DB DNS 실패로 재시작 중이었다.
+- settlement dead-letter/manual retry는 같은 `settlement_id`가 재처리될 수 있으므로 저장 로직은 idempotent 해야 한다. 재시도 경로에서 기존 settlement row가 있으면 중복 insert로 실패하지 않고 상태/detail을 갱신해야 한다.
 - `coin_manage` 운영 Postgres는 standby가 실제로 붙어 있지 않으면 `synchronous_standby_names`를 비워야 한다. standby 없이 `FIRST 1 (...)`가 남아 있으면 commit이 `SyncRep`에 걸리고 `offline_pay` collateral `lock/release`가 advisory lock chain 뒤에서 timeout 난다.
 - `offline_pay` collateral dead-letter가 `application/octet-stream` parse error에서 `Read timed out`로 바뀌면, 우선 `coin_manage` Postgres의 `show synchronous_standby_names;`, `pg_stat_replication`, `pg_stat_activity`를 확인한다.
 
