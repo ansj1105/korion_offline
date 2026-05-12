@@ -102,3 +102,9 @@
 - 오프라인 페이 변경은 `offline_pay`만 보지 말고 `coin_manage`, `foxya_coin_service`, `coin_csms`, `coin_publish`, `coin_front`까지 영향 범위를 같이 본다.
 - API contract, 상태값, reason code, worker 흐름이 바뀌면 연동 서비스와 관리자 화면도 함께 갱신한다.
 - DB 스키마가 바뀌면 반드시 Flyway 또는 해당 저장소의 migration 체계를 같은 작업에서 반영한다.
+
+## Workspace Repo Map Updates
+- `kori_hompage`는 `/home/ubuntu/work/kori_hompage`에 clone되어 있으며 KORION public Vite React 사이트다. `npm run build`는 sitemap 생성 후 Vite build를 수행한다.
+- `coin_csms`는 `/home/ubuntu/work/coin_csms`에 clone되어 있으며 `coin_front` admin routes의 `/api/v2/admin/...` bridge API다. 관리자 화면에서 `coin_manage`/`foxya` 내부 API를 직접 호출하지 말고 여기서 인증된 thin bridge를 둔다.
+- `alarm_service`는 `/home/ubuntu/work/alarm_service`에 clone되어 있으며 KORION web/API/PostgreSQL 상태를 Telegram으로 알리는 Python 모니터다. 운영 기본 경로는 `/var/www/alarm_service`다.
+- 세 레포 모두 운영 비밀값은 `.env` 또는 서버 환경에만 두고 AGENTS, README, 테스트 fixture에 실제 토큰/키를 기록하지 않는다.
