@@ -41,6 +41,7 @@
 
 ## Ops Notes
 - `offline_pay` 운영 서버는 현재 `98.91.96.182`이고 앱 루트는 `/var/www/korion_offline`이다.
+- Current production `offline_pay` containers are `korion_offline-app-api-1`, `korion_offline-app-worker-1`, `korion_offline-nginx-1`, `korion_offline-postgres-1`, and `korion_offline-redis-1`.
 - `offline_pay` 서버 접속은 현재 `ubuntu@98.91.96.182` + `korion.pem` 경로로 확인됐다.
 - `coin_manage` 운영 서버는 현재 `54.83.183.123`이고 앱 루트는 `/var/www/korion`이다.
 - `foxya_coin_service` 운영 서버는 현재 `52.200.97.155`이고 앱 루트는 `/var/www/fox_coin`이다.
