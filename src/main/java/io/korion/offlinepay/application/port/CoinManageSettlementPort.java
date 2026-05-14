@@ -15,6 +15,8 @@ public interface CoinManageSettlementPort {
             String proofId,
             long userId,
             String deviceId,
+            Long receiverUserId,
+            String receiverDeviceId,
             String assetCode,
             BigDecimal amount,
             BigDecimal feeAmount,

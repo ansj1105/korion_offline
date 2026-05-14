@@ -7,6 +7,8 @@ public record CoinManageFinalizeSettlementContract(
         String proofId,
         String userId,
         String deviceId,
+        String receiverUserId,
+        String receiverDeviceId,
         String assetCode,
         String amount,
         String feeAmount,

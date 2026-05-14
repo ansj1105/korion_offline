@@ -672,6 +672,12 @@ public class SettlementApplicationService {
             );
         }
 
+        // receiver history/ledger credit: only when receiver device is registered in our system and settlement is SETTLED
+        Device receiverDevice = null;
+        if (evaluation.status() == SettlementStatus.SETTLED) {
+            receiverDevice = deviceRepository.findByDeviceId(proof.receiverDeviceId()).orElse(null);
+        }
+
         CoinManageSettlementPort.SettlementLedgerCommand ledgerCommand = settlementSyncCommandFactory.createLedgerCommand(
                 collateral,
                 proof,
@@ -679,7 +685,8 @@ public class SettlementApplicationService {
                 request,
                 evaluation.status().name(),
                 evaluation.releaseAction(),
-                evaluation.conflictDetected()
+                evaluation.conflictDetected(),
+                receiverDevice
         );
         FoxCoinHistoryPort.SettlementHistoryCommand historyCommand = settlementSyncCommandFactory.createHistoryCommand(
                 collateral,
@@ -689,19 +696,16 @@ public class SettlementApplicationService {
                 evaluation.status().name(),
                 evaluation.conflictDetected()
         );
-        // receiver history: only when receiver device is registered in our system and settlement is SETTLED
         FoxCoinHistoryPort.SettlementHistoryCommand receiverHistoryCommand = null;
-        if (evaluation.status() == SettlementStatus.SETTLED) {
-            receiverHistoryCommand = deviceRepository.findByDeviceId(proof.receiverDeviceId())
-                    .map(receiverDevice -> settlementSyncCommandFactory.createReceiverHistoryCommand(
+        if (receiverDevice != null) {
+            receiverHistoryCommand = settlementSyncCommandFactory.createReceiverHistoryCommand(
                             collateral,
                             proof.id(),
                             proof.amount(),
                             request,
                             evaluation.status().name(),
                             receiverDevice
-                    ))
-                    .orElse(null);
+                    );
         }
 
         Map<String, Object> historyCommandMap = Map.ofEntries(
@@ -723,26 +727,32 @@ public class SettlementApplicationService {
         eventPayload.put("batchId", request.batchId());
         eventPayload.put("proofId", proof.id());
         eventPayload.put("voucherId", proof.voucherId());
-        eventPayload.put("ledgerCommand", Map.ofEntries(
-                Map.entry("settlementId", ledgerCommand.settlementId()),
-                Map.entry("batchId", ledgerCommand.batchId()),
-                Map.entry("collateralId", ledgerCommand.collateralId()),
-                Map.entry("proofId", ledgerCommand.proofId()),
-                Map.entry("userId", ledgerCommand.userId()),
-                Map.entry("deviceId", ledgerCommand.deviceId()),
-                Map.entry("assetCode", ledgerCommand.assetCode()),
-                Map.entry("amount", ledgerCommand.amount()),
-                Map.entry("feeAmount", ledgerCommand.feeAmount()),
-                Map.entry("settlementStatus", ledgerCommand.settlementStatus()),
-                Map.entry("releaseAction", ledgerCommand.releaseAction()),
-                Map.entry("conflictDetected", ledgerCommand.conflictDetected()),
-                Map.entry("proofFingerprint", ledgerCommand.proofFingerprint()),
-                Map.entry("newStateHash", ledgerCommand.newStateHash()),
-                Map.entry("previousHash", ledgerCommand.previousHash()),
-                Map.entry("monotonicCounter", ledgerCommand.monotonicCounter()),
-                Map.entry("nonce", ledgerCommand.nonce()),
-                Map.entry("signature", ledgerCommand.signature())
-        ));
+        Map<String, Object> ledgerCommandMap = new java.util.LinkedHashMap<>();
+        ledgerCommandMap.put("settlementId", ledgerCommand.settlementId());
+        ledgerCommandMap.put("batchId", ledgerCommand.batchId());
+        ledgerCommandMap.put("collateralId", ledgerCommand.collateralId());
+        ledgerCommandMap.put("proofId", ledgerCommand.proofId());
+        ledgerCommandMap.put("userId", ledgerCommand.userId());
+        ledgerCommandMap.put("deviceId", ledgerCommand.deviceId());
+        if (ledgerCommand.receiverUserId() != null) {
+            ledgerCommandMap.put("receiverUserId", ledgerCommand.receiverUserId());
+        }
+        if (ledgerCommand.receiverDeviceId() != null) {
+            ledgerCommandMap.put("receiverDeviceId", ledgerCommand.receiverDeviceId());
+        }
+        ledgerCommandMap.put("assetCode", ledgerCommand.assetCode());
+        ledgerCommandMap.put("amount", ledgerCommand.amount());
+        ledgerCommandMap.put("feeAmount", ledgerCommand.feeAmount());
+        ledgerCommandMap.put("settlementStatus", ledgerCommand.settlementStatus());
+        ledgerCommandMap.put("releaseAction", ledgerCommand.releaseAction());
+        ledgerCommandMap.put("conflictDetected", ledgerCommand.conflictDetected());
+        ledgerCommandMap.put("proofFingerprint", ledgerCommand.proofFingerprint());
+        ledgerCommandMap.put("newStateHash", ledgerCommand.newStateHash());
+        ledgerCommandMap.put("previousHash", ledgerCommand.previousHash());
+        ledgerCommandMap.put("monotonicCounter", ledgerCommand.monotonicCounter());
+        ledgerCommandMap.put("nonce", ledgerCommand.nonce());
+        ledgerCommandMap.put("signature", ledgerCommand.signature());
+        eventPayload.put("ledgerCommand", ledgerCommandMap);
         eventPayload.put("historyCommand", historyCommandMap);
         if (receiverHistoryCommand != null) {
             eventPayload.put("receiverHistoryCommand", Map.ofEntries(
