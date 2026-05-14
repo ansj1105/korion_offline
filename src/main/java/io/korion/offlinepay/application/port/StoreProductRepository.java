@@ -11,6 +11,8 @@ public interface StoreProductRepository {
 
     Optional<StoreProduct> findByUserIdAndId(long userId, long productId);
 
+    int countByUserId(long userId);
+
     int nextSortOrder(long userId);
 
     StoreProduct save(

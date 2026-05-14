@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.korion.offlinepay.application.port.CoinManageCollateralPort;
 import io.korion.offlinepay.application.port.CoinManageSettlementPort;
 import io.korion.offlinepay.application.port.FoxCoinHistoryPort;
+import io.korion.offlinepay.application.port.FoxCoinStoreProductPolicyPort;
 import io.korion.offlinepay.application.port.FoxCoinWalletSnapshotPort;
 import io.korion.offlinepay.application.port.SettlementBatchEventBus;
 import io.korion.offlinepay.application.service.SimpleCircuitBreaker;
@@ -14,6 +15,7 @@ import io.korion.offlinepay.infrastructure.adapter.CircuitBreakingCoinManageColl
 import io.korion.offlinepay.infrastructure.adapter.CircuitBreakingCoinManageSettlementAdapter;
 import io.korion.offlinepay.infrastructure.adapter.CircuitBreakingFoxCoinHistoryAdapter;
 import io.korion.offlinepay.infrastructure.adapter.FoxCoinHistoryAdapter;
+import io.korion.offlinepay.infrastructure.adapter.FoxCoinStoreProductPolicyAdapter;
 import io.korion.offlinepay.infrastructure.adapter.FoxCoinWalletSnapshotAdapter;
 import io.korion.offlinepay.infrastructure.events.JdbcSettlementBatchEventBus;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
@@ -120,6 +122,14 @@ public class InfrastructureFactoryConfig {
             AppProperties properties
     ) {
         return new FoxCoinWalletSnapshotAdapter(foxCoinRestClient, properties.foxCoin().apiKey());
+    }
+
+    @Bean
+    public FoxCoinStoreProductPolicyPort foxCoinStoreProductPolicyPort(
+            RestClient foxCoinRestClient,
+            AppProperties properties
+    ) {
+        return new FoxCoinStoreProductPolicyAdapter(foxCoinRestClient, properties.foxCoin().apiKey());
     }
 
     @Bean

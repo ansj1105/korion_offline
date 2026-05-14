@@ -1,5 +1,6 @@
 package io.korion.offlinepay.application.service;
 
+import io.korion.offlinepay.application.port.FoxCoinStoreProductPolicyPort;
 import io.korion.offlinepay.application.port.StoreProductRepository;
 import io.korion.offlinepay.domain.model.StoreProduct;
 import java.math.BigDecimal;
@@ -13,9 +14,14 @@ import org.springframework.transaction.annotation.Transactional;
 public class StoreProductApplicationService {
 
     private final StoreProductRepository storeProductRepository;
+    private final FoxCoinStoreProductPolicyPort foxCoinStoreProductPolicyPort;
 
-    public StoreProductApplicationService(StoreProductRepository storeProductRepository) {
+    public StoreProductApplicationService(
+            StoreProductRepository storeProductRepository,
+            FoxCoinStoreProductPolicyPort foxCoinStoreProductPolicyPort
+    ) {
         this.storeProductRepository = storeProductRepository;
+        this.foxCoinStoreProductPolicyPort = foxCoinStoreProductPolicyPort;
     }
 
     @Transactional(readOnly = true)
@@ -35,6 +41,7 @@ public class StoreProductApplicationService {
     public StoreProduct createProduct(CreateStoreProductCommand command) {
         validateUserId(command.userId());
         validateStock(command.stockCurrent(), command.stockTotal());
+        validateProductLimit(command.userId());
         BigDecimal normalizedPrice = normalizePrice(command.price());
         return storeProductRepository.save(
                 command.userId(),
@@ -118,6 +125,20 @@ public class StoreProductApplicationService {
         }
         if (stockCurrent > stockTotal) {
             throw new IllegalArgumentException("stockCurrent must not exceed stockTotal");
+        }
+    }
+
+    private void validateProductLimit(long userId) {
+        FoxCoinStoreProductPolicyPort.StoreProductPolicy policy =
+                foxCoinStoreProductPolicyPort.getStoreProductPolicy(userId);
+        int limit = Math.max(0, policy.storeProductLimit());
+        int currentCount = storeProductRepository.countByUserId(userId);
+        if (currentCount >= limit) {
+            throw new IllegalArgumentException(
+                    "STORE_PRODUCT_LIMIT_EXCEEDED: level=" + policy.level()
+                            + ", limit=" + limit
+                            + ", currentCount=" + currentCount
+            );
         }
     }
 

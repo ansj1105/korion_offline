@@ -80,6 +80,15 @@ public class JdbcStoreProductRepository implements StoreProductRepository {
     }
 
     @Override
+    public int countByUserId(long userId) {
+        Integer count = jdbcClient.sql("SELECT COUNT(*) FROM store_products WHERE user_id = :userId")
+                .param("userId", userId)
+                .query(Integer.class)
+                .single();
+        return count == null ? 0 : count;
+    }
+
+    @Override
     public int nextSortOrder(long userId) {
         Integer value = jdbcClient.sql("SELECT COALESCE(MAX(sort_order), 0) + 1 FROM store_products WHERE user_id = :userId")
                 .param("userId", userId)
