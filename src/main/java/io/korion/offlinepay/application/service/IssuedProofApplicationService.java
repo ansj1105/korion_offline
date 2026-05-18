@@ -103,6 +103,9 @@ public class IssuedProofApplicationService {
         payloadMap.put("issuerKeyId", proofIssuerSignatureService.keyId());
         String payload = jsonPayloadCanonicalizationService.canonicalize(jsonService.write(payloadMap));
         String signature = proofIssuerSignatureService.sign(payload);
+        if (!proofIssuerSignatureService.verify(payload, proofIssuerSignatureService.publicKey(), signature)) {
+            throw new IllegalStateException("issued proof self verification failed");
+        }
         IssuedOfflineProof issued = issuedOfflineProofRepository.save(
                 proofId,
                 command.userId(),

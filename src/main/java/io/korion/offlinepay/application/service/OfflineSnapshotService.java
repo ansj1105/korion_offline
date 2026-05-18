@@ -23,6 +23,8 @@ public class OfflineSnapshotService {
     private final FoxCoinWalletSnapshotPort foxCoinWalletSnapshotPort;
     private final AppProperties properties;
     private final JsonService jsonService;
+    private final JsonPayloadCanonicalizationService jsonPayloadCanonicalizationService;
+    private final ProofIssuerSignatureService proofIssuerSignatureService;
 
     public OfflineSnapshotService(
             DeviceRepository deviceRepository,
@@ -30,7 +32,9 @@ public class OfflineSnapshotService {
             IssuedOfflineProofRepository issuedOfflineProofRepository,
             FoxCoinWalletSnapshotPort foxCoinWalletSnapshotPort,
             AppProperties properties,
-            JsonService jsonService
+            JsonService jsonService,
+            JsonPayloadCanonicalizationService jsonPayloadCanonicalizationService,
+            ProofIssuerSignatureService proofIssuerSignatureService
     ) {
         this.deviceRepository = deviceRepository;
         this.collateralRepository = collateralRepository;
@@ -38,6 +42,8 @@ public class OfflineSnapshotService {
         this.foxCoinWalletSnapshotPort = foxCoinWalletSnapshotPort;
         this.properties = properties;
         this.jsonService = jsonService;
+        this.jsonPayloadCanonicalizationService = jsonPayloadCanonicalizationService;
+        this.proofIssuerSignatureService = proofIssuerSignatureService;
     }
 
     @Transactional(readOnly = true)
@@ -54,6 +60,7 @@ public class OfflineSnapshotService {
                 ? null
                 : issuedOfflineProofRepository
                         .findLatestActiveByUserIdAndDeviceIdAndAssetCode(userId, deviceId, normalizedAssetCode)
+                        .filter(this::hasValidIssuerSignature)
                         .orElse(null);
         WalletSnapshot walletSnapshot = loadWalletSnapshot(
                 userId,
@@ -99,6 +106,18 @@ public class OfflineSnapshotService {
                 true,
                 OffsetDateTime.now().toString(),
                 SettlementPolicyConstants.COLLATERAL_SNAPSHOT_STALE_AFTER_MS
+        );
+    }
+
+    private boolean hasValidIssuerSignature(IssuedOfflineProof issuedProof) {
+        return proofIssuerSignatureService.verify(
+                issuedProof.issuedPayloadJson(),
+                issuedProof.issuerPublicKey(),
+                issuedProof.issuerSignature()
+        ) || proofIssuerSignatureService.verify(
+                jsonPayloadCanonicalizationService.canonicalize(issuedProof.issuedPayloadJson()),
+                issuedProof.issuerPublicKey(),
+                issuedProof.issuerSignature()
         );
     }
 

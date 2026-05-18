@@ -26,6 +26,7 @@ import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
@@ -50,6 +51,11 @@ class IssuedProofApplicationServiceTest {
             jsonPayloadCanonicalizationService,
             properties
     );
+
+    @BeforeEach
+    void setUp() {
+        when(proofIssuerSignatureService.verify(anyString(), anyString(), anyString())).thenReturn(true);
+    }
 
     @Test
     void fallsBackToUserAssetCollateralWhenCurrentDeviceHasNoCollateral() {

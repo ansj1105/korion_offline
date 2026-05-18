@@ -56,6 +56,7 @@ class OfflineSnapshotServiceTest {
                         "2026-03-31T00:00:00Z"
                 ));
 
+        JsonService jsonService = new JsonService(new com.fasterxml.jackson.databind.ObjectMapper());
         OfflineSnapshotService service = new OfflineSnapshotService(
                 deviceRepository,
                 collateralRepository,
@@ -73,7 +74,20 @@ class OfflineSnapshotServiceTest {
                         null,
                         new AppProperties.Worker(false, "worker", 60000, 3)
                 ),
-                new JsonService(new com.fasterxml.jackson.databind.ObjectMapper())
+                jsonService,
+                new JsonPayloadCanonicalizationService(jsonService),
+                new ProofIssuerSignatureService(new AppProperties(
+                        "KORI",
+                        24,
+                        20,
+                        1000,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null
+                ))
         );
 
         OfflineSnapshotService.CurrentSnapshot snapshot = service.getCurrentSnapshot(1L, "device-1", "KORI");

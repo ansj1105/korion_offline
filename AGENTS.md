@@ -57,6 +57,11 @@
 - 테스트용 peer, 사용자, 기기, 금액 샘플이 필요하면 `test mode` 또는 fixture 경계 안으로 격리한다.
 - 오프라인 결제는 `원장 기반 pay`이며, 자동 실출금이 아니라 내부원장/정합성 검증/배치 처리 구조를 유지한다.
 - `online/offline` 상태와 무관하게 오프라인 페이 화면 진입은 가능해야 하고, 최종 정합성은 온라인 복귀 후 서버가 판정한다.
+- `issued_offline_proofs` 발행자는 `offline_pay` 단일 책임이다. `coin_manage`는 담보와 내부원장 owner이고 proof를 발행하지 않는다.
+- proof 발행 시 payload는 canonical JSON으로 만들고 issuer key로 서명한 뒤 저장 전에 self-verify 해야 한다.
+- snapshot으로 내려주는 proof는 `ACTIVE`, 미만료, issuer signature valid, 사용자/기기/자산 바인딩이 맞는 경우로 제한한다.
+- settlement 검증은 sender device id/public key, user/asset subject binding, collateral id(s), usable amount, nonce, expiry, issuer signature를 모두 확인해야 한다.
+- 기존 발급 proof는 위 조건을 만족하면 재사용 가능하다. invalid/expired/revoked/consumed/mismatched proof는 재사용하거나 snapshot으로 내려주지 않는다.
 - 오프라인 페이 프런트 디자인 기준은 `/Users/an/Downloads/pages/offline-pay`이다.
 - `container`, `app-wrapper`, `app-container` 충돌 방지에 필요한 예외를 제외하면 다운로드본 렌더를 우선 1:1로 맞춘다.
 - 기능 로직은 현재 브랜치를 유지하되, 마크업/CSS는 다운로드본을 source of truth로 본다.

@@ -27,6 +27,36 @@
 
 즉 서버는 “오프라인 큐 전체 저장소”가 아니라 “최종 승인/실패 판정과 감사 기록 저장소”다.
 
+## 2.1 Issued Proof Policy
+
+`issued_offline_proofs`는 `offline_pay`만 발행한다. `coin_manage`는 담보와 내부원장 owner이며 proof issuer가 아니다.
+
+발행 proof는 아래 값에 바인딩해야 한다.
+
+- `proofId`
+- `userId`
+- `subjectBindingKey`
+- `deviceId`
+- `devicePublicKey`
+- `assetCode`
+- `collateralLockId`
+- `collateralLockIds`
+- `usableAmount`
+- `nonce`
+- `issuerKeyId`
+- `issuedAt`
+- `expiresAt`
+
+발행 순서는 고정한다.
+
+1. 현재 등록 기기와 담보 상태를 조회한다.
+2. proof payload를 canonical JSON으로 만든다.
+3. issuer key로 서명한다.
+4. 저장 전 동일 payload/signature/public key로 self-verify 한다.
+5. self-verify에 실패하면 저장하지 않는다.
+
+snapshot으로 내려줄 수 있는 proof는 `ACTIVE`, 미만료, issuer signature valid, 사용자/기기/자산 바인딩 일치 조건을 모두 만족해야 한다. 기존에 발급된 proof라도 이 조건을 만족하면 오프라인 재사용이 가능하다. `EXPIRED`, `REVOKED`, `CONSUMED`, signature invalid, device mismatch proof는 snapshot이나 settlement에 사용하지 않는다.
+
 ## 3. 로컬 신뢰 앵커
 
 오프라인 결제 단말은 아래 값을 안전 저장소에 보관해야 한다.
