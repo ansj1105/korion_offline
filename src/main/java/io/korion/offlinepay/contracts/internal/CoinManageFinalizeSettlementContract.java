@@ -1,5 +1,8 @@
 package io.korion.offlinepay.contracts.internal;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public record CoinManageFinalizeSettlementContract(
         String settlementId,
         String batchId,

@@ -2,6 +2,7 @@ package io.korion.offlinepay.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.korion.offlinepay.application.port.CoinManageCollateralPort;
+import io.korion.offlinepay.application.port.CoinManageDeviceSyncPort;
 import io.korion.offlinepay.application.port.CoinManageSettlementPort;
 import io.korion.offlinepay.application.port.FoxCoinHistoryPort;
 import io.korion.offlinepay.application.port.FoxCoinStoreProductPolicyPort;
@@ -10,6 +11,7 @@ import io.korion.offlinepay.application.port.SettlementBatchEventBus;
 import io.korion.offlinepay.application.service.SimpleCircuitBreaker;
 import io.korion.offlinepay.application.service.TelegramAlertService;
 import io.korion.offlinepay.infrastructure.adapter.CoinManageCollateralAdapter;
+import io.korion.offlinepay.infrastructure.adapter.CoinManageDeviceSyncAdapter;
 import io.korion.offlinepay.infrastructure.adapter.CoinManageSettlementAdapter;
 import io.korion.offlinepay.infrastructure.adapter.CircuitBreakingCoinManageCollateralAdapter;
 import io.korion.offlinepay.infrastructure.adapter.CircuitBreakingCoinManageSettlementAdapter;
@@ -100,6 +102,14 @@ public class InfrastructureFactoryConfig {
                 coinManageSettlementCircuitBreaker,
                 telegramAlertService
         );
+    }
+
+    @Bean
+    public CoinManageDeviceSyncPort coinManageDeviceSyncPort(
+            RestClient coinManageRestClient,
+            AppProperties properties
+    ) {
+        return new CoinManageDeviceSyncAdapter(coinManageRestClient, properties.coinManage().apiKey());
     }
 
     @Bean

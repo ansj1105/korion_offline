@@ -5,6 +5,7 @@ import io.korion.offlinepay.application.factory.SettlementBatchFactory;
 import io.korion.offlinepay.application.factory.SettlementRequestFactory;
 import io.korion.offlinepay.application.factory.SettlementStreamEventFactory;
 import io.korion.offlinepay.application.factory.SettlementSyncCommandFactory;
+import io.korion.offlinepay.application.port.CoinManageDeviceSyncPort;
 import io.korion.offlinepay.application.port.CoinManageSettlementPort;
 import io.korion.offlinepay.application.port.CollateralRepository;
 import io.korion.offlinepay.application.port.CollateralOperationRepository;
@@ -40,6 +41,7 @@ import io.korion.offlinepay.domain.model.SettlementRequest;
 import io.korion.offlinepay.domain.reason.OfflinePayReasonCode;
 import io.korion.offlinepay.domain.status.OfflineSagaType;
 import io.korion.offlinepay.domain.status.CollateralStatus;
+import io.korion.offlinepay.domain.status.DeviceStatus;
 import io.korion.offlinepay.domain.status.OfflineProofStatus;
 import io.korion.offlinepay.domain.status.ReconciliationCaseStatus;
 import io.korion.offlinepay.domain.status.SettlementBatchStatus;
@@ -49,11 +51,15 @@ import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class SettlementApplicationService {
+
+    private static final Logger log = LoggerFactory.getLogger(SettlementApplicationService.class);
 
     private final CollateralRepository collateralRepository;
     private final CollateralOperationRepository collateralOperationRepository;
@@ -81,6 +87,7 @@ public class SettlementApplicationService {
     private final DeviceSignatureVerificationService deviceSignatureVerificationService;
     private final DeviceBindingVerificationService deviceBindingVerificationService;
     private final IssuedProofVerificationService issuedProofVerificationService;
+    private final CoinManageDeviceSyncPort coinManageDeviceSyncPort;
 
     public SettlementApplicationService(
             CollateralRepository collateralRepository,
@@ -110,7 +117,8 @@ public class SettlementApplicationService {
             SettlementPolicyEvaluator settlementPolicyEvaluator,
             DeviceSignatureVerificationService deviceSignatureVerificationService,
             DeviceBindingVerificationService deviceBindingVerificationService,
-            IssuedProofVerificationService issuedProofVerificationService
+            IssuedProofVerificationService issuedProofVerificationService,
+            CoinManageDeviceSyncPort coinManageDeviceSyncPort
     ) {
         this.collateralRepository = collateralRepository;
         this.collateralOperationRepository = collateralOperationRepository;
@@ -138,6 +146,7 @@ public class SettlementApplicationService {
         this.deviceSignatureVerificationService = deviceSignatureVerificationService;
         this.deviceBindingVerificationService = deviceBindingVerificationService;
         this.issuedProofVerificationService = issuedProofVerificationService;
+        this.coinManageDeviceSyncPort = coinManageDeviceSyncPort;
     }
 
     @Transactional
@@ -677,6 +686,8 @@ public class SettlementApplicationService {
         if (evaluation.status() == SettlementStatus.SETTLED) {
             receiverDevice = deviceRepository.findByDeviceId(proof.receiverDeviceId()).orElse(null);
         }
+        syncCoinManageDevice(deviceRepository.findByDeviceId(proof.senderDeviceId()).orElse(null), DeviceStatus.ACTIVE);
+        syncCoinManageDevice(receiverDevice, DeviceStatus.ACTIVE);
 
         CoinManageSettlementPort.SettlementLedgerCommand ledgerCommand = settlementSyncCommandFactory.createLedgerCommand(
                 collateral,
@@ -779,6 +790,22 @@ public class SettlementApplicationService {
                 jsonService.write(eventPayload),
                 OffsetDateTime.now().toString()
         );
+    }
+
+    private void syncCoinManageDevice(Device device, DeviceStatus status) {
+        if (device == null) {
+            return;
+        }
+        try {
+            coinManageDeviceSyncPort.upsertDevice(new CoinManageDeviceSyncPort.DeviceSyncCommand(
+                    device.userId(),
+                    device.deviceId(),
+                    status.name(),
+                    device.keyVersion()
+            ));
+        } catch (RuntimeException exception) {
+            log.warn("coin_manage offline pay device sync failed during settlement: deviceId={}, status={}", device.deviceId(), status, exception);
+        }
     }
 
     private void saveReconciliationCase(SettlementRequest request, OfflinePaymentProof proof, SettlementEvaluation evaluation) {

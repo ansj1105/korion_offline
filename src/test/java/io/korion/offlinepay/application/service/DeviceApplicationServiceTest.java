@@ -7,6 +7,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import io.korion.offlinepay.application.port.DeviceRepository;
+import io.korion.offlinepay.application.port.CoinManageDeviceSyncPort;
 import io.korion.offlinepay.domain.model.Device;
 import io.korion.offlinepay.domain.status.DeviceStatus;
 import java.time.OffsetDateTime;
@@ -20,10 +21,12 @@ class DeviceApplicationServiceTest {
     private final DeviceRepository deviceRepository = Mockito.mock(DeviceRepository.class);
     private final JsonService jsonService = new JsonService(new com.fasterxml.jackson.databind.ObjectMapper());
     private final OfflineSnapshotStreamService offlineSnapshotStreamService = Mockito.mock(OfflineSnapshotStreamService.class);
+    private final CoinManageDeviceSyncPort coinManageDeviceSyncPort = Mockito.mock(CoinManageDeviceSyncPort.class);
     private final DeviceApplicationService service = new DeviceApplicationService(
             deviceRepository,
             jsonService,
-            offlineSnapshotStreamService
+            offlineSnapshotStreamService,
+            coinManageDeviceSyncPort
     );
 
     @Test
@@ -53,6 +56,12 @@ class DeviceApplicationServiceTest {
         assertNotNull(result);
         assertEquals("device-abc", result.deviceId());
         verify(deviceRepository, never()).save(Mockito.anyLong(), Mockito.anyString(), Mockito.anyString(), Mockito.anyInt(), Mockito.anyString());
+        verify(coinManageDeviceSyncPort).upsertDevice(new CoinManageDeviceSyncPort.DeviceSyncCommand(
+                1L,
+                "device-abc",
+                "ACTIVE",
+                1
+        ));
     }
 
     @Test

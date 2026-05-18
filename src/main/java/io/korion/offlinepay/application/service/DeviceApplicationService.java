@@ -1,26 +1,35 @@
 package io.korion.offlinepay.application.service;
 
+import io.korion.offlinepay.application.port.CoinManageDeviceSyncPort;
 import io.korion.offlinepay.application.port.DeviceRepository;
 import io.korion.offlinepay.domain.model.Device;
+import io.korion.offlinepay.domain.status.DeviceStatus;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class DeviceApplicationService {
 
+    private static final Logger log = LoggerFactory.getLogger(DeviceApplicationService.class);
+
     private final DeviceRepository deviceRepository;
     private final JsonService jsonService;
     private final OfflineSnapshotStreamService offlineSnapshotStreamService;
+    private final CoinManageDeviceSyncPort coinManageDeviceSyncPort;
 
     public DeviceApplicationService(
             DeviceRepository deviceRepository,
             JsonService jsonService,
-            OfflineSnapshotStreamService offlineSnapshotStreamService
+            OfflineSnapshotStreamService offlineSnapshotStreamService,
+            CoinManageDeviceSyncPort coinManageDeviceSyncPort
     ) {
         this.deviceRepository = deviceRepository;
         this.jsonService = jsonService;
         this.offlineSnapshotStreamService = offlineSnapshotStreamService;
+        this.coinManageDeviceSyncPort = coinManageDeviceSyncPort;
     }
 
     @Transactional
@@ -56,6 +65,7 @@ public class DeviceApplicationService {
                 command.deviceId(),
                 "REGISTERED"
         );
+        syncCoinManageDevice(registered, DeviceStatus.ACTIVE);
         return registered;
     }
 
@@ -73,6 +83,7 @@ public class DeviceApplicationService {
                 revoked.deviceId(),
                 command.reason() == null ? "REVOKED" : command.reason()
         );
+        syncCoinManageDevice(revoked, DeviceStatus.REVOKED);
         return revoked;
     }
 
@@ -88,7 +99,21 @@ public class DeviceApplicationService {
                 updated.deviceId(),
                 "PROFILE_UPDATED"
         );
+        syncCoinManageDevice(updated, updated.status());
         return updated;
+    }
+
+    private void syncCoinManageDevice(Device device, DeviceStatus status) {
+        try {
+            coinManageDeviceSyncPort.upsertDevice(new CoinManageDeviceSyncPort.DeviceSyncCommand(
+                    device.userId(),
+                    device.deviceId(),
+                    status.name(),
+                    device.keyVersion()
+            ));
+        } catch (RuntimeException exception) {
+            log.warn("coin_manage offline pay device sync failed: deviceId={}, status={}", device.deviceId(), status, exception);
+        }
     }
 
     public record RegisterDeviceCommand(

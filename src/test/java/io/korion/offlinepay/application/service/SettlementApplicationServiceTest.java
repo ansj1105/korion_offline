@@ -17,6 +17,7 @@ import io.korion.offlinepay.application.factory.SettlementBatchFactory;
 import io.korion.offlinepay.application.factory.SettlementRequestFactory;
 import io.korion.offlinepay.application.factory.SettlementStreamEventFactory;
 import io.korion.offlinepay.application.factory.SettlementSyncCommandFactory;
+import io.korion.offlinepay.application.port.CoinManageDeviceSyncPort;
 import io.korion.offlinepay.application.port.CoinManageSettlementPort;
 import io.korion.offlinepay.application.port.CollateralOperationRepository;
 import io.korion.offlinepay.application.port.CollateralRepository;
@@ -82,6 +83,7 @@ class SettlementApplicationServiceTest {
     private final SettlementBatchEventBus eventBus = Mockito.mock(SettlementBatchEventBus.class);
     private final OfflineSagaService offlineSagaService = Mockito.mock(OfflineSagaService.class);
     private final CoinManageSettlementPort coinManageSettlementPort = Mockito.mock(CoinManageSettlementPort.class);
+    private final CoinManageDeviceSyncPort coinManageDeviceSyncPort = Mockito.mock(CoinManageDeviceSyncPort.class);
     private final FoxCoinHistoryPort foxCoinHistoryPort = Mockito.mock(FoxCoinHistoryPort.class);
     private final IssuedProofVerificationService issuedProofVerificationService = Mockito.mock(IssuedProofVerificationService.class);
     private final JsonService jsonService = new JsonService(new ObjectMapper());
@@ -115,7 +117,8 @@ class SettlementApplicationServiceTest {
             new SettlementPolicyEvaluator(jsonService, new io.korion.offlinepay.application.service.settlement.OfflinePaySettlementFeeCalculator()),
             new DeviceSignatureVerificationService(),
             new DeviceBindingVerificationService(jsonService),
-            issuedProofVerificationService
+            issuedProofVerificationService,
+            coinManageDeviceSyncPort
     );
 
     {
