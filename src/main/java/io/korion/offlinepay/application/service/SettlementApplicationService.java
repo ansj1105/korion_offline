@@ -686,8 +686,8 @@ public class SettlementApplicationService {
         if (evaluation.status() == SettlementStatus.SETTLED) {
             receiverDevice = deviceRepository.findByDeviceId(proof.receiverDeviceId()).orElse(null);
         }
-        syncCoinManageDevice(deviceRepository.findByDeviceId(proof.senderDeviceId()).orElse(null), DeviceStatus.ACTIVE);
-        syncCoinManageDevice(receiverDevice, DeviceStatus.ACTIVE);
+        syncCoinManageDevice(deviceRepository.findByDeviceId(proof.senderDeviceId()).orElse(null));
+        syncCoinManageDevice(receiverDevice);
 
         CoinManageSettlementPort.SettlementLedgerCommand ledgerCommand = settlementSyncCommandFactory.createLedgerCommand(
                 collateral,
@@ -792,20 +792,25 @@ public class SettlementApplicationService {
         );
     }
 
-    private void syncCoinManageDevice(Device device, DeviceStatus status) {
+    private void syncCoinManageDevice(Device device) {
         if (device == null) {
             return;
         }
+        String status = toCoinManageDeviceStatus(device.status());
         try {
             coinManageDeviceSyncPort.upsertDevice(new CoinManageDeviceSyncPort.DeviceSyncCommand(
                     device.userId(),
                     device.deviceId(),
-                    status.name(),
+                    status,
                     device.keyVersion()
             ));
         } catch (RuntimeException exception) {
             log.warn("coin_manage offline pay device sync failed during settlement: deviceId={}, status={}", device.deviceId(), status, exception);
         }
+    }
+
+    private String toCoinManageDeviceStatus(DeviceStatus status) {
+        return status == DeviceStatus.ACTIVE ? "ACTIVE" : "REVOKED";
     }
 
     private void saveReconciliationCase(SettlementRequest request, OfflinePaymentProof proof, SettlementEvaluation evaluation) {

@@ -106,4 +106,35 @@ class DeviceApplicationServiceTest {
         assertEquals("pub-key-new", result.publicKey());
         verify(deviceRepository).refreshRegistration(Mockito.eq(175L), Mockito.eq("device-abc"), Mockito.eq("pub-key-new"), Mockito.eq(1), Mockito.anyString());
     }
+
+    @Test
+    void mapsFrozenDeviceToRevokedWhenSyncingCoinManageSnapshot() {
+        Device frozen = new Device(
+                "row-id",
+                "device-frozen",
+                1L,
+                "pub-key",
+                1,
+                DeviceStatus.FROZEN,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+
+        when(deviceRepository.updateProfile(Mockito.eq(1L), Mockito.eq("device-frozen"), Mockito.anyString()))
+                .thenReturn(frozen);
+
+        service.updateDeviceProfile(new DeviceApplicationService.UpdateDeviceProfileCommand(
+                1L,
+                "device-frozen",
+                Map.of("label", "frozen")
+        ));
+
+        verify(coinManageDeviceSyncPort).upsertDevice(new CoinManageDeviceSyncPort.DeviceSyncCommand(
+                1L,
+                "device-frozen",
+                "REVOKED",
+                1
+        ));
+    }
 }

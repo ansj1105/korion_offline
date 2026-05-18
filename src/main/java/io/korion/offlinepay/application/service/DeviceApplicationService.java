@@ -104,16 +104,21 @@ public class DeviceApplicationService {
     }
 
     private void syncCoinManageDevice(Device device, DeviceStatus status) {
+        String coinManageStatus = toCoinManageDeviceStatus(status);
         try {
             coinManageDeviceSyncPort.upsertDevice(new CoinManageDeviceSyncPort.DeviceSyncCommand(
                     device.userId(),
                     device.deviceId(),
-                    status.name(),
+                    coinManageStatus,
                     device.keyVersion()
             ));
         } catch (RuntimeException exception) {
             log.warn("coin_manage offline pay device sync failed: deviceId={}, status={}", device.deviceId(), status, exception);
         }
+    }
+
+    private String toCoinManageDeviceStatus(DeviceStatus status) {
+        return status == DeviceStatus.ACTIVE ? "ACTIVE" : "REVOKED";
     }
 
     public record RegisterDeviceCommand(

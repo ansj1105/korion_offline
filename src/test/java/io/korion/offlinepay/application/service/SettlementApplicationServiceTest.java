@@ -260,6 +260,17 @@ class SettlementApplicationServiceTest {
                 OffsetDateTime.now(),
                 OffsetDateTime.now()
         );
+        Device receiverDevice = new Device(
+                "row-2",
+                "device-2",
+                88L,
+                "receiver-public-key",
+                1,
+                DeviceStatus.FROZEN,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
 
         when(settlementRepository.findById("settlement-1"))
                 .thenReturn(Optional.of(request))
@@ -268,6 +279,7 @@ class SettlementApplicationServiceTest {
         when(proofRepository.findById("proof-1")).thenReturn(Optional.of(proof));
         when(proofRepository.findByCollateralId("collateral-1")).thenReturn(java.util.List.of(proof));
         when(deviceRepository.findByDeviceId("device-1")).thenReturn(Optional.of(device));
+        when(deviceRepository.findByDeviceId("device-2")).thenReturn(Optional.of(receiverDevice));
         when(settlementResultRepository.existsByVoucherId("voucher-1")).thenReturn(false);
 
         SettlementRequest result = service.finalizeSettlement("settlement-1");
@@ -281,6 +293,18 @@ class SettlementApplicationServiceTest {
                 anyString()
         );
         verify(settlementRepository).update(anyString(), any(SettlementStatus.class), any(), anyBoolean(), anyString());
+        verify(coinManageDeviceSyncPort).upsertDevice(new CoinManageDeviceSyncPort.DeviceSyncCommand(
+                77L,
+                "device-1",
+                "ACTIVE",
+                1
+        ));
+        verify(coinManageDeviceSyncPort).upsertDevice(new CoinManageDeviceSyncPort.DeviceSyncCommand(
+                88L,
+                "device-2",
+                "REVOKED",
+                1
+        ));
         assertEquals(SettlementStatus.SETTLED, result.status());
     }
 
