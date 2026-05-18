@@ -6,6 +6,7 @@ import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.korion.offlinepay.application.port.IssuedOfflineProofRepository;
+import io.korion.offlinepay.application.service.IssuedProofApplicationService;
 import io.korion.offlinepay.application.service.JsonPayloadCanonicalizationService;
 import io.korion.offlinepay.application.service.JsonService;
 import io.korion.offlinepay.application.service.ProofIssuerSignatureService;
@@ -79,6 +80,28 @@ class IssuedProofVerificationServiceTest {
     }
 
     @Test
+    void verifyAcceptsCanonicalSignedPayloadAfterJsonbReordersFields() {
+        IssuedProofFixture fixture = buildCanonicalIssuedProofFixture(false);
+        String reorderedPayload = """
+                {"nonce":"proof-nonce-1","userId":77,"proofId":"issued-proof-1","deviceId":"device-1","issuedAt":"%s","assetCode":"USDT","expiresAt":"%s","issuerKeyId":"%s","usableAmount":"500.000000","devicePublicKey":"sender-device-public-key","collateralLockId":"collateral-1","subjectBindingKey":"%s"}
+                """.formatted(
+                text(fixture.signedPayload(), "issuedAt"),
+                text(fixture.signedPayload(), "expiresAt"),
+                proofIssuerSignatureService.keyId(),
+                IssuedProofApplicationService.buildSubjectBindingKey(77L, "USDT")
+        ).trim();
+        IssuedOfflineProof normalizedStoredProof = withPersistedPayload(fixture.issuedProof(), reorderedPayload);
+        when(issuedOfflineProofRepository.findById("issued-proof-1")).thenReturn(Optional.of(normalizedStoredProof));
+
+        IssuedProofVerificationService.VerificationResult result = service.verify(
+                buildIncomingProof(normalizedStoredProof, reorderedPayload)
+        );
+
+        assertTrue(result.valid());
+        assertEquals("issued-proof-1", result.issuedProof().id());
+    }
+
+    @Test
     void verifyRejectsIssuedProofWithInvalidIssuerSignature() {
         IssuedOfflineProof issuedProof = buildIssuedProof(true);
         when(issuedOfflineProofRepository.findById("issued-proof-1")).thenReturn(Optional.of(issuedProof));
@@ -104,10 +127,19 @@ class IssuedProofVerificationServiceTest {
     }
 
     private IssuedProofFixture buildIssuedProofFixture(boolean tamperSignature) {
+        return buildIssuedProofFixture(tamperSignature, false);
+    }
+
+    private IssuedProofFixture buildCanonicalIssuedProofFixture(boolean tamperSignature) {
+        return buildIssuedProofFixture(tamperSignature, true);
+    }
+
+    private IssuedProofFixture buildIssuedProofFixture(boolean tamperSignature, boolean canonicalSignature) {
         OffsetDateTime expiresAt = OffsetDateTime.now().plusHours(1);
         Map<String, Object> issuedPayloadMap = new LinkedHashMap<>();
         issuedPayloadMap.put("proofId", "issued-proof-1");
         issuedPayloadMap.put("userId", 77L);
+        issuedPayloadMap.put("subjectBindingKey", IssuedProofApplicationService.buildSubjectBindingKey(77L, "USDT"));
         issuedPayloadMap.put("deviceId", "device-1");
         issuedPayloadMap.put("collateralLockId", "collateral-1");
         issuedPayloadMap.put("assetCode", "USDT");
@@ -118,7 +150,10 @@ class IssuedProofVerificationServiceTest {
         issuedPayloadMap.put("devicePublicKey", "sender-device-public-key");
         issuedPayloadMap.put("issuerKeyId", proofIssuerSignatureService.keyId());
         String issuedPayload = jsonService.write(issuedPayloadMap);
-        String signature = proofIssuerSignatureService.sign(issuedPayload);
+        String signedPayload = canonicalSignature
+                ? jsonPayloadCanonicalizationService.canonicalize(issuedPayload)
+                : issuedPayload;
+        String signature = proofIssuerSignatureService.sign(signedPayload);
         if (tamperSignature) {
             signature = signature.substring(0, signature.length() - 2) + "ab";
         }
@@ -229,6 +264,10 @@ class IssuedProofVerificationServiceTest {
                 issuedProof.createdAt(),
                 issuedProof.updatedAt()
         );
+    }
+
+    private String text(String json, String field) {
+        return jsonService.readTree(json).path(field).asText();
     }
 
     private OfflinePaymentProof buildIncomingProofWithoutSenderPublicKey(IssuedOfflineProof issuedProof) {

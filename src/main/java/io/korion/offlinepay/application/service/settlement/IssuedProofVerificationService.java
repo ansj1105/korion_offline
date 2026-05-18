@@ -115,6 +115,10 @@ public class IssuedProofVerificationService {
                 signedIssuedPayload,
                 issuedProof.issuerPublicKey(),
                 issuedProof.issuerSignature()
+        ) && !proofIssuerSignatureService.verify(
+                jsonPayloadCanonicalizationService.canonicalize(signedIssuedPayload),
+                issuedProof.issuerPublicKey(),
+                issuedProof.issuerSignature()
         )) {
             return VerificationResult.invalid(OfflinePayReasonCode.ISSUED_PROOF_SIGNATURE_INVALID, "issued proof issuer signature invalid");
         }

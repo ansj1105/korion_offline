@@ -37,6 +37,7 @@ public class IssuedProofApplicationService {
     private final SettlementRepository settlementRepository;
     private final ProofIssuerSignatureService proofIssuerSignatureService;
     private final JsonService jsonService;
+    private final JsonPayloadCanonicalizationService jsonPayloadCanonicalizationService;
     private final AppProperties properties;
 
     public IssuedProofApplicationService(
@@ -46,6 +47,7 @@ public class IssuedProofApplicationService {
             SettlementRepository settlementRepository,
             ProofIssuerSignatureService proofIssuerSignatureService,
             JsonService jsonService,
+            JsonPayloadCanonicalizationService jsonPayloadCanonicalizationService,
             AppProperties properties
     ) {
         this.deviceRepository = deviceRepository;
@@ -54,6 +56,7 @@ public class IssuedProofApplicationService {
         this.settlementRepository = settlementRepository;
         this.proofIssuerSignatureService = proofIssuerSignatureService;
         this.jsonService = jsonService;
+        this.jsonPayloadCanonicalizationService = jsonPayloadCanonicalizationService;
         this.properties = properties;
     }
 
@@ -98,7 +101,7 @@ public class IssuedProofApplicationService {
         payloadMap.put("nonce", nonce);
         payloadMap.put("devicePublicKey", device.publicKey());
         payloadMap.put("issuerKeyId", proofIssuerSignatureService.keyId());
-        String payload = jsonService.write(payloadMap);
+        String payload = jsonPayloadCanonicalizationService.canonicalize(jsonService.write(payloadMap));
         String signature = proofIssuerSignatureService.sign(payload);
         IssuedOfflineProof issued = issuedOfflineProofRepository.save(
                 proofId,

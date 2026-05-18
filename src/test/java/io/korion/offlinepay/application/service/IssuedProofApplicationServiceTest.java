@@ -37,6 +37,8 @@ class IssuedProofApplicationServiceTest {
     private final SettlementRepository settlementRepository = Mockito.mock(SettlementRepository.class);
     private final ProofIssuerSignatureService proofIssuerSignatureService = Mockito.mock(ProofIssuerSignatureService.class);
     private final JsonService jsonService = new JsonService(new ObjectMapper());
+    private final JsonPayloadCanonicalizationService jsonPayloadCanonicalizationService =
+            new JsonPayloadCanonicalizationService(jsonService);
     private final AppProperties properties = Mockito.mock(AppProperties.class);
     private final IssuedProofApplicationService service = new IssuedProofApplicationService(
             deviceRepository,
@@ -45,6 +47,7 @@ class IssuedProofApplicationServiceTest {
             settlementRepository,
             proofIssuerSignatureService,
             jsonService,
+            jsonPayloadCanonicalizationService,
             properties
     );
 
