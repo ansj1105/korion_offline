@@ -86,6 +86,7 @@ class SettlementApplicationServiceTest {
     private final CoinManageDeviceSyncPort coinManageDeviceSyncPort = Mockito.mock(CoinManageDeviceSyncPort.class);
     private final FoxCoinHistoryPort foxCoinHistoryPort = Mockito.mock(FoxCoinHistoryPort.class);
     private final IssuedProofVerificationService issuedProofVerificationService = Mockito.mock(IssuedProofVerificationService.class);
+    private final OfflinePayDeviceIdentifierResolver deviceIdentifierResolver = new OfflinePayDeviceIdentifierResolver(deviceRepository);
     private final JsonService jsonService = new JsonService(new ObjectMapper());
     private final io.korion.offlinepay.application.service.settlement.OfflinePaySettlementFeeCalculator feeCalculator =
             new io.korion.offlinepay.application.service.settlement.OfflinePaySettlementFeeCalculator();
@@ -118,7 +119,8 @@ class SettlementApplicationServiceTest {
             new DeviceSignatureVerificationService(),
             new DeviceBindingVerificationService(jsonService),
             issuedProofVerificationService,
-            coinManageDeviceSyncPort
+            coinManageDeviceSyncPort,
+            deviceIdentifierResolver
     );
 
     {
@@ -227,7 +229,7 @@ class SettlementApplicationServiceTest {
                 "voucher-1",
                 "collateral-1",
                 "device-1",
-                "device-2",
+                "app-suffix:e7eaeaa7",
                 1,
                 1,
                 1L,
@@ -238,9 +240,9 @@ class SettlementApplicationServiceTest {
                 new BigDecimal("100"),
                 proofTimestamp,
                 proofExpiresAt,
-                "{\"voucherId\":\"voucher-1\",\"counterpartyDeviceId\":\"device-2\"}",
+                "{\"voucherId\":\"voucher-1\",\"counterpartyDeviceId\":\"app-suffix:e7eaeaa7\"}",
                 "SENDER",
-                "{\"voucherId\":\"voucher-1\",\"deviceId\":\"device-1\",\"counterpartyDeviceId\":\"device-2\",\"amount\":\"100\",\"expiresAt\":\""
+                "{\"voucherId\":\"voucher-1\",\"deviceId\":\"device-1\",\"counterpartyDeviceId\":\"app-suffix:e7eaeaa7\",\"amount\":\"100\",\"expiresAt\":\""
                         + proofExpiresAt
                         + "\",\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"100\",\"uiMode\":\"SEND\",\"connectionType\":\"FAST_CONTACT\",\"paymentFlow\":\"FAST_PAYMENT\",\"senderAuthRequired\":true,\"ledgerExecutionMode\":\"INTERNAL_LEDGER_ONLY\",\"dualAmountEntered\":false,\"spendingProof\":{\"deviceId\":\"device-1\",\"amount\":\"100\",\"monotonicCounter\":\"1\",\"nonce\":\"nonce-1\",\"newStateHash\":\""
                         + proofHash
@@ -262,11 +264,11 @@ class SettlementApplicationServiceTest {
         );
         Device receiverDevice = new Device(
                 "row-2",
-                "device-2",
+                "98db6beb-4ae1-4027-b9ee-507ce7eaeaa7",
                 88L,
                 "receiver-public-key",
                 1,
-                DeviceStatus.FROZEN,
+                DeviceStatus.ACTIVE,
                 "{}",
                 OffsetDateTime.now(),
                 OffsetDateTime.now()
@@ -279,7 +281,8 @@ class SettlementApplicationServiceTest {
         when(proofRepository.findById("proof-1")).thenReturn(Optional.of(proof));
         when(proofRepository.findByCollateralId("collateral-1")).thenReturn(java.util.List.of(proof));
         when(deviceRepository.findByDeviceId("device-1")).thenReturn(Optional.of(device));
-        when(deviceRepository.findByDeviceId("device-2")).thenReturn(Optional.of(receiverDevice));
+        when(deviceRepository.findByDeviceId("app-suffix:e7eaeaa7")).thenReturn(Optional.empty());
+        when(deviceRepository.findUniqueActiveByDeviceIdSuffix("e7eaeaa7")).thenReturn(Optional.of(receiverDevice));
         when(settlementResultRepository.existsByVoucherId("voucher-1")).thenReturn(false);
 
         SettlementRequest result = service.finalizeSettlement("settlement-1");
@@ -301,8 +304,8 @@ class SettlementApplicationServiceTest {
         ));
         verify(coinManageDeviceSyncPort).upsertDevice(new CoinManageDeviceSyncPort.DeviceSyncCommand(
                 88L,
-                "device-2",
-                "REVOKED",
+                "98db6beb-4ae1-4027-b9ee-507ce7eaeaa7",
+                "ACTIVE",
                 1
         ));
         assertEquals(SettlementStatus.SETTLED, result.status());

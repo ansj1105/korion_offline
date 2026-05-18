@@ -33,6 +33,27 @@ public class JdbcDeviceRepository implements DeviceRepository {
     }
 
     @Override
+    public Optional<Device> findUniqueActiveByDeviceIdSuffix(String suffix) {
+        String normalizedSuffix = suffix == null ? "" : suffix.trim();
+        if (normalizedSuffix.isBlank()) {
+            return Optional.empty();
+        }
+        String sql = """
+                SELECT id, device_id, user_id, public_key, key_version, status, metadata, created_at, updated_at
+                FROM devices
+                WHERE status = 'ACTIVE'
+                  AND RIGHT(device_id, LENGTH(:suffix)) = :suffix
+                ORDER BY updated_at DESC
+                LIMIT 2
+                """;
+        List<Device> matches = jdbcClient.sql(sql)
+                .param("suffix", normalizedSuffix)
+                .query(deviceRowMapper)
+                .list();
+        return matches.size() == 1 ? Optional.of(matches.get(0)) : Optional.empty();
+    }
+
+    @Override
     public Optional<Device> findByUserIdAndDeviceId(long userId, String deviceId) {
         String sql = QueryBuilder
                 .select("devices", "id", "device_id", "user_id", "public_key", "key_version", "status", "metadata", "created_at", "updated_at")

@@ -88,6 +88,7 @@ public class SettlementApplicationService {
     private final DeviceBindingVerificationService deviceBindingVerificationService;
     private final IssuedProofVerificationService issuedProofVerificationService;
     private final CoinManageDeviceSyncPort coinManageDeviceSyncPort;
+    private final OfflinePayDeviceIdentifierResolver deviceIdentifierResolver;
 
     public SettlementApplicationService(
             CollateralRepository collateralRepository,
@@ -118,7 +119,8 @@ public class SettlementApplicationService {
             DeviceSignatureVerificationService deviceSignatureVerificationService,
             DeviceBindingVerificationService deviceBindingVerificationService,
             IssuedProofVerificationService issuedProofVerificationService,
-            CoinManageDeviceSyncPort coinManageDeviceSyncPort
+            CoinManageDeviceSyncPort coinManageDeviceSyncPort,
+            OfflinePayDeviceIdentifierResolver deviceIdentifierResolver
     ) {
         this.collateralRepository = collateralRepository;
         this.collateralOperationRepository = collateralOperationRepository;
@@ -147,6 +149,7 @@ public class SettlementApplicationService {
         this.deviceBindingVerificationService = deviceBindingVerificationService;
         this.issuedProofVerificationService = issuedProofVerificationService;
         this.coinManageDeviceSyncPort = coinManageDeviceSyncPort;
+        this.deviceIdentifierResolver = deviceIdentifierResolver;
     }
 
     @Transactional
@@ -684,9 +687,9 @@ public class SettlementApplicationService {
         // receiver history/ledger credit: only when receiver device is registered in our system and settlement is SETTLED
         Device receiverDevice = null;
         if (evaluation.status() == SettlementStatus.SETTLED) {
-            receiverDevice = deviceRepository.findByDeviceId(proof.receiverDeviceId()).orElse(null);
+            receiverDevice = deviceIdentifierResolver.resolve(proof.receiverDeviceId()).orElse(null);
         }
-        syncCoinManageDevice(deviceRepository.findByDeviceId(proof.senderDeviceId()).orElse(null));
+        syncCoinManageDevice(deviceIdentifierResolver.resolve(proof.senderDeviceId()).orElse(null));
         syncCoinManageDevice(receiverDevice);
 
         CoinManageSettlementPort.SettlementLedgerCommand ledgerCommand = settlementSyncCommandFactory.createLedgerCommand(

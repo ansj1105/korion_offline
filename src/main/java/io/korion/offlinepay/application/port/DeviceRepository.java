@@ -9,6 +9,10 @@ public interface DeviceRepository {
 
     Optional<Device> findByDeviceId(String deviceId);
 
+    default Optional<Device> findUniqueActiveByDeviceIdSuffix(String suffix) {
+        return Optional.empty();
+    }
+
     Optional<Device> findByUserIdAndDeviceId(long userId, String deviceId);
 
     List<Device> findActiveByUserId(long userId);
