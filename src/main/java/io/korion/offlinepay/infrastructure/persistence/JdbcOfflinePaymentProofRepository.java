@@ -259,7 +259,13 @@ public class JdbcOfflinePaymentProofRepository implements OfflinePaymentProofRep
                         FROM devices receiver_device
                         WHERE receiver_device.user_id = :userId
                           AND receiver_device.status = 'ACTIVE'
-                          AND receiver_device.device_id = offline_payment_proofs.receiver_device_id
+                          AND (
+                            receiver_device.device_id = offline_payment_proofs.receiver_device_id
+                            OR (
+                                offline_payment_proofs.receiver_device_id ~ '^app-suffix:[0-9A-Fa-f]{8}$'
+                                AND RIGHT(receiver_device.device_id, 8) = SUBSTRING(offline_payment_proofs.receiver_device_id FROM 12)
+                            )
+                          )
                     )
                   )
                 ORDER BY COALESCE(offline_payment_proofs.settled_at, offline_payment_proofs.updated_at, offline_payment_proofs.created_at) DESC,

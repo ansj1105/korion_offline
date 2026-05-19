@@ -408,7 +408,6 @@ public class SettlementApplicationService {
         );
         if (evaluation.status() == SettlementStatus.SETTLED) {
             deductSettlementAmountAcrossCollateralScope(collateral, proof, request);
-            issuedProofVerificationService.markConsumed(proof);
         }
 
         settlementRepository.update(

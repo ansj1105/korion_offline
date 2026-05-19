@@ -29,6 +29,7 @@ public class OfflineLedgerService {
     private final CollateralRepository collateralRepository;
     private final CollateralOperationRepository collateralOperationRepository;
     private final OfflinePaymentProofRepository offlinePaymentProofRepository;
+    private final OfflinePayDeviceIdentifierResolver deviceIdentifierResolver;
     private final AppProperties properties;
     private final JsonService jsonService;
 
@@ -37,6 +38,7 @@ public class OfflineLedgerService {
             CollateralRepository collateralRepository,
             CollateralOperationRepository collateralOperationRepository,
             OfflinePaymentProofRepository offlinePaymentProofRepository,
+            OfflinePayDeviceIdentifierResolver deviceIdentifierResolver,
             AppProperties properties,
             JsonService jsonService
     ) {
@@ -44,6 +46,7 @@ public class OfflineLedgerService {
         this.collateralRepository = collateralRepository;
         this.collateralOperationRepository = collateralOperationRepository;
         this.offlinePaymentProofRepository = offlinePaymentProofRepository;
+        this.deviceIdentifierResolver = deviceIdentifierResolver;
         this.properties = properties;
         this.jsonService = jsonService;
     }
@@ -73,7 +76,7 @@ public class OfflineLedgerService {
         }
 
         for (OfflinePaymentProof proof : proofs) {
-            LedgerEvent event = toProofEvent(proof, activeDeviceIds);
+            LedgerEvent event = toProofEvent(proof, userId, activeDeviceIds);
             if (event == null) {
                 continue;
             }
@@ -228,18 +231,24 @@ public class OfflineLedgerService {
         );
     }
 
-    private LedgerEvent toProofEvent(OfflinePaymentProof proof, Set<String> activeDeviceIds) {
-        boolean senderOwned = activeDeviceIds.contains(proof.senderDeviceId());
-        boolean receiverOwned = activeDeviceIds.contains(proof.receiverDeviceId());
+    private LedgerEvent toProofEvent(OfflinePaymentProof proof, long userId, Set<String> activeDeviceIds) {
+        Device senderDevice = deviceIdentifierResolver.resolve(proof.senderDeviceId()).orElse(null);
+        Device receiverDevice = deviceIdentifierResolver.resolve(proof.receiverDeviceId()).orElse(null);
+        boolean senderOwned = activeDeviceIds.contains(proof.senderDeviceId())
+                || (senderDevice != null && senderDevice.userId() == userId);
+        boolean receiverOwned = activeDeviceIds.contains(proof.receiverDeviceId())
+                || (receiverDevice != null && receiverDevice.userId() == userId);
         if (!senderOwned && !receiverOwned) {
             return null;
         }
+        String senderDeviceId = senderDevice == null ? proof.senderDeviceId() : senderDevice.deviceId();
+        String receiverDeviceId = receiverDevice == null ? proof.receiverDeviceId() : receiverDevice.deviceId();
 
         JsonNode payload = jsonService.readTree(proof.rawPayloadJson());
         String counterparty = firstNonBlank(
                 payload.path("counterparty").asText(""),
                 payload.path("actor").asText(""),
-                senderOwned ? proof.receiverDeviceId() : proof.senderDeviceId()
+                senderOwned ? receiverDeviceId : senderDeviceId
         );
         String description = firstNonBlank(payload.path("description").asText(""), senderOwned ? "오프라인 전송 요청" : "오프라인 수취 요청");
         String category = normalizeCategory(payload.path("category").asText(""));
@@ -263,7 +272,7 @@ public class OfflineLedgerService {
                 statusLabel(statusCode),
                 network,
                 payload.path("token").asText(firstNonBlank(payload.path("assetCode").asText(""), "KORI")),
-                senderOwned ? proof.receiverDeviceId() : proof.senderDeviceId(),
+                senderOwned ? receiverDeviceId : senderDeviceId,
                 resolveProofTime(proof),
                 senderOwned ? "Offline Send" : "Offline Receive",
                 "Offline",

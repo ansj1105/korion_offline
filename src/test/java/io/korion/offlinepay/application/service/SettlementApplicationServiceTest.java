@@ -308,6 +308,7 @@ class SettlementApplicationServiceTest {
                 "ACTIVE",
                 1
         ));
+        verify(issuedProofVerificationService, never()).markConsumed(any());
         assertEquals(SettlementStatus.SETTLED, result.status());
     }
 
