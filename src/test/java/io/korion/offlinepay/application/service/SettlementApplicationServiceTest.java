@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
@@ -17,7 +18,6 @@ import io.korion.offlinepay.application.factory.SettlementBatchFactory;
 import io.korion.offlinepay.application.factory.SettlementRequestFactory;
 import io.korion.offlinepay.application.factory.SettlementStreamEventFactory;
 import io.korion.offlinepay.application.factory.SettlementSyncCommandFactory;
-import io.korion.offlinepay.application.port.CoinManageDeviceSyncPort;
 import io.korion.offlinepay.application.port.CoinManageSettlementPort;
 import io.korion.offlinepay.application.port.CollateralOperationRepository;
 import io.korion.offlinepay.application.port.CollateralRepository;
@@ -83,7 +83,6 @@ class SettlementApplicationServiceTest {
     private final SettlementBatchEventBus eventBus = Mockito.mock(SettlementBatchEventBus.class);
     private final OfflineSagaService offlineSagaService = Mockito.mock(OfflineSagaService.class);
     private final CoinManageSettlementPort coinManageSettlementPort = Mockito.mock(CoinManageSettlementPort.class);
-    private final CoinManageDeviceSyncPort coinManageDeviceSyncPort = Mockito.mock(CoinManageDeviceSyncPort.class);
     private final FoxCoinHistoryPort foxCoinHistoryPort = Mockito.mock(FoxCoinHistoryPort.class);
     private final IssuedProofVerificationService issuedProofVerificationService = Mockito.mock(IssuedProofVerificationService.class);
     private final OfflinePayDeviceIdentifierResolver deviceIdentifierResolver = new OfflinePayDeviceIdentifierResolver(deviceRepository);
@@ -119,7 +118,6 @@ class SettlementApplicationServiceTest {
             new DeviceSignatureVerificationService(),
             new DeviceBindingVerificationService(jsonService),
             issuedProofVerificationService,
-            coinManageDeviceSyncPort,
             deviceIdentifierResolver
     );
 
@@ -292,22 +290,13 @@ class SettlementApplicationServiceTest {
                 eq("settlement-1"),
                 eq("batch-1"),
                 eq("proof-1"),
-                anyString(),
+                argThat(payload -> payload.contains("\"senderDeviceSyncCommand\"")
+                        && payload.contains("\"receiverDeviceSyncCommand\"")
+                        && payload.contains("\"deviceId\":\"device-1\"")
+                        && payload.contains("\"deviceId\":\"98db6beb-4ae1-4027-b9ee-507ce7eaeaa7\"")),
                 anyString()
         );
         verify(settlementRepository).update(anyString(), any(SettlementStatus.class), any(), anyBoolean(), anyString());
-        verify(coinManageDeviceSyncPort).upsertDevice(new CoinManageDeviceSyncPort.DeviceSyncCommand(
-                77L,
-                "device-1",
-                "ACTIVE",
-                1
-        ));
-        verify(coinManageDeviceSyncPort).upsertDevice(new CoinManageDeviceSyncPort.DeviceSyncCommand(
-                88L,
-                "98db6beb-4ae1-4027-b9ee-507ce7eaeaa7",
-                "ACTIVE",
-                1
-        ));
         verify(issuedProofVerificationService, never()).markConsumed(any());
         assertEquals(SettlementStatus.SETTLED, result.status());
     }

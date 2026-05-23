@@ -1,6 +1,7 @@
 package io.korion.offlinepay.application.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import io.korion.offlinepay.application.port.CoinManageDeviceSyncPort;
 import io.korion.offlinepay.application.port.CoinManageSettlementPort;
 import io.korion.offlinepay.application.port.FoxCoinHistoryPort;
 import io.korion.offlinepay.application.port.ReconciliationCaseRepository;
@@ -23,6 +24,7 @@ import org.springframework.stereotype.Component;
 public class SettlementExternalSyncWorker {
 
     private final SettlementBatchEventBus eventBus;
+    private final CoinManageDeviceSyncPort coinManageDeviceSyncPort;
     private final CoinManageSettlementPort coinManageSettlementPort;
     private final FoxCoinHistoryPort foxCoinHistoryPort;
     private final ReconciliationCaseRepository reconciliationCaseRepository;
@@ -32,6 +34,7 @@ public class SettlementExternalSyncWorker {
 
     public SettlementExternalSyncWorker(
             SettlementBatchEventBus eventBus,
+            CoinManageDeviceSyncPort coinManageDeviceSyncPort,
             CoinManageSettlementPort coinManageSettlementPort,
             FoxCoinHistoryPort foxCoinHistoryPort,
             ReconciliationCaseRepository reconciliationCaseRepository,
@@ -40,6 +43,7 @@ public class SettlementExternalSyncWorker {
             AppProperties properties
     ) {
         this.eventBus = eventBus;
+        this.coinManageDeviceSyncPort = coinManageDeviceSyncPort;
         this.coinManageSettlementPort = coinManageSettlementPort;
         this.foxCoinHistoryPort = foxCoinHistoryPort;
         this.reconciliationCaseRepository = reconciliationCaseRepository;
@@ -92,6 +96,8 @@ public class SettlementExternalSyncWorker {
     private void process(SettlementBatchEventBus.QueuedExternalSyncMessage message) {
         JsonNode payload = jsonService.readTree(message.payloadJson());
         if (OfflineWorkflowEventType.LEDGER_SYNC_REQUESTED.name().equals(message.eventType())) {
+            syncCoinManageDevice(payload.path("senderDeviceSyncCommand"));
+            syncCoinManageDevice(payload.path("receiverDeviceSyncCommand"));
             CoinManageSettlementPort.SettlementLedgerCommand command = toLedgerCommand(payload.path("ledgerCommand"));
             CoinManageSettlementPort.SettlementLedgerResult ledgerResult = coinManageSettlementPort.finalizeSettlement(command);
             offlineSagaService.markPartiallyApplied(
@@ -272,6 +278,20 @@ public class SettlementExternalSyncWorker {
         }
 
         throw new IllegalArgumentException("unsupported external sync message: " + message.eventType());
+    }
+
+    private void syncCoinManageDevice(JsonNode node) {
+        if (node == null || node.isMissingNode() || node.isNull()) {
+            return;
+        }
+        coinManageDeviceSyncPort.upsertDevice(new CoinManageDeviceSyncPort.DeviceSyncCommand(
+                node.path("userId").asLong(),
+                node.path("deviceId").asText(),
+                node.path("status").asText(),
+                node.path("keyVersion").isMissingNode() || node.path("keyVersion").isNull()
+                        ? null
+                        : node.path("keyVersion").asInt()
+        ));
     }
 
     private void ensureReconciliationCase(

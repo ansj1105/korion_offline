@@ -5,7 +5,6 @@ import io.korion.offlinepay.application.factory.SettlementBatchFactory;
 import io.korion.offlinepay.application.factory.SettlementRequestFactory;
 import io.korion.offlinepay.application.factory.SettlementStreamEventFactory;
 import io.korion.offlinepay.application.factory.SettlementSyncCommandFactory;
-import io.korion.offlinepay.application.port.CoinManageDeviceSyncPort;
 import io.korion.offlinepay.application.port.CoinManageSettlementPort;
 import io.korion.offlinepay.application.port.CollateralRepository;
 import io.korion.offlinepay.application.port.CollateralOperationRepository;
@@ -51,15 +50,11 @@ import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class SettlementApplicationService {
-
-    private static final Logger log = LoggerFactory.getLogger(SettlementApplicationService.class);
 
     private final CollateralRepository collateralRepository;
     private final CollateralOperationRepository collateralOperationRepository;
@@ -87,7 +82,6 @@ public class SettlementApplicationService {
     private final DeviceSignatureVerificationService deviceSignatureVerificationService;
     private final DeviceBindingVerificationService deviceBindingVerificationService;
     private final IssuedProofVerificationService issuedProofVerificationService;
-    private final CoinManageDeviceSyncPort coinManageDeviceSyncPort;
     private final OfflinePayDeviceIdentifierResolver deviceIdentifierResolver;
 
     public SettlementApplicationService(
@@ -119,7 +113,6 @@ public class SettlementApplicationService {
             DeviceSignatureVerificationService deviceSignatureVerificationService,
             DeviceBindingVerificationService deviceBindingVerificationService,
             IssuedProofVerificationService issuedProofVerificationService,
-            CoinManageDeviceSyncPort coinManageDeviceSyncPort,
             OfflinePayDeviceIdentifierResolver deviceIdentifierResolver
     ) {
         this.collateralRepository = collateralRepository;
@@ -148,7 +141,6 @@ public class SettlementApplicationService {
         this.deviceSignatureVerificationService = deviceSignatureVerificationService;
         this.deviceBindingVerificationService = deviceBindingVerificationService;
         this.issuedProofVerificationService = issuedProofVerificationService;
-        this.coinManageDeviceSyncPort = coinManageDeviceSyncPort;
         this.deviceIdentifierResolver = deviceIdentifierResolver;
     }
 
@@ -684,12 +676,11 @@ public class SettlementApplicationService {
         }
 
         // receiver history/ledger credit: only when receiver device is registered in our system and settlement is SETTLED
+        Device senderDevice = deviceIdentifierResolver.resolve(proof.senderDeviceId()).orElse(null);
         Device receiverDevice = null;
         if (evaluation.status() == SettlementStatus.SETTLED) {
             receiverDevice = deviceIdentifierResolver.resolve(proof.receiverDeviceId()).orElse(null);
         }
-        syncCoinManageDevice(deviceIdentifierResolver.resolve(proof.senderDeviceId()).orElse(null));
-        syncCoinManageDevice(receiverDevice);
 
         CoinManageSettlementPort.SettlementLedgerCommand ledgerCommand = settlementSyncCommandFactory.createLedgerCommand(
                 collateral,
@@ -740,6 +731,14 @@ public class SettlementApplicationService {
         eventPayload.put("batchId", request.batchId());
         eventPayload.put("proofId", proof.id());
         eventPayload.put("voucherId", proof.voucherId());
+        Map<String, Object> senderDeviceSyncCommand = toDeviceSyncCommand(senderDevice);
+        if (senderDeviceSyncCommand != null) {
+            eventPayload.put("senderDeviceSyncCommand", senderDeviceSyncCommand);
+        }
+        Map<String, Object> receiverDeviceSyncCommand = toDeviceSyncCommand(receiverDevice);
+        if (receiverDeviceSyncCommand != null) {
+            eventPayload.put("receiverDeviceSyncCommand", receiverDeviceSyncCommand);
+        }
         Map<String, Object> ledgerCommandMap = new java.util.LinkedHashMap<>();
         ledgerCommandMap.put("settlementId", ledgerCommand.settlementId());
         ledgerCommandMap.put("batchId", ledgerCommand.batchId());
@@ -794,21 +793,16 @@ public class SettlementApplicationService {
         );
     }
 
-    private void syncCoinManageDevice(Device device) {
+    private Map<String, Object> toDeviceSyncCommand(Device device) {
         if (device == null) {
-            return;
+            return null;
         }
-        String status = toCoinManageDeviceStatus(device.status());
-        try {
-            coinManageDeviceSyncPort.upsertDevice(new CoinManageDeviceSyncPort.DeviceSyncCommand(
-                    device.userId(),
-                    device.deviceId(),
-                    status,
-                    device.keyVersion()
-            ));
-        } catch (RuntimeException exception) {
-            log.warn("coin_manage offline pay device sync failed during settlement: deviceId={}, status={}", device.deviceId(), status, exception);
-        }
+        return Map.of(
+                "userId", device.userId(),
+                "deviceId", device.deviceId(),
+                "status", toCoinManageDeviceStatus(device.status()),
+                "keyVersion", device.keyVersion()
+        );
     }
 
     private String toCoinManageDeviceStatus(DeviceStatus status) {

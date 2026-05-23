@@ -95,6 +95,8 @@ class SettlementWorkerTest {
                 ),
                 new AppProperties.Worker(true, "worker-1", 60000, 3)
         );
+        io.korion.offlinepay.application.port.CoinManageDeviceSyncPort coinManageDeviceSyncPort =
+                Mockito.mock(io.korion.offlinepay.application.port.CoinManageDeviceSyncPort.class);
         io.korion.offlinepay.application.port.CoinManageSettlementPort coinManageSettlementPort =
                 Mockito.mock(io.korion.offlinepay.application.port.CoinManageSettlementPort.class);
         io.korion.offlinepay.application.port.FoxCoinHistoryPort foxCoinHistoryPort =
@@ -105,6 +107,7 @@ class SettlementWorkerTest {
         JsonService jsonService = new JsonService(new com.fasterxml.jackson.databind.ObjectMapper());
         SettlementExternalSyncWorker worker = new SettlementExternalSyncWorker(
                 eventBus,
+                coinManageDeviceSyncPort,
                 coinManageSettlementPort,
                 foxCoinHistoryPort,
                 reconciliationCaseRepository,
@@ -170,6 +173,8 @@ class SettlementWorkerTest {
                 ),
                 new AppProperties.Worker(true, "worker-1", 60000, 3)
         );
+        io.korion.offlinepay.application.port.CoinManageDeviceSyncPort coinManageDeviceSyncPort =
+                Mockito.mock(io.korion.offlinepay.application.port.CoinManageDeviceSyncPort.class);
         io.korion.offlinepay.application.port.CoinManageSettlementPort coinManageSettlementPort =
                 Mockito.mock(io.korion.offlinepay.application.port.CoinManageSettlementPort.class);
         io.korion.offlinepay.application.port.FoxCoinHistoryPort foxCoinHistoryPort =
@@ -180,6 +185,7 @@ class SettlementWorkerTest {
         JsonService jsonService = new JsonService(new com.fasterxml.jackson.databind.ObjectMapper());
         SettlementExternalSyncWorker worker = new SettlementExternalSyncWorker(
                 eventBus,
+                coinManageDeviceSyncPort,
                 coinManageSettlementPort,
                 foxCoinHistoryPort,
                 reconciliationCaseRepository,
@@ -194,7 +200,7 @@ class SettlementWorkerTest {
                         "settlement-1",
                         "batch-1",
                         "proof-1",
-                        "{\"ledgerCommand\":{\"settlementId\":\"settlement-1\",\"batchId\":\"batch-1\",\"collateralId\":\"collateral-1\",\"proofId\":\"proof-1\",\"userId\":1,\"deviceId\":\"device-1\",\"assetCode\":\"USDT\",\"amount\":10,\"settlementStatus\":\"SETTLED\",\"releaseAction\":\"RELEASE\",\"conflictDetected\":false,\"proofFingerprint\":\"fp\",\"newStateHash\":\"hash\",\"previousHash\":\"prev\",\"monotonicCounter\":1,\"nonce\":\"nonce\",\"signature\":\"sig\"},\"historyCommand\":{\"settlementId\":\"settlement-1\",\"batchId\":\"batch-1\",\"collateralId\":\"collateral-1\",\"proofId\":\"proof-1\",\"userId\":1,\"deviceId\":\"device-1\",\"assetCode\":\"USDT\",\"amount\":10,\"settlementStatus\":\"SETTLED\",\"historyType\":\"OFFLINE_PAY_SETTLEMENT\"}}",
+                        "{\"senderDeviceSyncCommand\":{\"userId\":1,\"deviceId\":\"device-1\",\"status\":\"ACTIVE\",\"keyVersion\":1},\"receiverDeviceSyncCommand\":{\"userId\":2,\"deviceId\":\"device-2\",\"status\":\"ACTIVE\",\"keyVersion\":1},\"ledgerCommand\":{\"settlementId\":\"settlement-1\",\"batchId\":\"batch-1\",\"collateralId\":\"collateral-1\",\"proofId\":\"proof-1\",\"userId\":1,\"deviceId\":\"device-1\",\"assetCode\":\"USDT\",\"amount\":10,\"settlementStatus\":\"SETTLED\",\"releaseAction\":\"RELEASE\",\"conflictDetected\":false,\"proofFingerprint\":\"fp\",\"newStateHash\":\"hash\",\"previousHash\":\"prev\",\"monotonicCounter\":1,\"nonce\":\"nonce\",\"signature\":\"sig\"},\"historyCommand\":{\"settlementId\":\"settlement-1\",\"batchId\":\"batch-1\",\"collateralId\":\"collateral-1\",\"proofId\":\"proof-1\",\"userId\":1,\"deviceId\":\"device-1\",\"assetCode\":\"USDT\",\"amount\":10,\"settlementStatus\":\"SETTLED\",\"historyType\":\"OFFLINE_PAY_SETTLEMENT\"}}",
                         1
                 );
 
@@ -217,6 +223,18 @@ class SettlementWorkerTest {
 
         worker.poll();
 
+        verify(coinManageDeviceSyncPort).upsertDevice(new io.korion.offlinepay.application.port.CoinManageDeviceSyncPort.DeviceSyncCommand(
+                1L,
+                "device-1",
+                "ACTIVE",
+                1
+        ));
+        verify(coinManageDeviceSyncPort).upsertDevice(new io.korion.offlinepay.application.port.CoinManageDeviceSyncPort.DeviceSyncCommand(
+                2L,
+                "device-2",
+                "ACTIVE",
+                1
+        ));
         verify(offlineSagaService).markPartiallyApplied(
                 eq(io.korion.offlinepay.domain.status.OfflineSagaType.SETTLEMENT),
                 eq("settlement-1"),
@@ -254,6 +272,8 @@ class SettlementWorkerTest {
                 ),
                 new AppProperties.Worker(true, "worker-1", 60000, 3)
         );
+        io.korion.offlinepay.application.port.CoinManageDeviceSyncPort coinManageDeviceSyncPort =
+                Mockito.mock(io.korion.offlinepay.application.port.CoinManageDeviceSyncPort.class);
         io.korion.offlinepay.application.port.CoinManageSettlementPort coinManageSettlementPort =
                 Mockito.mock(io.korion.offlinepay.application.port.CoinManageSettlementPort.class);
         io.korion.offlinepay.application.port.FoxCoinHistoryPort foxCoinHistoryPort =
@@ -264,6 +284,7 @@ class SettlementWorkerTest {
         JsonService jsonService = new JsonService(new com.fasterxml.jackson.databind.ObjectMapper());
         SettlementExternalSyncWorker worker = new SettlementExternalSyncWorker(
                 eventBus,
+                coinManageDeviceSyncPort,
                 coinManageSettlementPort,
                 foxCoinHistoryPort,
                 reconciliationCaseRepository,
