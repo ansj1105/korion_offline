@@ -62,6 +62,10 @@
 - snapshot으로 내려주는 proof는 `ACTIVE`, 미만료, issuer signature valid, 사용자/기기/자산 바인딩이 맞는 경우로 제한한다.
 - settlement 검증은 sender device id/public key, user/asset subject binding, collateral id(s), usable amount, nonce, expiry, issuer signature를 모두 확인해야 한다.
 - 기존 발급 proof는 위 조건을 만족하면 재사용 가능하다. invalid/expired/revoked/consumed/mismatched proof는 재사용하거나 snapshot으로 내려주지 않는다.
+- 프런트는 proof 소비자/캐시 계층이다. 오프라인 sender settlement에는 usable issued proof가 반드시 포함되어야 하며, `issuedProof=null`인 settlement/queue를 서버가 정상 케이스로 받아들이면 안 된다.
+- NFC receive-request creation은 수신자가 금액 요청을 만드는 단계이므로 수신자 담보/proof로 막지 않는다. sender confirm/auth 시점에 sender proof, collateral, device binding을 검증한다.
+- snapshot/profile metadata는 UX 표시용으로 내려줄 수 있지만, settlement 대상 식별과 proof 검증은 canonical user/device/proof binding만 사용한다. nickname, profile image, app-suffix 같은 표시값으로 원장 대상을 결정하지 않는다.
+- receiver history/settlement sync는 COMPLETE 또는 서버 settlement state를 기준으로 복구 가능해야 한다. sender-only queue 처리나 표시용 metadata만으로 receiver ledger/history를 생성하지 않는다.
 - 오프라인 페이 프런트 디자인 기준은 `/Users/an/Downloads/pages/offline-pay`이다.
 - `container`, `app-wrapper`, `app-container` 충돌 방지에 필요한 예외를 제외하면 다운로드본 렌더를 우선 1:1로 맞춘다.
 - 기능 로직은 현재 브랜치를 유지하되, 마크업/CSS는 다운로드본을 source of truth로 본다.
