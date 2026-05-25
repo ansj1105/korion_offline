@@ -6,6 +6,7 @@ import io.korion.offlinepay.domain.status.OfflineEventStatus;
 import io.korion.offlinepay.domain.status.OfflineEventType;
 import io.korion.offlinepay.infrastructure.persistence.mapper.OfflineEventLogRowMapper;
 import java.math.BigDecimal;
+import java.time.OffsetDateTime;
 import java.util.List;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
@@ -93,6 +94,101 @@ public class JdbcOfflineEventLogRepository implements OfflineEventLogRepository 
                 .query(rowMapper)
                 .optional()
                 .orElseThrow();
+    }
+
+    @Override
+    public int closePendingByRequestId(
+            String requestId,
+            OfflineEventStatus terminalStatus,
+            String reasonCode
+    ) {
+        if (requestId == null || requestId.isBlank() || terminalStatus == OfflineEventStatus.PENDING) {
+            return 0;
+        }
+        String sql = """
+                UPDATE offline_event_logs pending
+                SET
+                    event_status = :terminalStatus,
+                    reason_code = COALESCE(NULLIF(pending.reason_code, ''), :reasonCode),
+                    updated_at = NOW()
+                WHERE pending.request_id = :requestId
+                  AND pending.event_status = :pendingStatus
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM offline_event_logs terminal
+                      WHERE terminal.request_id = pending.request_id
+                        AND terminal.event_type = pending.event_type
+                        AND terminal.event_status = :terminalStatus
+                  )
+                """;
+        return jdbcClient.sql(sql)
+                .param("requestId", requestId)
+                .param("terminalStatus", terminalStatus.name())
+                .param("pendingStatus", OfflineEventStatus.PENDING.name())
+                .param("reasonCode", reasonCode == null ? "" : reasonCode)
+                .update();
+    }
+
+    @Override
+    public int closePendingResolvedByTerminalEvents() {
+        String sql = """
+                UPDATE offline_event_logs pending
+                SET
+                    event_status = terminal.event_status,
+                    reason_code = COALESCE(NULLIF(pending.reason_code, ''), terminal.reason_code),
+                    updated_at = NOW()
+                FROM (
+                    SELECT DISTINCT ON (request_id)
+                        request_id,
+                        event_status,
+                        reason_code,
+                        updated_at
+                    FROM offline_event_logs
+                    WHERE request_id IS NOT NULL
+                      AND event_status <> :pendingStatus
+                    ORDER BY request_id, updated_at DESC
+                ) terminal
+                WHERE pending.request_id = terminal.request_id
+                  AND pending.event_status = :pendingStatus
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM offline_event_logs existing_terminal
+                      WHERE existing_terminal.request_id = pending.request_id
+                        AND existing_terminal.event_type = pending.event_type
+                        AND existing_terminal.event_status = terminal.event_status
+                  )
+                """;
+        return jdbcClient.sql(sql)
+                .param("pendingStatus", OfflineEventStatus.PENDING.name())
+                .update();
+    }
+
+    @Override
+    public int expirePendingOlderThan(OffsetDateTime cutoff, String reasonCode) {
+        if (cutoff == null) {
+            return 0;
+        }
+        String sql = """
+                UPDATE offline_event_logs pending
+                SET
+                    event_status = :failedStatus,
+                    reason_code = COALESCE(NULLIF(pending.reason_code, ''), :reasonCode),
+                    updated_at = NOW()
+                WHERE pending.event_status = :pendingStatus
+                  AND pending.created_at < :cutoff
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM offline_event_logs terminal
+                      WHERE terminal.request_id = pending.request_id
+                        AND terminal.event_status <> :pendingStatus
+                  )
+                """;
+        return jdbcClient.sql(sql)
+                .param("failedStatus", OfflineEventStatus.FAILED.name())
+                .param("pendingStatus", OfflineEventStatus.PENDING.name())
+                .param("cutoff", cutoff)
+                .param("reasonCode", reasonCode == null ? "" : reasonCode)
+                .update();
     }
 
     @Override

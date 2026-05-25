@@ -35,7 +35,7 @@ public class OfflineEventLogService {
                 .orElseThrow(() -> new IllegalArgumentException("device binding mismatch: " + command.deviceId()));
         validateReasonPolicy(command);
 
-        return offlineEventLogRepository.save(
+        OfflineEventLog eventLog = offlineEventLogRepository.save(
                 command.userId(),
                 command.deviceId(),
                 command.eventType(),
@@ -51,6 +51,8 @@ public class OfflineEventLogService {
                 command.message(),
                 jsonService.write(command.metadata() == null ? Map.of() : command.metadata())
         );
+        closePendingRequestLifecycle(command);
+        return eventLog;
     }
 
     @Transactional(readOnly = true)
@@ -100,6 +102,20 @@ public class OfflineEventLogService {
         } catch (IllegalArgumentException ignored) {
             return null;
         }
+    }
+
+    private void closePendingRequestLifecycle(RecordOfflineEventCommand command) {
+        if (command.requestId() == null || command.requestId().isBlank()) {
+            return;
+        }
+        if (command.eventStatus() == OfflineEventStatus.PENDING) {
+            return;
+        }
+        offlineEventLogRepository.closePendingByRequestId(
+                command.requestId(),
+                command.eventStatus(),
+                command.reasonCode()
+        );
     }
 
     private void validateReasonPolicy(RecordOfflineEventCommand command) {

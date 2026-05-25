@@ -4,6 +4,7 @@ import io.korion.offlinepay.domain.model.OfflineEventLog;
 import io.korion.offlinepay.domain.status.OfflineEventStatus;
 import io.korion.offlinepay.domain.status.OfflineEventType;
 import java.math.BigDecimal;
+import java.time.OffsetDateTime;
 import java.util.List;
 
 public interface OfflineEventLogRepository {
@@ -24,6 +25,16 @@ public interface OfflineEventLogRepository {
             String message,
             String metadataJson
     );
+
+    int closePendingByRequestId(
+            String requestId,
+            OfflineEventStatus terminalStatus,
+            String reasonCode
+    );
+
+    int closePendingResolvedByTerminalEvents();
+
+    int expirePendingOlderThan(OffsetDateTime cutoff, String reasonCode);
 
     List<OfflineEventLog> findRecent(
             int size,
