@@ -12,12 +12,14 @@ class OfflinePaySettlementFeeCalculatorTest {
     @Test
     void calculatesConfiguredKoriSettlementFee() {
         assertEquals(new BigDecimal("0.004000"), calculator.calculateFee("kori", new BigDecimal("1.000000")));
-        assertEquals(new BigDecimal("1.004000"), calculator.calculateTotal("KORI", new BigDecimal("1.000000")));
+        assertEquals(new BigDecimal("1.000000"), calculator.calculateTotal("KORI", new BigDecimal("1.000000")));
+        assertEquals(new BigDecimal("0.996000"), calculator.calculateReceiverAmount("KORI", new BigDecimal("1.000000")));
     }
 
     @Test
     void leavesAssetsWithoutFeePolicyUntouched() {
         assertEquals(new BigDecimal("0.000000"), calculator.calculateFee("USDT", new BigDecimal("1.000000")));
         assertEquals(new BigDecimal("1.000000"), calculator.calculateTotal("USDT", new BigDecimal("1.000000")));
+        assertEquals(new BigDecimal("1.000000"), calculator.calculateReceiverAmount("USDT", new BigDecimal("1.000000")));
     }
 }

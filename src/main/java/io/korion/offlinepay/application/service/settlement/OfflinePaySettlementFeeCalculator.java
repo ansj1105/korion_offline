@@ -27,15 +27,21 @@ public class OfflinePaySettlementFeeCalculator {
     }
 
     public BigDecimal calculateTotal(String assetCode, BigDecimal amount) {
-        if (!hasFeePolicy(assetCode)) {
-            return amount == null ? BigDecimal.ZERO : amount;
-        }
-        BigDecimal normalizedAmount = normalize(amount);
-        return normalizedAmount.add(calculateFee(assetCode, normalizedAmount)).setScale(AMOUNT_SCALE, RoundingMode.HALF_UP);
+        return normalize(amount);
     }
 
     public BigDecimal calculateTotal(BigDecimal amount) {
         return calculateTotal("KORI", amount);
+    }
+
+    public BigDecimal calculateReceiverAmount(String assetCode, BigDecimal amount) {
+        BigDecimal normalizedAmount = normalize(amount);
+        BigDecimal feeAmount = calculateFee(assetCode, normalizedAmount);
+        BigDecimal receiverAmount = normalizedAmount.subtract(feeAmount);
+        if (receiverAmount.signum() < 0) {
+            return BigDecimal.ZERO.setScale(AMOUNT_SCALE, RoundingMode.HALF_UP);
+        }
+        return receiverAmount.setScale(AMOUNT_SCALE, RoundingMode.HALF_UP);
     }
 
     public boolean hasFeePolicy(String assetCode) {

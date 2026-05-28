@@ -59,7 +59,7 @@ class SettlementPolicyEvaluatorTest {
         assertTrue(result.resultJson().contains("\"uiMode\":\"SEND\""));
         assertTrue(result.resultJson().contains("\"paymentFlow\":\"MANUAL_PAYMENT\""));
         assertTrue(result.resultJson().contains("\"feeAmount\":0.004000"));
-        assertTrue(result.resultJson().contains("\"settlementTotal\":1.004000"));
+        assertTrue(result.resultJson().contains("\"settlementTotal\":1.000000"));
     }
 
     @Test

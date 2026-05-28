@@ -117,9 +117,16 @@ public class SettlementSyncCommandFactory {
                 receiverDevice.userId(),
                 receiverDevice.deviceId(),
                 collateral.assetCode(),
-                amount,
+                receiverHistoryAmount(collateral.assetCode(), amount, settlementStatus),
                 settlementStatus,
                 "OFFLINE_PAY_RECEIVE"
         );
+    }
+
+    private BigDecimal receiverHistoryAmount(String assetCode, BigDecimal amount, String settlementStatus) {
+        if (!"SETTLED".equalsIgnoreCase(settlementStatus)) {
+            return amount;
+        }
+        return feeCalculator.calculateReceiverAmount(assetCode, amount);
     }
 }
