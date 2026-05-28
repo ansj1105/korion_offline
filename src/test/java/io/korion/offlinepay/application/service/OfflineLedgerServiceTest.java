@@ -96,7 +96,7 @@ class OfflineLedgerServiceTest {
                 "MANUAL_SELECTION",
                 OfflineProofStatus.SETTLED,
                 "SETTLED",
-                "{\"paymentMethod\":\"BLE\",\"token\":\"KORI\",\"fee\":\"0.004000\"}",
+                "{\"paymentMethod\":\"BLE\",\"token\":\"KORI\",\"fee\":\"0.001000\"}",
                 now,
                 now,
                 null,

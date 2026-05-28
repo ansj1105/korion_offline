@@ -10,7 +10,7 @@ import org.springframework.stereotype.Component;
 public class OfflinePaySettlementFeeCalculator {
 
     private static final Map<String, BigDecimal> OFFLINE_PAY_SETTLEMENT_FEE_RATES = Map.of(
-            "KORI", new BigDecimal("0.004")
+            "KORI", new BigDecimal("0.001")
     );
     private static final int AMOUNT_SCALE = 6;
 

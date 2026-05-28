@@ -12,9 +12,71 @@ tags:
   - name: Device
   - name: Collateral
   - name: Settlement
+  - name: ClientTrace
   - name: Admin
 
 paths:
+  /api/offline-pay/client-traces:
+    post:
+      tags: [ClientTrace]
+      summary: BLE/NFC 클라이언트 trace 요약 및 JSON 파일 텔레그램 전송
+      operationId: recordClientTrace
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [traceId]
+              properties:
+                traceId:
+                  type: string
+                sessionId:
+                  type: string
+                failureCode:
+                  type: string
+                flow:
+                  type: string
+                status:
+                  type: string
+                stage:
+                  type: string
+                entryAction:
+                  type: string
+                messageType:
+                  type: string
+                routePeerId:
+                  type: string
+                localSagaStatus:
+                  type: string
+                nativeError:
+                  type: string
+                deviceModel:
+                  type: string
+                appVersion:
+                  type: string
+                platform:
+                  type: string
+                userId:
+                  type: integer
+                  format: int64
+                deviceId:
+                  type: string
+                message:
+                  type: string
+                metadata:
+                  type: object
+                steps:
+                  type: array
+                  maxItems: 300
+                  items:
+                    type: object
+                createdAt:
+                  type: string
+      responses:
+        '202':
+          description: trace 접수 또는 dedupe throttle 처리
+
   /api/devices/register:
     post:
       tags: [Device]
