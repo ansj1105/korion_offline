@@ -582,11 +582,10 @@ public class SettlementApplicationService {
             if (deduction.signum() <= 0) {
                 continue;
             }
-            collateralRepository.deductLockedAndRemainingAmount(collateral.id(), deduction);
-            BigDecimal remainingAfterDeduction = collateral.remainingAmount().subtract(deduction);
+            collateralRepository.deductRemainingAmount(collateral.id(), deduction);
             collateralRepository.updateStatus(
                     collateral.id(),
-                    remainingAfterDeduction.signum() <= 0 ? CollateralStatus.RELEASED : CollateralStatus.PARTIALLY_SETTLED,
+                    CollateralStatus.PARTIALLY_SETTLED,
                     jsonService.write(Map.of(
                             "lastSettlementId", request.id(),
                             "lastVoucherId", proof.voucherId(),

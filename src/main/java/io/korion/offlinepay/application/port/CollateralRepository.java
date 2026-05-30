@@ -44,5 +44,7 @@ public interface CollateralRepository {
 
     void deductLockedAndRemainingAmount(String collateralId, BigDecimal amount);
 
+    void deductRemainingAmount(String collateralId, BigDecimal amount);
+
     void updateStatus(String collateralId, CollateralStatus status, String metadataJson);
 }

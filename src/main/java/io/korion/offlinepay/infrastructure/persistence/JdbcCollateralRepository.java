@@ -133,7 +133,7 @@ public class JdbcCollateralRepository implements CollateralRepository {
                 WHERE user_id = :userId
                   AND device_id = :deviceId
                   AND asset_code = :assetCode
-                  AND remaining_amount > 0
+                  AND status IN ('LOCKED', 'PARTIALLY_SETTLED')
                 GROUP BY user_id, device_id, asset_code
                 """;
         return jdbcClient.sql(sql)
@@ -168,7 +168,7 @@ public class JdbcCollateralRepository implements CollateralRepository {
                 FROM collateral_locks
                 WHERE user_id = :userId
                   AND asset_code = :assetCode
-                  AND remaining_amount > 0
+                  AND status IN ('LOCKED', 'PARTIALLY_SETTLED')
                 GROUP BY user_id, asset_code
                 """;
         return jdbcClient.sql(sql)
@@ -282,6 +282,19 @@ public class JdbcCollateralRepository implements CollateralRepository {
     public void deductLockedAndRemainingAmount(String collateralId, BigDecimal amount) {
         String sql = QueryBuilder.update("collateral_locks")
                 .set("locked_amount", "GREATEST(locked_amount - :amount, 0)")
+                .set("remaining_amount", "GREATEST(remaining_amount - :amount, 0)")
+                .touchUpdatedAt()
+                .where("id", QueryBuilder.Op.EQ, ":id")
+                .build();
+        jdbcClient.sql(sql)
+                .param("id", java.util.UUID.fromString(collateralId))
+                .param("amount", amount)
+                .update();
+    }
+
+    @Override
+    public void deductRemainingAmount(String collateralId, BigDecimal amount) {
+        String sql = QueryBuilder.update("collateral_locks")
                 .set("remaining_amount", "GREATEST(remaining_amount - :amount, 0)")
                 .touchUpdatedAt()
                 .where("id", QueryBuilder.Op.EQ, ":id")
