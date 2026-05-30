@@ -7,6 +7,8 @@
 - `domain`은 상태 enum과 도메인 모델을 소유한다.
 - `infrastructure`는 DB, Redis, 외부 서비스 구현체를 둔다.
 - 생성 책임이 반복되면 `factory`로 승격한다.
+- Do not implement imagined adjacent work. A request to add or fix one endpoint, policy, settlement path, worker, or proof flow is not permission to add unrelated routes, new roles, extra state transitions, alternate fees, dashboard semantics, or public behavior that the user did not explicitly ask for.
+- Preserve existing source-of-truth ownership, state values, proof semantics, accounting semantics, API contracts, and service boundaries unless the user explicitly instructs a change. If a useful adjacent change is noticed, report it as a follow-up instead of implementing it silently.
 
 ## External Service Rules
 - `coin_manage`, `foxya_coin_service` 같은 외부 서비스 연동은 반드시 `application/port` 인터페이스를 먼저 정의하고 `infrastructure/adapter` 구현체로 연결한다.

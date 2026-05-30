@@ -585,6 +585,7 @@ public class SettlementExternalSyncWorker {
                 requireText(node, "deviceId"),
                 requireText(node, "assetCode"),
                 node.path("amount").decimalValue(),
+                node.hasNonNull("feeAmount") ? node.path("feeAmount").decimalValue() : BigDecimal.ZERO,
                 requireText(node, "settlementStatus"),
                 requireText(node, "historyType")
         );

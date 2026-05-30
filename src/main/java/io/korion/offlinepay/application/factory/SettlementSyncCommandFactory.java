@@ -83,6 +83,7 @@ public class SettlementSyncCommandFactory {
             BigDecimal amount,
             SettlementRequest request,
             String settlementStatus,
+            String releaseAction,
             boolean conflictDetected
     ) {
         return new FoxCoinHistoryPort.SettlementHistoryCommand(
@@ -95,6 +96,7 @@ public class SettlementSyncCommandFactory {
                 collateral.deviceId(),
                 collateral.assetCode(),
                 amount,
+                settlementFeeAmount(collateral.assetCode(), amount, settlementStatus, releaseAction),
                 settlementStatus,
                 conflictDetected ? "OFFLINE_PAY_CONFLICT" : "OFFLINE_PAY_SETTLEMENT"
         );
@@ -106,6 +108,7 @@ public class SettlementSyncCommandFactory {
             BigDecimal amount,
             SettlementRequest request,
             String settlementStatus,
+            String releaseAction,
             Device receiverDevice
     ) {
         return new FoxCoinHistoryPort.SettlementHistoryCommand(
@@ -118,6 +121,7 @@ public class SettlementSyncCommandFactory {
                 receiverDevice.deviceId(),
                 collateral.assetCode(),
                 receiverHistoryAmount(collateral.assetCode(), amount, settlementStatus),
+                settlementFeeAmount(collateral.assetCode(), amount, settlementStatus, releaseAction),
                 settlementStatus,
                 "OFFLINE_PAY_RECEIVE"
         );

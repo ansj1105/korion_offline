@@ -30,6 +30,7 @@ public class FoxCoinHistoryAdapter implements FoxCoinHistoryPort {
                         command.deviceId(),
                         command.assetCode(),
                         command.amount(),
+                        command.feeAmount(),
                         command.settlementStatus(),
                         command.historyType()
                 ))

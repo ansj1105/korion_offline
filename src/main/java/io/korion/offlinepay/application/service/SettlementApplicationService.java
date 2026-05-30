@@ -697,6 +697,7 @@ public class SettlementApplicationService {
                 proof.amount(),
                 request,
                 evaluation.status().name(),
+                evaluation.releaseAction(),
                 evaluation.conflictDetected()
         );
         FoxCoinHistoryPort.SettlementHistoryCommand receiverHistoryCommand = null;
@@ -707,6 +708,7 @@ public class SettlementApplicationService {
                             proof.amount(),
                             request,
                             evaluation.status().name(),
+                            evaluation.releaseAction(),
                             receiverDevice
                     );
         }
@@ -721,6 +723,7 @@ public class SettlementApplicationService {
                 Map.entry("deviceId", historyCommand.deviceId()),
                 Map.entry("assetCode", historyCommand.assetCode()),
                 Map.entry("amount", historyCommand.amount()),
+                Map.entry("feeAmount", historyCommand.feeAmount()),
                 Map.entry("settlementStatus", historyCommand.settlementStatus()),
                 Map.entry("historyType", historyCommand.historyType())
         );
@@ -776,6 +779,7 @@ public class SettlementApplicationService {
                     Map.entry("deviceId", receiverHistoryCommand.deviceId()),
                     Map.entry("assetCode", receiverHistoryCommand.assetCode()),
                     Map.entry("amount", receiverHistoryCommand.amount()),
+                    Map.entry("feeAmount", receiverHistoryCommand.feeAmount()),
                     Map.entry("settlementStatus", receiverHistoryCommand.settlementStatus()),
                     Map.entry("historyType", receiverHistoryCommand.historyType())
             ));

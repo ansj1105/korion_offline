@@ -16,6 +16,7 @@ public interface FoxCoinHistoryPort {
             String deviceId,
             String assetCode,
             BigDecimal amount,
+            BigDecimal feeAmount,
             String settlementStatus,
             String historyType
     ) {}
