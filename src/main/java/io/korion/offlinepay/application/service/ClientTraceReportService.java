@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -23,6 +24,7 @@ public class ClientTraceReportService {
     private final Clock clock;
     private final Map<String, Long> recentlySent = new ConcurrentHashMap<>();
 
+    @Autowired
     public ClientTraceReportService(TelegramAlertService telegramAlertService, ObjectMapper objectMapper) {
         this(telegramAlertService, objectMapper, Clock.systemUTC());
     }
