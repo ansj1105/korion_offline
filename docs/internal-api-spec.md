@@ -65,6 +65,34 @@ Error:
 - `409` already finalized with incompatible payload
 - `401` internal api key invalid
 
+### 1.3 `GET /api/internal/offline-pay/users/{userId}/pending-balance`
+
+Headers:
+- `X-Internal-Api-Key: <secret>`
+
+Query:
+- `assetCode`: default `KORI`
+
+Required behavior:
+- `coin_manage`의 canonical `offline_pay_pending` 원장 잔액을 반환한다.
+- `korion_offline`의 active collateral `remaining_amount`와 비교하는 reconciliation 전용 API다.
+- `total collateral`이나 Foxya wallet balance를 대신 반환하면 안 된다.
+
+Response `200`:
+- Contract: [CoinManagePendingBalanceResponseContract.java](/Users/an/work/offline_pay/src/main/java/io/korion/offlinepay/contracts/internal/CoinManagePendingBalanceResponseContract.java)
+- Example:
+```json
+{
+  "status": "OK",
+  "userId": "35",
+  "assetCode": "KORI",
+  "offlinePayPendingBalance": "494.000000"
+}
+```
+
+Error:
+- `401` internal api key invalid
+
 ## 2. `fox_coin`
 
 Base path:
@@ -105,3 +133,11 @@ Error:
 - `offline_pay`는 timeout 또는 5xx만 재시도한다.
 - 4xx는 비재시도이며 conflict/audit 대상으로 남긴다.
 - 두 외부 서비스 모두 `settlementId` idempotency를 반드시 보장해야 한다.
+
+## 4. Dead Letter Requeue Rule
+
+- `DEAD_LETTER`는 DB 값을 직접 수정하지 않고 admin/ops API로만 재처리한다.
+- 일반 retryable case는 `POST /api/admin/anomalies/reconciliation-cases/{caseId}/retry`를 사용한다.
+- `OFFLINE_PAY_FEE_MISMATCH`처럼 서비스 간 계약 오류로 발생한 case는 계약 수정 및 배포가 끝난 뒤 `POST /api/admin/anomalies/reconciliation-cases/{caseId}/retry-contract-fixed`를 사용한다.
+- `retry-contract-fixed`는 `LEDGER_SYNC_FAILED` + `OFFLINE_PAY_FEE_MISMATCH` 이력만 허용하고, 원래 payload를 그대로 재발행한다.
+- 재처리 성공 여부는 outbox event, reconciliation case status, `coin_manage.offline_pay_pending`, `korion_offline.remaining_amount` 비교로 확인한다.

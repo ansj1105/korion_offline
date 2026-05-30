@@ -91,4 +91,12 @@ public class AdminAnomalyController {
                 "case", adminOperationsService.retryReconciliationCase(caseId)
         );
     }
+
+    @PostMapping("/reconciliation-cases/{caseId}/retry-contract-fixed")
+    public Object retryContractFixedReconciliationCase(@PathVariable String caseId) {
+        return Map.of(
+                "status", "REQUEUED",
+                "case", adminOperationsService.retryContractFixedReconciliationCase(caseId)
+        );
+    }
 }

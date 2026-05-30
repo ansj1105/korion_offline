@@ -214,6 +214,33 @@ public class JdbcCollateralRepository implements CollateralRepository {
     }
 
     @Override
+    public List<CollateralBalanceSummary> summarizeActiveBalances(String assetCode, int size) {
+        String sql = """
+                SELECT
+                    user_id,
+                    asset_code,
+                    COALESCE(SUM(locked_amount), 0) AS locked_amount,
+                    COALESCE(SUM(remaining_amount), 0) AS remaining_amount
+                FROM collateral_locks
+                WHERE asset_code = :assetCode
+                  AND status IN ('LOCKED', 'PARTIALLY_SETTLED')
+                GROUP BY user_id, asset_code
+                ORDER BY user_id
+                LIMIT :size
+                """;
+        return jdbcClient.sql(sql)
+                .param("assetCode", assetCode)
+                .param("size", size)
+                .query((rs, rowNum) -> new CollateralBalanceSummary(
+                        rs.getLong("user_id"),
+                        rs.getString("asset_code"),
+                        rs.getBigDecimal("locked_amount"),
+                        rs.getBigDecimal("remaining_amount")
+                ))
+                .list();
+    }
+
+    @Override
     public List<CollateralDeviceRebindCandidate> findSingleActiveDeviceRebindCandidates(String assetCode, int size) {
         String sql = """
                 SELECT c.*, active_devices.target_device_id

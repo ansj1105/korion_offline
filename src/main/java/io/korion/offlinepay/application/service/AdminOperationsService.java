@@ -224,6 +224,36 @@ public class AdminOperationsService {
         return reconciliationCaseRepository.findById(caseId).orElseThrow();
     }
 
+    @Transactional
+    public ReconciliationCase retryContractFixedReconciliationCase(String caseId) {
+        ReconciliationCase reconciliationCase = reconciliationCaseRepository.findById(caseId)
+                .orElseThrow(() -> new IllegalArgumentException("reconciliation case not found: " + caseId));
+        var detail = jsonService.readTree(reconciliationCase.detailJson());
+        String nextAction = detail.path("nextAction").asText("");
+        String eventType = detail.path("eventType").asText("");
+        String payloadJson = detail.path("payloadJson").asText("");
+        String errorMessage = detail.path("errorMessage").asText("");
+        boolean isFeeMismatch = "LEDGER_SYNC_FAILED".equals(reconciliationCase.caseType())
+                && "LEDGER_SYNC_FAIL".equals(reconciliationCase.reasonCode())
+                && errorMessage.contains("OFFLINE_PAY_FEE_MISMATCH");
+        if (!isFeeMismatch) {
+            throw new IllegalArgumentException("reconciliation case is not a contract-fixed fee mismatch: " + caseId);
+        }
+        if (!"RETRY_EXTERNAL_SYNC".equals(nextAction) || eventType.isBlank() || payloadJson.isBlank()) {
+            throw new IllegalArgumentException("reconciliation case does not contain external sync retry payload: " + caseId);
+        }
+        settlementBatchEventBus.publishExternalSyncRequested(
+                eventType,
+                reconciliationCase.settlementId(),
+                reconciliationCase.batchId(),
+                reconciliationCase.proofId(),
+                payloadJson,
+                OffsetDateTime.now().toString()
+        );
+        reconciliationCaseRepository.updateDetail(caseId, markContractFixedRetry(detail));
+        return reconciliationCaseRepository.findById(caseId).orElseThrow();
+    }
+
     @Transactional(readOnly = true)
     public Map<String, Long> getOutboxOverview() {
         return Map.ofEntries(
@@ -253,6 +283,17 @@ public class AdminOperationsService {
         LinkedHashMap<String, Object> merged = new LinkedHashMap<>();
         detail.fields().forEachRemaining(entry -> merged.put(entry.getKey(), entry.getValue()));
         merged.put("lastManualRetryAt", OffsetDateTime.now().toString());
+        merged.put("nextRetryAt", OffsetDateTime.now().plusMinutes(5).toString());
+        return jsonService.write(merged);
+    }
+
+    private String markContractFixedRetry(com.fasterxml.jackson.databind.JsonNode detail) {
+        LinkedHashMap<String, Object> merged = new LinkedHashMap<>();
+        detail.fields().forEachRemaining(entry -> merged.put(entry.getKey(), entry.getValue()));
+        merged.put("lastManualRetryAt", OffsetDateTime.now().toString());
+        merged.put("lastManualRetryReason", "CONTRACT_FIXED");
+        merged.put("retryable", true);
+        merged.put("adminAction", "CONTRACT_FIXED_RETRY_QUEUED");
         merged.put("nextRetryAt", OffsetDateTime.now().plusMinutes(5).toString());
         return jsonService.write(merged);
     }

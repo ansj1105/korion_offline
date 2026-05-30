@@ -8,6 +8,14 @@ public interface CoinManageSettlementPort {
 
     SettlementLedgerResult compensateSettlement(SettlementCompensationCommand command);
 
+    PendingBalanceResult getOfflinePayPendingBalance(long userId, String assetCode);
+
+    record PendingBalanceResult(
+            long userId,
+            String assetCode,
+            BigDecimal offlinePayPendingBalance
+    ) {}
+
     record SettlementLedgerCommand(
             String settlementId,
             String batchId,

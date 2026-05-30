@@ -3,6 +3,7 @@ package io.korion.offlinepay.infrastructure.adapter;
 import io.korion.offlinepay.application.port.CoinManageSettlementPort;
 import io.korion.offlinepay.contracts.internal.CoinManageCompensateSettlementContract;
 import io.korion.offlinepay.contracts.internal.CoinManageFinalizeSettlementContract;
+import io.korion.offlinepay.contracts.internal.CoinManagePendingBalanceResponseContract;
 import io.korion.offlinepay.contracts.internal.CoinManageSettlementResponseContract;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -77,6 +78,26 @@ public class CoinManageSettlementAdapter implements CoinManageSettlementPort {
             throw new IllegalStateException("coin_manage settlement compensate response is empty");
         }
         return toSettlementLedgerResult(response);
+    }
+
+    @Override
+    public PendingBalanceResult getOfflinePayPendingBalance(long userId, String assetCode) {
+        CoinManagePendingBalanceResponseContract response = restClient.get()
+                .uri(uriBuilder -> uriBuilder
+                        .path("/api/internal/offline-pay/users/{userId}/pending-balance")
+                        .queryParam("assetCode", assetCode)
+                        .build(String.valueOf(userId)))
+                .header("x-internal-api-key", apiKey)
+                .retrieve()
+                .body(CoinManagePendingBalanceResponseContract.class);
+        if (response == null) {
+            throw new IllegalStateException("coin_manage pending balance response is empty");
+        }
+        return new PendingBalanceResult(
+                Long.parseLong(response.userId()),
+                response.assetCode(),
+                new BigDecimal(response.offlinePayPendingBalance())
+        );
     }
 
     private SettlementLedgerResult toSettlementLedgerResult(CoinManageSettlementResponseContract response) {

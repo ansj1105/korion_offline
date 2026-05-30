@@ -55,4 +55,22 @@ public class CircuitBreakingCoinManageSettlementAdapter implements CoinManageSet
             throw exception;
         }
     }
+
+    @Override
+    public PendingBalanceResult getOfflinePayPendingBalance(long userId, String assetCode) {
+        try {
+            circuitBreaker.assertCallable();
+            PendingBalanceResult result = delegate.getOfflinePayPendingBalance(userId, assetCode);
+            if (circuitBreaker.onSuccess()) {
+                alertService.notifyCircuitRecovered("offline_pay -> coin_manage");
+            }
+            return result;
+        } catch (RuntimeException exception) {
+            boolean opened = circuitBreaker.onFailure();
+            if (opened) {
+                alertService.notifyCircuitOpened("offline_pay -> coin_manage", exception.getMessage());
+            }
+            throw exception;
+        }
+    }
 }

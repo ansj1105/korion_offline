@@ -10,6 +10,13 @@ import java.util.Optional;
 
 public interface CollateralRepository {
 
+    record CollateralBalanceSummary(
+            long userId,
+            String assetCode,
+            BigDecimal lockedAmount,
+            BigDecimal remainingAmount
+    ) {}
+
     CollateralLock save(
             long userId,
             String deviceId,
@@ -37,6 +44,8 @@ public interface CollateralRepository {
     List<CollateralLock> findActiveByUserIdAndAssetCode(long userId, String assetCode);
 
     List<CollateralDeviceRebindCandidate> findSingleActiveDeviceRebindCandidates(String assetCode, int size);
+
+    List<CollateralBalanceSummary> summarizeActiveBalances(String assetCode, int size);
 
     boolean rebindDevice(String collateralId, String previousDeviceId, String targetDeviceId, String metadataJson);
 
