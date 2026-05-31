@@ -6,11 +6,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.korion.offlinepay.application.service.AdminOperationsService;
 import io.korion.offlinepay.application.service.JsonService;
+import io.korion.offlinepay.domain.model.SettlementBatch;
 import io.korion.offlinepay.domain.model.OfflineSaga;
 import io.korion.offlinepay.domain.model.ReconciliationCase;
 import io.korion.offlinepay.domain.status.OfflineSagaStatus;
 import io.korion.offlinepay.domain.status.OfflineSagaType;
 import io.korion.offlinepay.domain.status.ReconciliationCaseStatus;
+import io.korion.offlinepay.domain.status.SettlementBatchStatus;
 import java.time.OffsetDateTime;
 import org.junit.jupiter.api.Test;
 
@@ -18,6 +20,31 @@ class SettlementResponseFactoryTest {
 
     private final JsonService jsonService = new JsonService(new ObjectMapper());
     private final SettlementResponseFactory factory = new SettlementResponseFactory(jsonService);
+
+    @Test
+    void batchDetailIncludesCanonicalRequestIds() {
+        SettlementBatch batch = new SettlementBatch(
+                "batch-1",
+                "device-1",
+                "settlement_stl_local_abc",
+                SettlementBatchStatus.SETTLED,
+                null,
+                1,
+                jsonService.write(java.util.Map.of(
+                        "triggerMode", "AUTO",
+                        "requestIds", java.util.List.of("server-request-1")
+                )),
+                OffsetDateTime.parse("2026-04-07T00:00:00Z"),
+                OffsetDateTime.parse("2026-04-07T00:05:00Z")
+        );
+
+        var response = factory.toBatchDetail(batch);
+
+        assertEquals("batch-1", response.batchId());
+        assertEquals("SETTLED", response.status());
+        assertEquals("AUTO", response.triggerMode());
+        assertEquals(java.util.List.of("server-request-1"), response.requestIds());
+    }
 
     @Test
     void reconciliationAdminResponseIncludesSagaLedgerAndRetryContext() {

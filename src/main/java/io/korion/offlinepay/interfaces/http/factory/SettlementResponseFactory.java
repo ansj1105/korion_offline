@@ -12,6 +12,8 @@ import io.korion.offlinepay.interfaces.http.dto.SettlementBatchDetailResponse;
 import io.korion.offlinepay.interfaces.http.dto.SettlementRequestDetailResponse;
 import com.fasterxml.jackson.databind.JsonNode;
 import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.List;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -26,7 +28,27 @@ public class SettlementResponseFactory {
     public SettlementBatchDetailResponse toBatchDetail(SettlementBatch batch) {
         JsonNode summary = jsonService.readTree(batch.summaryJson());
         String triggerMode = summary.path("triggerMode").isMissingNode() ? "MANUAL" : summary.path("triggerMode").asText("MANUAL");
-        return new SettlementBatchDetailResponse(batch.id(), batch.status().name(), batch.proofsCount(), triggerMode);
+        return new SettlementBatchDetailResponse(
+                batch.id(),
+                batch.status().name(),
+                batch.proofsCount(),
+                triggerMode,
+                requestIdsFrom(summary)
+        );
+    }
+
+    private List<String> requestIdsFrom(JsonNode summary) {
+        JsonNode requestIds = summary.path("requestIds");
+        if (!requestIds.isArray()) {
+            return List.of();
+        }
+        List<String> values = new ArrayList<>();
+        requestIds.forEach(requestId -> {
+            if (requestId != null && requestId.isTextual() && !requestId.asText().isBlank()) {
+                values.add(requestId.asText());
+            }
+        });
+        return values;
     }
 
     public FinalizeSettlementResponse toFinalizeResponse(SettlementRequest settlementRequest) {

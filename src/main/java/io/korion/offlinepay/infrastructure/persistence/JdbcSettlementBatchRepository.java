@@ -35,7 +35,8 @@ public class JdbcSettlementBatchRepository implements SettlementBatchRepository 
         String sql = QueryBuilder
                 .insert("settlement_batches", "source_device_id", "idempotency_key", "status", "last_reason_code", "proofs_count", "summary")
                 .value("summary", "CAST(:summary AS jsonb)")
-                .build();
+                .build()
+                + " ON CONFLICT (idempotency_key) DO NOTHING";
         jdbcClient.sql(sql)
                 .param("source_device_id", sourceDeviceId)
                 .param("idempotency_key", idempotencyKey)

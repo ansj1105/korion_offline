@@ -160,6 +160,9 @@ public class SettlementApplicationService {
                 batchDraft.proofsCount(),
                 batchDraft.summaryJson()
         );
+        if (batch.status() != SettlementBatchStatus.CREATED) {
+            return batch;
+        }
 
         List<String> requestIds = new ArrayList<>();
         for (ProofSubmission submission : command.proofs()) {

@@ -32,7 +32,8 @@ public class SettlementController {
             @RequestHeader("Idempotency-Key") String idempotencyKey,
             @Valid @RequestBody SubmitSettlementBatchRequest request
     ) {
-        return settlementApplicationService.submitBatch(request.toCommand(idempotencyKey));
+        var batch = settlementApplicationService.submitBatch(request.toCommand(idempotencyKey));
+        return settlementResponseFactory.toBatchDetail(batch);
     }
 
     @GetMapping("/{batchId}")
