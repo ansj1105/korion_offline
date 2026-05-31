@@ -137,6 +137,16 @@ public class CollateralApplicationService {
         return collateralOperationRepository.findRecentByUserIdAndAssetCode(userId, normalizedAssetCode, normalizedSize);
     }
 
+    @Transactional(readOnly = true)
+    public CollateralOperation getCollateralOperation(String operationId, long userId) {
+        CollateralOperation operation = collateralOperationRepository.findById(operationId)
+                .orElseThrow(() -> new IllegalArgumentException("collateral operation not found: " + operationId));
+        if (operation.userId() != userId) {
+            throw new IllegalArgumentException("collateral operation user mismatch: " + operationId);
+        }
+        return operation;
+    }
+
     @Transactional
     public CollateralOperation releaseCollateral(String collateralId, ReleaseCollateralCommand command) {
         CollateralLock collateral = collateralRepository.findById(collateralId)

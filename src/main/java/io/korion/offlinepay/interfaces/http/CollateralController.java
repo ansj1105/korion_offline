@@ -58,6 +58,14 @@ public class CollateralController {
         );
     }
 
+    @GetMapping("/operations/{operationId}")
+    public Object operationDetail(
+            @PathVariable String operationId,
+            @RequestParam long userId
+    ) {
+        return collateralApplicationService.getCollateralOperation(operationId, userId);
+    }
+
     @PostMapping("/{collateralId}/release")
     public Object release(
             @RequestHeader(name = "Idempotency-Key", required = false) String idempotencyKey,
