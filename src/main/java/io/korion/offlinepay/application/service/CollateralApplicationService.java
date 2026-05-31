@@ -73,9 +73,11 @@ public class CollateralApplicationService {
         BigDecimal currentCollateralAmount = aggregate == null
                 ? BigDecimal.ZERO
                 : aggregate.lockedAmount().max(BigDecimal.ZERO);
-        BigDecimal additionalCollateralAvailableAmount = walletSnapshot.totalBalance()
-                .subtract(currentCollateralAmount)
-                .max(BigDecimal.ZERO);
+        BigDecimal additionalCollateralAvailableAmount =
+                CollateralAvailabilityCalculator.resolveAdditionalCollateralAvailableAmount(
+                        walletSnapshot,
+                        currentCollateralAmount
+                );
         if (command.amount() == null || command.amount().signum() <= 0) {
             throw new IllegalArgumentException("collateral amount is required");
         }

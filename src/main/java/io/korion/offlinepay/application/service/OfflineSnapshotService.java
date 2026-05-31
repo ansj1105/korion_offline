@@ -228,9 +228,11 @@ public class OfflineSnapshotService {
             java.math.BigDecimal currentCollateralAmount = collateralLockedAmount == null
                     ? java.math.BigDecimal.ZERO
                     : collateralLockedAmount.max(java.math.BigDecimal.ZERO);
-            java.math.BigDecimal additionalCollateralAvailableAmount = snapshot.totalBalance()
-                    .subtract(currentCollateralAmount)
-                    .max(java.math.BigDecimal.ZERO);
+            java.math.BigDecimal additionalCollateralAvailableAmount =
+                    CollateralAvailabilityCalculator.resolveAdditionalCollateralAvailableAmount(
+                            snapshot,
+                            currentCollateralAmount
+                    );
             return new WalletSnapshot(
                     snapshot.userId(),
                     snapshot.assetCode(),

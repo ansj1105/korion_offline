@@ -98,4 +98,81 @@ class OfflineSnapshotServiceTest {
         assertEquals("23.00000000", snapshot.collateral().remainingAmount());
         assertEquals("122.253587460317457206", snapshot.wallet().additionalCollateralAvailableAmount());
     }
+
+    @Test
+    void currentSnapshotDoesNotSubtractCollateralAgainWhenFoxyaSnapshotAlreadyExcludesOfflineCollateral() {
+        DeviceRepository deviceRepository = mock(DeviceRepository.class);
+        CollateralRepository collateralRepository = mock(CollateralRepository.class);
+        IssuedOfflineProofRepository issuedOfflineProofRepository = mock(IssuedOfflineProofRepository.class);
+        FoxCoinWalletSnapshotPort foxCoinWalletSnapshotPort = mock(FoxCoinWalletSnapshotPort.class);
+
+        when(deviceRepository.findByUserIdAndDeviceId(175L, "device-175")).thenReturn(Optional.empty());
+        when(issuedOfflineProofRepository.findLatestActiveByUserIdAndDeviceIdAndAssetCode(175L, "device-175", "KORI"))
+                .thenReturn(Optional.empty());
+        when(collateralRepository.findAggregateByUserIdAndAssetCode(175L, "KORI"))
+                .thenReturn(Optional.of(new CollateralLock(
+                        "collateral-175",
+                        175L,
+                        "AGGREGATED",
+                        "KORI",
+                        new BigDecimal("298.88400000"),
+                        new BigDecimal("211.88400000"),
+                        "AGGREGATED",
+                        1,
+                        CollateralStatus.LOCKED,
+                        "lock-175",
+                        OffsetDateTime.parse("2026-06-01T00:00:00Z"),
+                        "{}",
+                        OffsetDateTime.parse("2026-05-31T00:00:00Z"),
+                        OffsetDateTime.parse("2026-05-31T10:00:00Z")
+                )));
+        when(foxCoinWalletSnapshotPort.getCanonicalWalletSnapshot(175L, "KORI"))
+                .thenReturn(new FoxCoinWalletSnapshotPort.WalletSnapshot(
+                        175L,
+                        "KORI",
+                        new BigDecimal("291.614611"),
+                        BigDecimal.ZERO,
+                        "FOX_CLIENT_VISIBLE_AVAILABLE_KORI_EXCLUDING_OFFLINE_COLLATERAL",
+                        "2026-05-31T10:00:00Z"
+                ));
+
+        JsonService jsonService = new JsonService(new com.fasterxml.jackson.databind.ObjectMapper());
+        OfflineSnapshotService service = new OfflineSnapshotService(
+                deviceRepository,
+                collateralRepository,
+                issuedOfflineProofRepository,
+                foxCoinWalletSnapshotPort,
+                new AppProperties(
+                        "KORI",
+                        24,
+                        20,
+                        1000,
+                        null,
+                        new AppProperties.CoinManage("http://localhost:3000", "secret", 5000),
+                        new AppProperties.FoxCoin("http://localhost:8080", "secret", 5000),
+                        null,
+                        null,
+                        new AppProperties.Worker(false, "worker", 60000, 3)
+                ),
+                jsonService,
+                new JsonPayloadCanonicalizationService(jsonService),
+                new ProofIssuerSignatureService(new AppProperties(
+                        "KORI",
+                        24,
+                        20,
+                        1000,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null
+                ))
+        );
+
+        OfflineSnapshotService.CurrentSnapshot snapshot = service.getCurrentSnapshot(175L, "device-175", "KORI");
+
+        assertNotNull(snapshot.wallet());
+        assertEquals("291.614611", snapshot.wallet().additionalCollateralAvailableAmount());
+    }
 }
