@@ -585,7 +585,7 @@ public class SettlementApplicationService {
             if (deduction.signum() <= 0) {
                 continue;
             }
-            collateralRepository.deductRemainingAmount(collateral.id(), deduction);
+            collateralRepository.deductLockedAndRemainingAmount(collateral.id(), deduction);
             collateralRepository.updateStatus(
                     collateral.id(),
                     CollateralStatus.PARTIALLY_SETTLED,
