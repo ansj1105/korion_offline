@@ -7,5 +7,10 @@ public record SettlementBatchDetailResponse(
         String status,
         int proofsCount,
         String triggerMode,
-        List<String> requestIds
+        List<String> requestIds,
+        String idempotencyKey,
+        int acceptedCount,
+        boolean asyncProcessing,
+        String serverWorkflowStage,
+        String settlementWorkflowStage
 ) {}

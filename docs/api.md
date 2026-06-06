@@ -193,11 +193,11 @@ paths:
               $ref: '#/components/schemas/CreateSettlementBatchRequest'
       responses:
         '202':
-          description: 업로드 수락 및 배치 생성
+          description: Idempotency-Key 기준으로 업로드를 수락하고 비동기 정산 saga를 접수
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/CreateSettlementBatchResponse'
+                $ref: '#/components/schemas/SettlementBatchDetailResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '409':
@@ -211,6 +211,10 @@ paths:
     get:
       tags: [Settlement]
       summary: 정산 배치 상태 조회
+      description: |
+        배치 row뿐 아니라 배치에 속한 settlement request의 saga/reconciliation 상태를 함께 조회한다.
+        ledger/history projection 동기화가 재시도 중이면 `settlementWorkflowStage=RETRYABLE_FAILED`,
+        dead-letter 또는 서명/증명 검증 같은 non-retryable 실패이면 `DEAD_LETTERED`를 반환한다.
       operationId: getSettlementBatch
       parameters:
         - in: path
@@ -529,6 +533,7 @@ components:
         - timestamp
         - expiresAt
         - signature
+        - payload
       properties:
         voucherId:
           type: string
@@ -575,7 +580,21 @@ components:
           description: base64 encoded signature
         canonicalPayload:
           type: string
-          description: optional serialized payload snapshot
+          description: optional canonical queue envelope. QR offline sends should sign this envelope when a dedicated sender envelope signature is available.
+        payload:
+          type: object
+          required: [paymentFlow]
+          additionalProperties: true
+          properties:
+            paymentFlow:
+              type: string
+              enum: [FAST_PAYMENT, MANUAL_PAYMENT, QR_OFFLINE_PAYMENT]
+            paymentMethod:
+              type: string
+              enum: [BLE, NFC, QR]
+            connectionType:
+              type: string
+              enum: [FAST_CONTACT, MANUAL_SELECTION, QR_OFFLINE]
 
     CreateSettlementBatchRequest:
       type: object
@@ -586,6 +605,10 @@ components:
           enum: [SENDER, RECEIVER]
         uploaderDeviceId:
           type: string
+        triggerMode:
+          type: string
+          default: MANUAL
+          enum: [MANUAL, AUTO, QR_OFFLINE_SYNC]
         proofs:
           type: array
           minItems: 1
@@ -593,33 +616,54 @@ components:
           items:
             $ref: '#/components/schemas/VoucherProof'
 
-    CreateSettlementBatchResponse:
-      type: object
-      required: [batchId, status, acceptedCount]
-      properties:
-        batchId:
-          type: string
-        status:
-          type: string
-          enum: [CREATED, UPLOADED, VALIDATING]
-        acceptedCount:
-          type: integer
-        idempotencyKey:
-          type: string
-
     SettlementBatchDetailResponse:
       type: object
-      required: [batchId, status, proofs]
+      required:
+        - batchId
+        - status
+        - proofsCount
+        - triggerMode
+        - requestIds
+        - idempotencyKey
+        - acceptedCount
+        - asyncProcessing
+        - serverWorkflowStage
       properties:
         batchId:
           type: string
         status:
           type: string
           enum: [CREATED, UPLOADED, VALIDATING, PARTIALLY_SETTLED, SETTLED, FAILED, CLOSED]
-        proofs:
+        proofsCount:
+          type: integer
+        triggerMode:
+          type: string
+          enum: [MANUAL, AUTO, QR_OFFLINE_SYNC]
+        requestIds:
           type: array
           items:
-            $ref: '#/components/schemas/SettlementProofResult'
+            type: string
+        idempotencyKey:
+          type: string
+          description: Idempotency-Key header accepted for this batch. Replaying the same key returns the existing batch instead of creating duplicate settlement requests.
+        acceptedCount:
+          type: integer
+          description: Number of settlement requests accepted into the async saga.
+        asyncProcessing:
+          type: boolean
+          description: true when the batch was accepted for worker/saga processing rather than finalized synchronously.
+        serverWorkflowStage:
+          type: string
+          enum: [SERVER_ACCEPTING, SERVER_ACCEPTED]
+        settlementWorkflowStage:
+          type: string
+          nullable: true
+          description: |
+            Async settlement saga stage. `SETTLEMENT_ACCEPTED`는 서버가 요청을 접수한 상태,
+            `LEDGER_SYNCED`는 coin_manage 정산 및 후속 history/projection 동기화가 진행/완료된 상태,
+            `RETRYABLE_FAILED`는 재시도 가능한 외부 연동 실패,
+            `DEAD_LETTERED`는 dead-letter 또는 non-retryable 검증 실패를 의미한다.
+          enum: [SETTLEMENT_ACCEPTED, LEDGER_SYNCED, RETRYABLE_FAILED, DEAD_LETTERED]
 
     SettlementProofResult:
       type: object

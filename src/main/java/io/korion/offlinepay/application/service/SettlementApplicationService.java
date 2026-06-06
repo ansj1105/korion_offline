@@ -151,6 +151,10 @@ public class SettlementApplicationService {
     }
 
     private SettlementBatch createBatch(SubmitSettlementBatchCommand command) {
+        for (ProofSubmission submission : command.proofs()) {
+            assertProofSubmissionNotReplayed(submission);
+        }
+
         SettlementBatchFactory.SettlementBatchDraft batchDraft = settlementBatchFactory.createDraft(command);
         SettlementBatch batch = batchRepository.save(
                 batchDraft.sourceDeviceId(),
@@ -218,7 +222,7 @@ public class SettlementApplicationService {
                 batch.id(),
                 SettlementBatchStatus.UPLOADED,
                 null,
-                settlementBatchFactory.uploadedSummary(requestIds)
+                settlementBatchFactory.uploadedSummary(requestIds, command.triggerMode())
         );
         SettlementStreamEventFactory.RequestedBatchEvent requestedBatchEvent = settlementStreamEventFactory
                 .requestedBatchEvent(batch.id(), command.uploaderType().name(), command.uploaderDeviceId());
@@ -229,6 +233,32 @@ public class SettlementApplicationService {
                 requestedBatchEvent.requestedAt()
         );
         return batchRepository.findById(batch.id()).orElseThrow();
+    }
+
+    private void assertProofSubmissionNotReplayed(ProofSubmission submission) {
+        proofRepository.findByVoucherId(submission.voucherId())
+                .ifPresent(existing -> {
+                    throw duplicateProofSubmissionException("voucherId", existing);
+                });
+        if (submission.nonce() != null && !submission.nonce().isBlank()) {
+            proofRepository.findBySenderNonce(submission.senderDeviceId(), submission.nonce().trim())
+                    .ifPresent(existing -> {
+                        throw duplicateProofSubmissionException("nonce", existing);
+                    });
+        }
+        String requestId = extractRequestId(submission.payload());
+        if (requestId != null) {
+            proofRepository.findBySenderRequestId(submission.senderDeviceId(), requestId)
+                    .ifPresent(existing -> {
+                        throw duplicateProofSubmissionException("requestId", existing);
+                    });
+        }
+    }
+
+    private IllegalArgumentException duplicateProofSubmissionException(String field, OfflinePaymentProof existing) {
+        return new IllegalArgumentException(
+                "duplicate offline proof submission by " + field + ": proofId=" + existing.id()
+        );
     }
 
     @Transactional
@@ -305,6 +335,27 @@ public class SettlementApplicationService {
     public SettlementBatch getBatch(String batchId) {
         return batchRepository.findById(batchId)
                 .orElseThrow(() -> new IllegalArgumentException("settlement batch not found: " + batchId));
+    }
+
+    @Transactional(readOnly = true)
+    public SettlementBatchDetailView getBatchDetail(String batchId) {
+        SettlementBatch batch = getBatch(batchId);
+        List<SettlementDetailView> settlements = settlementRepository.findByBatchId(batchId).stream()
+                .map(request -> {
+                    OfflineSaga settlementSaga = offlineSagaRepository
+                            .findBySagaTypeAndReferenceId(OfflineSagaType.SETTLEMENT, request.id())
+                            .orElse(null);
+                    ReconciliationCase reconciliationCase = reconciliationCaseRepository
+                            .findLatestOpenBySettlementId(request.id())
+                            .orElse(null);
+                    OfflinePaymentProof proof = proofRepository.findById(request.proofId())
+                            .orElse(null);
+                    CollateralLock collateral = collateralRepository.findById(request.collateralId())
+                            .orElse(null);
+                    return new SettlementDetailView(request, settlementSaga, reconciliationCase, proof, collateral);
+                })
+                .toList();
+        return new SettlementBatchDetailView(batch, settlements);
     }
 
     @Transactional
@@ -401,10 +452,6 @@ public class SettlementApplicationService {
                 evaluation.status() == SettlementStatus.SETTLED,
                 evaluation.status() == SettlementStatus.SETTLED
         );
-        if (evaluation.status() == SettlementStatus.SETTLED) {
-            deductSettlementAmountAcrossCollateralScope(collateral, proof, request);
-        }
-
         settlementRepository.update(
                 request.id(),
                 evaluation.status(),
@@ -562,57 +609,20 @@ public class SettlementApplicationService {
                 .orElse(primaryCollateral);
     }
 
-    private void deductSettlementAmountAcrossCollateralScope(
-            CollateralLock primaryCollateral,
-            OfflinePaymentProof proof,
-            SettlementRequest request
-    ) {
-        BigDecimal remainingToDeduct = feeCalculator.calculateTotal(primaryCollateral.assetCode(), proof.amount());
-        List<CollateralLock> collaterals = collateralRepository.findActiveByUserIdAndDeviceIdAndAssetCode(
-                primaryCollateral.userId(),
-                proof.senderDeviceId(),
-                primaryCollateral.assetCode()
-        );
-        if (collaterals.isEmpty()) {
-            collaterals = List.of(primaryCollateral);
-        }
-
-        for (CollateralLock collateral : collaterals) {
-            if (remainingToDeduct.signum() <= 0) {
-                break;
-            }
-            BigDecimal deduction = collateral.remainingAmount().min(remainingToDeduct);
-            if (deduction.signum() <= 0) {
-                continue;
-            }
-            collateralRepository.deductLockedAndRemainingAmount(collateral.id(), deduction);
-            collateralRepository.updateStatus(
-                    collateral.id(),
-                    CollateralStatus.PARTIALLY_SETTLED,
-                    jsonService.write(Map.of(
-                            "lastSettlementId", request.id(),
-                            "lastVoucherId", proof.voucherId(),
-                            "lastStatus", SettlementStatus.SETTLED.name(),
-                            "deductedAmount", deduction.toPlainString(),
-                            "transferAmount", proof.amount().toPlainString(),
-                            "feeAmount", feeCalculator.calculateFee(primaryCollateral.assetCode(), proof.amount()).toPlainString(),
-                            "aggregateSettlement", true
-                    ))
-            );
-            remainingToDeduct = remainingToDeduct.subtract(deduction);
-        }
-
-        if (remainingToDeduct.signum() > 0) {
-            throw new IllegalStateException("aggregate collateral deduction underflow: " + remainingToDeduct.toPlainString());
-        }
-    }
-
     private String extractRequestId(OfflinePaymentProof proof) {
         String requestId = jsonService.readTree(proof.rawPayloadJson()).path("requestId").asText(null);
         if (requestId == null || requestId.isBlank()) {
             return null;
         }
         return requestId.trim();
+    }
+
+    private String extractRequestId(Map<String, Object> payload) {
+        Object requestId = payload.get("requestId");
+        if (!(requestId instanceof String value) || value.isBlank()) {
+            return null;
+        }
+        return value.trim();
     }
 
     private SettlementEvaluation rejected(String reasonCode, OfflinePaymentProof proof, String detailJson) {
@@ -1092,5 +1102,10 @@ public class SettlementApplicationService {
             ReconciliationCase reconciliationCase,
             OfflinePaymentProof proof,
             CollateralLock collateral
+    ) {}
+
+    public record SettlementBatchDetailView(
+            SettlementBatch batch,
+            List<SettlementDetailView> settlements
     ) {}
 }

@@ -1,9 +1,11 @@
 package io.korion.offlinepay.application.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
@@ -168,6 +170,170 @@ class SettlementApplicationServiceTest {
                 OffsetDateTime.now(),
                 OffsetDateTime.now()
         ));
+    }
+
+    @Test
+    void submitBatchRejectsDuplicateSenderNonceBeforeCreatingBatch() {
+        long now = System.currentTimeMillis();
+        OfflinePaymentProof existingProof = new OfflinePaymentProof(
+                "proof-existing-nonce-submit",
+                "batch-existing-nonce-submit",
+                "voucher-existing-nonce-submit",
+                "collateral-existing-nonce-submit",
+                "device-1",
+                "device-2",
+                1,
+                1,
+                1L,
+                "nonce-submit-duplicate",
+                "hash-existing",
+                "GENESIS",
+                "signature-existing",
+                new BigDecimal("1"),
+                now,
+                now + 60_000,
+                "{}",
+                "SENDER",
+                "{\"requestId\":\"request-existing\"}",
+                OffsetDateTime.now()
+        );
+        SettlementApplicationService.ProofSubmission submission = new SettlementApplicationService.ProofSubmission(
+                "voucher-new-nonce-submit",
+                "collateral-new-nonce-submit",
+                "device-1",
+                "device-2",
+                1,
+                1,
+                2L,
+                "nonce-submit-duplicate",
+                "hash-new",
+                "GENESIS",
+                "signature-new",
+                new BigDecimal("1"),
+                now,
+                now + 60_000,
+                "{}",
+                java.util.Map.of("requestId", "request-new")
+        );
+        when(proofRepository.findBySenderNonce("device-1", "nonce-submit-duplicate"))
+                .thenReturn(Optional.of(existingProof));
+
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> service.submitBatch(new SettlementApplicationService.SubmitSettlementBatchCommand(
+                        SettlementApplicationService.UploaderType.RECEIVER,
+                        "device-2",
+                        "idempotency-new-nonce-submit",
+                        java.util.List.of(submission),
+                        "MANUAL"
+                ))
+        );
+
+        assertTrue(exception.getMessage().contains("duplicate offline proof submission by nonce"));
+        verify(batchRepository, never()).save(anyString(), anyString(), any(), any(), anyInt(), anyString());
+        verify(proofRepository, never()).save(
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyInt(),
+                anyInt(),
+                anyLong(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString(),
+                any(),
+                anyLong(),
+                anyLong(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString()
+        );
+    }
+
+    @Test
+    void submitBatchRejectsDuplicateSenderRequestIdBeforeCreatingBatch() {
+        long now = System.currentTimeMillis();
+        OfflinePaymentProof existingProof = new OfflinePaymentProof(
+                "proof-existing-request-submit",
+                "batch-existing-request-submit",
+                "voucher-existing-request-submit",
+                "collateral-existing-request-submit",
+                "device-1",
+                "device-2",
+                1,
+                1,
+                1L,
+                "nonce-existing-request-submit",
+                "hash-existing",
+                "GENESIS",
+                "signature-existing",
+                new BigDecimal("1"),
+                now,
+                now + 60_000,
+                "{}",
+                "SENDER",
+                "{\"requestId\":\"request-submit-duplicate\"}",
+                OffsetDateTime.now()
+        );
+        SettlementApplicationService.ProofSubmission submission = new SettlementApplicationService.ProofSubmission(
+                "voucher-new-request-submit",
+                "collateral-new-request-submit",
+                "device-1",
+                "device-2",
+                1,
+                1,
+                2L,
+                "nonce-new-request-submit",
+                "hash-new",
+                "GENESIS",
+                "signature-new",
+                new BigDecimal("1"),
+                now,
+                now + 60_000,
+                "{}",
+                java.util.Map.of("requestId", "request-submit-duplicate")
+        );
+        when(proofRepository.findBySenderRequestId("device-1", "request-submit-duplicate"))
+                .thenReturn(Optional.of(existingProof));
+
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> service.submitBatch(new SettlementApplicationService.SubmitSettlementBatchCommand(
+                        SettlementApplicationService.UploaderType.RECEIVER,
+                        "device-2",
+                        "idempotency-new-request-submit",
+                        java.util.List.of(submission),
+                        "MANUAL"
+                ))
+        );
+
+        assertTrue(exception.getMessage().contains("duplicate offline proof submission by requestId"));
+        verify(batchRepository, never()).save(anyString(), anyString(), any(), any(), anyInt(), anyString());
+        verify(proofRepository, never()).save(
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyInt(),
+                anyInt(),
+                anyLong(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString(),
+                any(),
+                anyLong(),
+                anyLong(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString()
+        );
     }
 
     @Test
@@ -461,14 +627,7 @@ class SettlementApplicationServiceTest {
 
         SettlementRequest result = service.finalizeSettlement("settlement-aggregate");
 
-        verify(collateralRepository).deductLockedAndRemainingAmount(
-                eq("collateral-primary"),
-                argThat(amount -> amount.compareTo(new BigDecimal("80")) == 0)
-        );
-        verify(collateralRepository).deductLockedAndRemainingAmount(
-                eq("collateral-secondary"),
-                argThat(amount -> amount.compareTo(new BigDecimal("40")) == 0)
-        );
+        verify(collateralRepository, never()).deductLockedAndRemainingAmount(anyString(), any());
         assertEquals(SettlementStatus.SETTLED, result.status());
     }
 
@@ -627,10 +786,7 @@ class SettlementApplicationServiceTest {
         SettlementRequest result = service.finalizeSettlement("settlement-cross-chain");
 
         assertEquals(SettlementStatus.SETTLED, result.status());
-        verify(collateralRepository).deductLockedAndRemainingAmount(
-                eq("collateral-new"),
-                argThat(amount -> amount.compareTo(new BigDecimal("1")) == 0)
-        );
+        verify(collateralRepository, never()).deductLockedAndRemainingAmount(anyString(), any());
     }
 
     @Test

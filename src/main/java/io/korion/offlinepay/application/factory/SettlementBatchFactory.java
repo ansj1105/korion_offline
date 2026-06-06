@@ -30,8 +30,11 @@ public class SettlementBatchFactory {
         );
     }
 
-    public String uploadedSummary(Iterable<String> requestIds) {
-        return jsonService.write(Map.of("requestIds", requestIds));
+    public String uploadedSummary(Iterable<String> requestIds, String triggerMode) {
+        return jsonService.write(Map.of(
+                "requestIds", requestIds,
+                "triggerMode", triggerMode == null || triggerMode.isBlank() ? "MANUAL" : triggerMode
+        ));
     }
 
     public String validatingSummary() {

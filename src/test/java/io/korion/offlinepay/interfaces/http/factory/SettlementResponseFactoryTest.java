@@ -6,13 +6,16 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.korion.offlinepay.application.service.AdminOperationsService;
 import io.korion.offlinepay.application.service.JsonService;
+import io.korion.offlinepay.application.service.SettlementApplicationService;
 import io.korion.offlinepay.domain.model.SettlementBatch;
 import io.korion.offlinepay.domain.model.OfflineSaga;
 import io.korion.offlinepay.domain.model.ReconciliationCase;
+import io.korion.offlinepay.domain.model.SettlementRequest;
 import io.korion.offlinepay.domain.status.OfflineSagaStatus;
 import io.korion.offlinepay.domain.status.OfflineSagaType;
 import io.korion.offlinepay.domain.status.ReconciliationCaseStatus;
 import io.korion.offlinepay.domain.status.SettlementBatchStatus;
+import io.korion.offlinepay.domain.status.SettlementStatus;
 import java.time.OffsetDateTime;
 import org.junit.jupiter.api.Test;
 
@@ -44,6 +47,186 @@ class SettlementResponseFactoryTest {
         assertEquals("SETTLED", response.status());
         assertEquals("AUTO", response.triggerMode());
         assertEquals(java.util.List.of("server-request-1"), response.requestIds());
+        assertEquals("settlement_stl_local_abc", response.idempotencyKey());
+        assertEquals(1, response.acceptedCount());
+        assertTrue(response.asyncProcessing());
+        assertEquals("SERVER_ACCEPTED", response.serverWorkflowStage());
+        assertEquals("LEDGER_SYNCED", response.settlementWorkflowStage());
+    }
+
+    @Test
+    void batchDetailExposesQrOfflineAsyncAcceptanceContract() {
+        SettlementBatch batch = new SettlementBatch(
+                "batch-qr-1",
+                "sender-device",
+                "qr_offline_idempotency_1",
+                SettlementBatchStatus.UPLOADED,
+                null,
+                1,
+                jsonService.write(java.util.Map.of(
+                        "triggerMode", "QR_OFFLINE_SYNC",
+                        "requestIds", java.util.List.of("settlement-qr-1")
+                )),
+                OffsetDateTime.parse("2026-06-06T00:00:00Z"),
+                OffsetDateTime.parse("2026-06-06T00:00:01Z")
+        );
+
+        var response = factory.toBatchDetail(batch);
+
+        assertEquals("batch-qr-1", response.batchId());
+        assertEquals("UPLOADED", response.status());
+        assertEquals("QR_OFFLINE_SYNC", response.triggerMode());
+        assertEquals("qr_offline_idempotency_1", response.idempotencyKey());
+        assertEquals(java.util.List.of("settlement-qr-1"), response.requestIds());
+        assertEquals(1, response.acceptedCount());
+        assertTrue(response.asyncProcessing());
+        assertEquals("SERVER_ACCEPTED", response.serverWorkflowStage());
+        assertEquals("SETTLEMENT_ACCEPTED", response.settlementWorkflowStage());
+    }
+
+    @Test
+    void batchDetailMapsExternalSyncRetryableFailureFromRequestSaga() {
+        SettlementBatch batch = new SettlementBatch(
+                "batch-qr-1",
+                "sender-device",
+                "qr_offline_idempotency_1",
+                SettlementBatchStatus.SETTLED,
+                "SETTLED",
+                1,
+                jsonService.write(java.util.Map.of(
+                        "triggerMode", "QR_OFFLINE_SYNC",
+                        "requestIds", java.util.List.of("settlement-qr-1")
+                )),
+                OffsetDateTime.parse("2026-06-06T00:00:00Z"),
+                OffsetDateTime.parse("2026-06-06T00:00:01Z")
+        );
+        SettlementRequest request = new SettlementRequest(
+                "settlement-qr-1",
+                "batch-qr-1",
+                "collateral-1",
+                "proof-1",
+                SettlementStatus.SETTLED,
+                "SETTLED",
+                false,
+                "{}",
+                OffsetDateTime.parse("2026-06-06T00:00:00Z"),
+                OffsetDateTime.parse("2026-06-06T00:00:01Z")
+        );
+        OfflineSaga saga = new OfflineSaga(
+                "saga-1",
+                OfflineSagaType.SETTLEMENT,
+                "settlement-qr-1",
+                OfflineSagaStatus.COMPENSATION_REQUIRED,
+                "COMPENSATION_REQUIRED",
+                "HISTORY_SYNC_FAIL",
+                "{}",
+                OffsetDateTime.parse("2026-06-06T00:00:00Z"),
+                OffsetDateTime.parse("2026-06-06T00:00:01Z")
+        );
+        ReconciliationCase reconciliationCase = new ReconciliationCase(
+                "case-1",
+                "settlement-qr-1",
+                "batch-qr-1",
+                "proof-1",
+                "voucher-1",
+                "HISTORY_SYNC_FAILED",
+                ReconciliationCaseStatus.OPEN,
+                "HISTORY_SYNC_FAIL",
+                jsonService.write(java.util.Map.of("retryable", true)),
+                OffsetDateTime.parse("2026-06-06T00:00:00Z"),
+                OffsetDateTime.parse("2026-06-06T00:00:01Z"),
+                null
+        );
+
+        var response = factory.toBatchDetail(new SettlementApplicationService.SettlementBatchDetailView(
+                batch,
+                java.util.List.of(new SettlementApplicationService.SettlementDetailView(
+                        request,
+                        saga,
+                        reconciliationCase,
+                        null,
+                        null
+                ))
+        ));
+
+        assertEquals("SERVER_ACCEPTED", response.serverWorkflowStage());
+        assertEquals("RETRYABLE_FAILED", response.settlementWorkflowStage());
+    }
+
+    @Test
+    void batchDetailMapsDeadLetteredFromRequestSaga() {
+        SettlementBatch batch = new SettlementBatch(
+                "batch-qr-1",
+                "sender-device",
+                "qr_offline_idempotency_1",
+                SettlementBatchStatus.SETTLED,
+                "SETTLED",
+                1,
+                jsonService.write(java.util.Map.of(
+                        "triggerMode", "QR_OFFLINE_SYNC",
+                        "requestIds", java.util.List.of("settlement-qr-1")
+                )),
+                OffsetDateTime.parse("2026-06-06T00:00:00Z"),
+                OffsetDateTime.parse("2026-06-06T00:00:01Z")
+        );
+        SettlementRequest request = new SettlementRequest(
+                "settlement-qr-1",
+                "batch-qr-1",
+                "collateral-1",
+                "proof-1",
+                SettlementStatus.SETTLED,
+                "SETTLED",
+                false,
+                "{}",
+                OffsetDateTime.parse("2026-06-06T00:00:00Z"),
+                OffsetDateTime.parse("2026-06-06T00:00:01Z")
+        );
+        OfflineSaga saga = new OfflineSaga(
+                "saga-1",
+                OfflineSagaType.SETTLEMENT,
+                "settlement-qr-1",
+                OfflineSagaStatus.DEAD_LETTERED,
+                "DEAD_LETTERED",
+                "LEDGER_SYNC_FAIL",
+                "{}",
+                OffsetDateTime.parse("2026-06-06T00:00:00Z"),
+                OffsetDateTime.parse("2026-06-06T00:00:01Z")
+        );
+
+        var response = factory.toBatchDetail(new SettlementApplicationService.SettlementBatchDetailView(
+                batch,
+                java.util.List.of(new SettlementApplicationService.SettlementDetailView(
+                        request,
+                        saga,
+                        null,
+                        null,
+                        null
+                ))
+        ));
+
+        assertEquals("DEAD_LETTERED", response.settlementWorkflowStage());
+    }
+
+    @Test
+    void batchDetailMapsNonRetryableValidationFailureAsDeadLettered() {
+        SettlementBatch batch = new SettlementBatch(
+                "batch-qr-1",
+                "sender-device",
+                "qr_offline_idempotency_1",
+                SettlementBatchStatus.FAILED,
+                "INVALID_DEVICE_SIGNATURE",
+                1,
+                jsonService.write(java.util.Map.of(
+                        "triggerMode", "QR_OFFLINE_SYNC",
+                        "requestIds", java.util.List.of("settlement-qr-1")
+                )),
+                OffsetDateTime.parse("2026-06-06T00:00:00Z"),
+                OffsetDateTime.parse("2026-06-06T00:00:01Z")
+        );
+
+        var response = factory.toBatchDetail(batch);
+
+        assertEquals("DEAD_LETTERED", response.settlementWorkflowStage());
     }
 
     @Test

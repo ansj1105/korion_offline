@@ -4,10 +4,12 @@ import io.korion.offlinepay.application.service.SettlementApplicationService;
 import io.korion.offlinepay.interfaces.http.factory.SettlementResponseFactory;
 import io.korion.offlinepay.interfaces.http.dto.SubmitSettlementBatchRequest;
 import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -28,6 +30,7 @@ public class SettlementController {
     }
 
     @PostMapping
+    @ResponseStatus(HttpStatus.ACCEPTED)
     public Object submit(
             @RequestHeader("Idempotency-Key") String idempotencyKey,
             @Valid @RequestBody SubmitSettlementBatchRequest request
@@ -38,7 +41,7 @@ public class SettlementController {
 
     @GetMapping("/{batchId}")
     public Object getBatch(@PathVariable String batchId) {
-        var batch = settlementApplicationService.getBatch(batchId);
+        var batch = settlementApplicationService.getBatchDetail(batchId);
         return settlementResponseFactory.toBatchDetail(batch);
     }
 

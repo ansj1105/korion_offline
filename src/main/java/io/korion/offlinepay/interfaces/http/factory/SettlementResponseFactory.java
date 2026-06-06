@@ -5,7 +5,10 @@ import io.korion.offlinepay.domain.model.OfflinePaymentProof;
 import io.korion.offlinepay.domain.model.SettlementBatch;
 import io.korion.offlinepay.domain.model.SettlementRequest;
 import io.korion.offlinepay.application.service.JsonService;
+import io.korion.offlinepay.application.service.SettlementApplicationService.SettlementBatchDetailView;
 import io.korion.offlinepay.application.service.SettlementApplicationService.SettlementDetailView;
+import io.korion.offlinepay.domain.policy.OfflineFailurePolicy;
+import io.korion.offlinepay.domain.status.OfflineSagaStatus;
 import io.korion.offlinepay.interfaces.http.dto.FinalizeSettlementResponse;
 import io.korion.offlinepay.interfaces.http.dto.ReconciliationCaseAdminResponse;
 import io.korion.offlinepay.interfaces.http.dto.SettlementBatchDetailResponse;
@@ -28,13 +31,138 @@ public class SettlementResponseFactory {
     public SettlementBatchDetailResponse toBatchDetail(SettlementBatch batch) {
         JsonNode summary = jsonService.readTree(batch.summaryJson());
         String triggerMode = summary.path("triggerMode").isMissingNode() ? "MANUAL" : summary.path("triggerMode").asText("MANUAL");
+        List<String> requestIds = requestIdsFrom(summary);
         return new SettlementBatchDetailResponse(
                 batch.id(),
                 batch.status().name(),
                 batch.proofsCount(),
                 triggerMode,
-                requestIdsFrom(summary)
+                requestIds,
+                batch.idempotencyKey(),
+                requestIds.size(),
+                true,
+                resolveServerWorkflowStage(batch),
+                resolveSettlementWorkflowStage(batch, summary, requestIds)
         );
+    }
+
+    public SettlementBatchDetailResponse toBatchDetail(SettlementBatchDetailView detailView) {
+        SettlementBatch batch = detailView.batch();
+        JsonNode summary = jsonService.readTree(batch.summaryJson());
+        String triggerMode = summary.path("triggerMode").isMissingNode() ? "MANUAL" : summary.path("triggerMode").asText("MANUAL");
+        List<String> requestIds = requestIdsFrom(summary);
+        if (requestIds.isEmpty()) {
+            requestIds = detailView.settlements().stream()
+                    .map(view -> view.settlementRequest().id())
+                    .toList();
+        }
+        return new SettlementBatchDetailResponse(
+                batch.id(),
+                batch.status().name(),
+                batch.proofsCount(),
+                triggerMode,
+                requestIds,
+                batch.idempotencyKey(),
+                requestIds.size(),
+                true,
+                resolveServerWorkflowStage(batch),
+                resolveSettlementWorkflowStage(batch, summary, requestIds, detailView.settlements())
+        );
+    }
+
+    private String resolveServerWorkflowStage(SettlementBatch batch) {
+        return switch (batch.status()) {
+            case CREATED -> "SERVER_ACCEPTING";
+            case UPLOADED, VALIDATING, PARTIALLY_SETTLED, SETTLED, FAILED, CLOSED -> "SERVER_ACCEPTED";
+        };
+    }
+
+    private String resolveSettlementWorkflowStage(SettlementBatch batch, JsonNode summary, List<String> requestIds) {
+        if (requestIds.isEmpty()) {
+            return null;
+        }
+        if (batch.status() == io.korion.offlinepay.domain.status.SettlementBatchStatus.FAILED
+                && isNonRetryableFailure(batch.lastReasonCode(), summary)) {
+            return "DEAD_LETTERED";
+        }
+        return switch (batch.status()) {
+            case CREATED -> null;
+            case UPLOADED, VALIDATING, PARTIALLY_SETTLED -> "SETTLEMENT_ACCEPTED";
+            case SETTLED -> "LEDGER_SYNCED";
+            case FAILED -> summary.path("deadLetteredAt").isMissingNode() ? "RETRYABLE_FAILED" : "DEAD_LETTERED";
+            case CLOSED -> "DEAD_LETTERED";
+        };
+    }
+
+    private String resolveSettlementWorkflowStage(
+            SettlementBatch batch,
+            JsonNode summary,
+            List<String> requestIds,
+            List<SettlementDetailView> settlements
+    ) {
+        if (requestIds.isEmpty()) {
+            return null;
+        }
+        if (settlements == null || settlements.isEmpty()) {
+            return resolveSettlementWorkflowStage(batch, summary, requestIds);
+        }
+        boolean hasDeadLettered = false;
+        boolean hasRetryableFailure = false;
+        boolean hasExternalSyncInProgress = false;
+        boolean allCompleted = true;
+
+        for (SettlementDetailView settlement : settlements) {
+            var saga = settlement.settlementSaga();
+            var reconciliationCase = settlement.reconciliationCase();
+            if (saga == null) {
+                allCompleted = false;
+                continue;
+            }
+            if (saga.status() != OfflineSagaStatus.COMPLETED
+                    && saga.status() != OfflineSagaStatus.COMPENSATED) {
+                allCompleted = false;
+            }
+            if (saga.status() == OfflineSagaStatus.DEAD_LETTERED) {
+                hasDeadLettered = true;
+            } else if (saga.status() == OfflineSagaStatus.FAILED && isNonRetryableFailure(saga.lastReasonCode(), null)) {
+                hasDeadLettered = true;
+            } else if (saga.status() == OfflineSagaStatus.FAILED
+                    || saga.status() == OfflineSagaStatus.COMPENSATION_REQUIRED
+                    || saga.status() == OfflineSagaStatus.COMPENSATING) {
+                hasRetryableFailure = true;
+            }
+            if (reconciliationCase != null) {
+                JsonNode detail = jsonService.readTree(reconciliationCase.detailJson());
+                if (boolOrNull(detail, "retryable") == Boolean.TRUE) {
+                    hasRetryableFailure = true;
+                } else {
+                    hasDeadLettered = true;
+                }
+            }
+            String currentStep = saga.currentStep();
+            if ("EXTERNAL_SYNC_REQUESTED".equals(currentStep)
+                    || "LEDGER_SYNCED".equals(currentStep)
+                    || "HISTORY_SYNCED".equals(currentStep)
+                    || "RECEIVER_HISTORY_SYNCED".equals(currentStep)) {
+                hasExternalSyncInProgress = true;
+            }
+        }
+
+        if (hasDeadLettered) {
+            return "DEAD_LETTERED";
+        }
+        if (hasRetryableFailure) {
+            return "RETRYABLE_FAILED";
+        }
+        if (allCompleted || hasExternalSyncInProgress) {
+            return "LEDGER_SYNCED";
+        }
+        return resolveSettlementWorkflowStage(batch, summary, requestIds);
+    }
+
+    private boolean isNonRetryableFailure(String reasonCode, JsonNode summary) {
+        String errorMessage = summary == null ? null : textOrNull(summary, "errorMessage");
+        return !OfflineFailurePolicy.isRetryable(OfflineFailurePolicy.classify(reasonCode, errorMessage));
     }
 
     private List<String> requestIdsFrom(JsonNode summary) {
