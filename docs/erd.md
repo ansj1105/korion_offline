@@ -149,6 +149,11 @@ CREATE TABLE offline_payment_proofs (
     signature TEXT NOT NULL,
     canonical_payload TEXT,
     uploader_type uploader_type NOT NULL,
+    received_unsettled_amount NUMERIC(36, 18) NOT NULL DEFAULT 0,
+    received_settled_amount NUMERIC(36, 18) NOT NULL DEFAULT 0,
+    received_collateral_settlement_operation_id UUID,
+    received_collateral_settlement_reference_id VARCHAR(160),
+    received_collateral_settled_at TIMESTAMPTZ,
     raw_payload JSONB NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -173,6 +178,10 @@ CREATE INDEX idx_offline_payment_proofs_sender_device_id
 
 CREATE INDEX idx_offline_payment_proofs_receiver_device_id
     ON offline_payment_proofs (receiver_device_id);
+
+CREATE INDEX idx_offline_payment_proofs_received_unsettled
+    ON offline_payment_proofs (received_unsettled_amount)
+    WHERE received_unsettled_amount > 0;
 
 설명:
 

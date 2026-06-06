@@ -16,6 +16,40 @@ tags:
   - name: Admin
 
 paths:
+  /api/snapshots/current:
+    get:
+      tags: [Collateral]
+      summary: 현재 오프라인페이 snapshot 조회
+      description: |
+        디바이스, 담보, 발급 proof, Foxya wallet snapshot을 함께 반환한다.
+        collateral projection은 서버 기준 현재 온라인 담보금과 오프라인 스냅샷 동기화를 위한 `collateralTotal`, `unsettledOutgoing`, `availableForPay`를 포함한다.
+      operationId: getCurrentOfflinePaySnapshot
+      parameters:
+        - in: query
+          name: userId
+          required: true
+          schema:
+            type: integer
+            format: int64
+        - in: query
+          name: deviceId
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: assetCode
+          required: false
+          schema:
+            type: string
+            default: KORI
+      responses:
+        '200':
+          description: 현재 snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CurrentSnapshotResponse'
+
   /api/offline-pay/client-traces:
     post:
       tags: [ClientTrace]
@@ -253,6 +287,44 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /api/ledger/history:
+    get:
+      tags: [Settlement]
+      summary: 오프라인페이 송신/수취 거래 히스토리 조회
+      description: |
+        수취 거래 row는 거래별 `unsettledAmount`, `settledAmount`를 포함한다.
+        `unsettledAmount`는 수취 완료 후 아직 담보금에 반영되지 않은 금액이고,
+        수동 정산 또는 자동정산 topup 완료 시 `settledAmount`로 이동한다.
+      operationId: getOfflinePayLedgerHistory
+      parameters:
+        - in: query
+          name: userId
+          required: true
+          schema:
+            type: integer
+            format: int64
+        - in: query
+          name: assetCode
+          required: false
+          schema:
+            type: string
+            default: KORI
+        - in: query
+          name: size
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 200
+      responses:
+        '200':
+          description: 오프라인페이 ledger history
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LedgerHistoryResponse'
+
   /api/admin/conflicts:
     get:
       tags: [Admin]
@@ -398,6 +470,158 @@ paths:
 
 components:
   schemas:
+    CurrentSnapshotResponse:
+      type: object
+      required: [userId, deviceId, assetCode, deviceRegistration, walletRefreshRequired, refreshedAt, staleAfterMs]
+      properties:
+        userId:
+          type: integer
+          format: int64
+        deviceId:
+          type: string
+        assetCode:
+          type: string
+        collateral:
+          nullable: true
+          $ref: '#/components/schemas/CollateralSnapshot'
+        walletRefreshRequired:
+          type: boolean
+        refreshedAt:
+          type: string
+          format: date-time
+        staleAfterMs:
+          type: integer
+          format: int64
+
+    CollateralSnapshot:
+      type: object
+      required:
+        - collateralId
+        - userId
+        - deviceId
+        - assetCode
+        - lockedAmount
+        - remainingAmount
+        - collateralTotal
+        - unsettledOutgoing
+        - availableForPay
+        - policyVersion
+        - status
+        - snapshotVersion
+      properties:
+        collateralId:
+          type: string
+        userId:
+          type: integer
+          format: int64
+        deviceId:
+          type: string
+        assetCode:
+          type: string
+        lockedAmount:
+          type: string
+          description: Backward-compatible collateral principal field.
+        remainingAmount:
+          type: string
+          description: Backward-compatible server collateral remaining snapshot. Do not use as transaction-settled wallet balance.
+        collateralTotal:
+          type: string
+          description: Current server-side online collateral amount after finalized topup, release, and offline payment deductions.
+        unsettledOutgoing:
+          type: string
+          description: Outgoing amount not yet reflected to server collateral. Normally zero after server settlement finalizes deductions.
+        availableForPay:
+          type: string
+          description: Current server-side amount available for online/offline snapshot sync.
+        policyVersion:
+          type: integer
+        status:
+          type: string
+        initialStateRoot:
+          type: string
+        externalLockId:
+          type: string
+        expiresAt:
+          type: string
+        updatedAt:
+          type: string
+        snapshotVersion:
+          type: integer
+          format: int64
+
+    LedgerHistoryResponse:
+      type: object
+      required: [assetCode, sentItems, receivedItems, totalReceivedAmount, refreshedAt]
+      properties:
+        assetCode:
+          type: string
+        sentItems:
+          type: array
+          items:
+            $ref: '#/components/schemas/LedgerHistoryItem'
+        receivedItems:
+          type: array
+          items:
+            $ref: '#/components/schemas/LedgerHistoryItem'
+        totalReceivedAmount:
+          type: string
+        refreshedAt:
+          type: string
+          format: date-time
+
+    LedgerHistoryItem:
+      type: object
+      required: [id, amount, balance, statusCode, transactionType, unsettledAmount, settledAmount]
+      properties:
+        id:
+          type: string
+        date:
+          type: string
+        title:
+          type: string
+        memo:
+          type: string
+        amount:
+          type: string
+        subAmount:
+          type: string
+          nullable: true
+        balance:
+          type: string
+        status:
+          type: string
+        statusCode:
+          type: string
+        network:
+          type: string
+        token:
+          type: string
+        walletAddress:
+          type: string
+        time:
+          type: string
+          format: date-time
+        transactionType:
+          type: string
+        transactionScope:
+          type: string
+        detailType:
+          type: string
+        counterpartyName:
+          type: string
+        fee:
+          type: string
+        category:
+          type: string
+        paymentMethod:
+          type: string
+        unsettledAmount:
+          type: string
+          description: 거래별 수취 정산대기 금액. 담보 반영 전에는 수취 금액, 반영 후에는 0.
+        settledAmount:
+          type: string
+          description: 거래별 담보 반영 완료 금액. 추후 레퍼럴 정산 기준으로 사용할 수 있는 확정 금액.
+
     RegisterDeviceRequest:
       type: object
       required: [userId, deviceId, publicKey, keyVersion, platform]

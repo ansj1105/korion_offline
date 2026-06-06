@@ -452,6 +452,9 @@ public class SettlementApplicationService {
                 evaluation.status() == SettlementStatus.SETTLED,
                 evaluation.status() == SettlementStatus.SETTLED
         );
+        if (evaluation.status() == SettlementStatus.SETTLED) {
+            deductSettlementAmountAcrossCollateralScope(collateral, proof, request);
+        }
         settlementRepository.update(
                 request.id(),
                 evaluation.status(),
@@ -607,6 +610,50 @@ public class SettlementApplicationService {
                         primaryCollateral.assetCode()
                 )
                 .orElse(primaryCollateral);
+    }
+
+    private void deductSettlementAmountAcrossCollateralScope(
+            CollateralLock primaryCollateral,
+            OfflinePaymentProof proof,
+            SettlementRequest request
+    ) {
+        BigDecimal remainingToDeduct = feeCalculator.calculateTotal(primaryCollateral.assetCode(), proof.amount());
+        List<CollateralLock> collateralScope = collateralRepository.findActiveByUserIdAndDeviceIdAndAssetCode(
+                primaryCollateral.userId(),
+                proof.senderDeviceId(),
+                primaryCollateral.assetCode()
+        );
+        if (collateralScope == null || collateralScope.isEmpty()) {
+            collateralScope = List.of(primaryCollateral);
+        }
+        for (CollateralLock collateral : collateralScope) {
+            if (remainingToDeduct.signum() <= 0) {
+                break;
+            }
+            BigDecimal deduction = collateral.remainingAmount().min(remainingToDeduct);
+            if (deduction.signum() <= 0) {
+                continue;
+            }
+            collateralRepository.deductLockedAndRemainingAmount(collateral.id(), deduction);
+            collateralRepository.updateStatus(
+                    collateral.id(),
+                    CollateralStatus.PARTIALLY_SETTLED,
+                    jsonService.write(Map.of(
+                            "lastSettlementId", request.id(),
+                            "lastVoucherId", proof.voucherId(),
+                            "lastStatus", SettlementStatus.SETTLED.name(),
+                            "deductedAmount", deduction.toPlainString(),
+                            "transferAmount", proof.amount().toPlainString(),
+                            "feeAmount", feeCalculator.calculateFee(primaryCollateral.assetCode(), proof.amount()).toPlainString(),
+                            "aggregateSettlement", true
+                    ))
+            );
+            remainingToDeduct = remainingToDeduct.subtract(deduction);
+        }
+
+        if (remainingToDeduct.signum() > 0) {
+            throw new IllegalStateException("aggregate collateral deduction underflow: " + remainingToDeduct.toPlainString());
+        }
     }
 
     private String extractRequestId(OfflinePaymentProof proof) {

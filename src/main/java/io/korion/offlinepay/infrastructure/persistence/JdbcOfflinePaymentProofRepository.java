@@ -280,6 +280,40 @@ public class JdbcOfflinePaymentProofRepository implements OfflinePaymentProofRep
                 .list();
     }
 
+    @Override
+    public int markReceivedCollateralSettled(
+            java.util.List<String> proofIds,
+            String operationId,
+            String referenceId
+    ) {
+        java.util.List<java.util.UUID> normalizedProofIds = proofIds == null
+                ? java.util.List.of()
+                : proofIds.stream()
+                        .filter(id -> id != null && !id.isBlank())
+                        .map(String::trim)
+                        .distinct()
+                        .map(java.util.UUID::fromString)
+                        .toList();
+        if (normalizedProofIds.isEmpty()) {
+            return 0;
+        }
+        String sql = QueryBuilder.update("offline_payment_proofs")
+                .set("received_settled_amount", "received_settled_amount + received_unsettled_amount")
+                .set("received_unsettled_amount", "0")
+                .set("received_collateral_settlement_operation_id", ":operationId")
+                .set("received_collateral_settlement_reference_id", ":referenceId")
+                .set("received_collateral_settled_at", "COALESCE(received_collateral_settled_at, NOW())")
+                .touchUpdatedAt()
+                .where("id", QueryBuilder.Op.IN, "(:proofIds)")
+                .where("received_unsettled_amount", QueryBuilder.Op.GT, "0")
+                .build();
+        return jdbcClient.sql(sql)
+                .param("proofIds", normalizedProofIds)
+                .param("operationId", operationId)
+                .param("referenceId", referenceId)
+                .update();
+    }
+
     private String normalizeReasonCode(OfflineProofStatus status, String reasonCode) {
         return switch (status) {
             case SETTLED -> reasonCode == null || reasonCode.isBlank() ? OfflinePayReasonCode.SETTLED : reasonCode;

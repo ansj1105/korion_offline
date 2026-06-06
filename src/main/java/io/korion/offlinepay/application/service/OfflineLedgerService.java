@@ -141,7 +141,9 @@ public class OfflineLedgerService {
                     event.counterpartyName(),
                     event.fee(),
                     event.category(),
-                    event.paymentMethod()
+                    event.paymentMethod(),
+                    event.unsettledAmount().toPlainString(),
+                    event.settledAmount().toPlainString()
             ));
 
             if (!event.affectsServerBalance()) {
@@ -188,7 +190,9 @@ public class OfflineLedgerService {
                     event.counterpartyName(),
                     event.fee(),
                     event.category(),
-                    event.paymentMethod()
+                    event.paymentMethod(),
+                    event.unsettledAmount().toPlainString(),
+                    event.settledAmount().toPlainString()
             ));
             if (event.affectsServerBalance()) {
                 runningReceived = runningReceived.subtract(event.amount()).max(BigDecimal.ZERO);
@@ -227,7 +231,9 @@ public class OfflineLedgerService {
                 "COLLATERAL",
                 "SYSTEM",
                 completed,
-                operation.operationType().name().equals("TOPUP")
+                operation.operationType().name().equals("TOPUP"),
+                BigDecimal.ZERO,
+                BigDecimal.ZERO
         );
     }
 
@@ -282,7 +288,9 @@ public class OfflineLedgerService {
                 category,
                 paymentMethod,
                 completed,
-                false
+                false,
+                senderOwned ? BigDecimal.ZERO : normalizeAmount(proof.receivedUnsettledAmount()),
+                senderOwned ? BigDecimal.ZERO : normalizeAmount(proof.receivedSettledAmount())
         );
     }
 
@@ -340,6 +348,10 @@ public class OfflineLedgerService {
         } catch (NumberFormatException ignored) {
             return "0.000000";
         }
+    }
+
+    private BigDecimal normalizeAmount(BigDecimal amount) {
+        return amount == null ? BigDecimal.ZERO : amount.max(BigDecimal.ZERO);
     }
 
     private BigDecimal parseAmount(String formattedAmount) {
@@ -414,7 +426,9 @@ public class OfflineLedgerService {
             String counterpartyName,
             String fee,
             String category,
-            String paymentMethod
+            String paymentMethod,
+            String unsettledAmount,
+            String settledAmount
     ) {}
 
     private record LedgerEvent(
@@ -437,7 +451,9 @@ public class OfflineLedgerService {
             String category,
             String paymentMethod,
             boolean affectsServerBalance,
-            boolean isTopup
+            boolean isTopup,
+            BigDecimal unsettledAmount,
+            BigDecimal settledAmount
     ) {
         String date() {
             return String.format("%02d.%02d", time.getMonthValue(), time.getDayOfMonth());

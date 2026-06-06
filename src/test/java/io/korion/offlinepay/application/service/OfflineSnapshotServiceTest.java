@@ -20,7 +20,7 @@ import org.junit.jupiter.api.Test;
 class OfflineSnapshotServiceTest {
 
     @Test
-    void currentSnapshotUsesLockedAmountForAggregateCollateralAndAvailableBalance() {
+    void currentSnapshotUsesRemainingAmountAsCurrentOnlineCollateralBalance() {
         DeviceRepository deviceRepository = mock(DeviceRepository.class);
         CollateralRepository collateralRepository = mock(CollateralRepository.class);
         IssuedOfflineProofRepository issuedOfflineProofRepository = mock(IssuedOfflineProofRepository.class);
@@ -55,7 +55,6 @@ class OfflineSnapshotServiceTest {
                         "FOX_CLIENT_VISIBLE_TOTAL_KORI",
                         "2026-03-31T00:00:00Z"
                 ));
-
         JsonService jsonService = new JsonService(new com.fasterxml.jackson.databind.ObjectMapper());
         OfflineSnapshotService service = new OfflineSnapshotService(
                 deviceRepository,
@@ -96,6 +95,9 @@ class OfflineSnapshotServiceTest {
         assertNotNull(snapshot.wallet());
         assertEquals("76.00000000", snapshot.collateral().lockedAmount());
         assertEquals("23.00000000", snapshot.collateral().remainingAmount());
+        assertEquals("23.00000000", snapshot.collateral().collateralTotal());
+        assertEquals("0", snapshot.collateral().unsettledOutgoing());
+        assertEquals("23.00000000", snapshot.collateral().availableForPay());
         assertEquals("122.253587460317457206", snapshot.wallet().additionalCollateralAvailableAmount());
     }
 
@@ -135,7 +137,6 @@ class OfflineSnapshotServiceTest {
                         "FOX_CLIENT_VISIBLE_AVAILABLE_KORI_EXCLUDING_OFFLINE_COLLATERAL",
                         "2026-05-31T10:00:00Z"
                 ));
-
         JsonService jsonService = new JsonService(new com.fasterxml.jackson.databind.ObjectMapper());
         OfflineSnapshotService service = new OfflineSnapshotService(
                 deviceRepository,

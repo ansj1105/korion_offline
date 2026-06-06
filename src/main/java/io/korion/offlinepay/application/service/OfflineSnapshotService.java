@@ -67,7 +67,6 @@ public class OfflineSnapshotService {
                 normalizedAssetCode,
                 collateral == null ? null : collateral.lockedAmount()
         );
-
         return new CurrentSnapshot(
                 userId,
                 deviceId,
@@ -79,6 +78,9 @@ public class OfflineSnapshotService {
                         deviceId,
                         collateral.assetCode(),
                         collateral.lockedAmount().toPlainString(),
+                        collateral.remainingAmount().toPlainString(),
+                        collateral.remainingAmount().toPlainString(),
+                        "0",
                         collateral.remainingAmount().toPlainString(),
                         collateral.policyVersion(),
                         collateral.status().name(),
@@ -202,6 +204,9 @@ public class OfflineSnapshotService {
             String assetCode,
             String lockedAmount,
             String remainingAmount,
+            String collateralTotal,
+            String unsettledOutgoing,
+            String availableForPay,
             int policyVersion,
             String status,
             String initialStateRoot,

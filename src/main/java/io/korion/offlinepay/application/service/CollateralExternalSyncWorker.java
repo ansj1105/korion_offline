@@ -5,6 +5,7 @@ import io.korion.offlinepay.application.port.CollateralOperationRepository;
 import io.korion.offlinepay.application.port.CollateralRepository;
 import io.korion.offlinepay.application.port.ReconciliationCaseRepository;
 import io.korion.offlinepay.application.port.SettlementBatchEventBus;
+import io.korion.offlinepay.application.port.OfflinePaymentProofRepository;
 import io.korion.offlinepay.config.AppProperties;
 import io.korion.offlinepay.domain.model.CollateralLock;
 import io.korion.offlinepay.domain.model.CollateralOperation;
@@ -31,6 +32,7 @@ public class CollateralExternalSyncWorker {
     private final SettlementBatchEventBus eventBus;
     private final CollateralOperationRepository collateralOperationRepository;
     private final CollateralRepository collateralRepository;
+    private final OfflinePaymentProofRepository offlinePaymentProofRepository;
     private final CoinManageCollateralPort coinManageCollateralPort;
     private final ReconciliationCaseRepository reconciliationCaseRepository;
     private final OfflineSnapshotStreamService offlineSnapshotStreamService;
@@ -43,6 +45,7 @@ public class CollateralExternalSyncWorker {
             SettlementBatchEventBus eventBus,
             CollateralOperationRepository collateralOperationRepository,
             CollateralRepository collateralRepository,
+            OfflinePaymentProofRepository offlinePaymentProofRepository,
             CoinManageCollateralPort coinManageCollateralPort,
             ReconciliationCaseRepository reconciliationCaseRepository,
             OfflineSnapshotStreamService offlineSnapshotStreamService,
@@ -54,6 +57,7 @@ public class CollateralExternalSyncWorker {
         this.eventBus = eventBus;
         this.collateralOperationRepository = collateralOperationRepository;
         this.collateralRepository = collateralRepository;
+        this.offlinePaymentProofRepository = offlinePaymentProofRepository;
         this.coinManageCollateralPort = coinManageCollateralPort;
         this.reconciliationCaseRepository = reconciliationCaseRepository;
         this.offlineSnapshotStreamService = offlineSnapshotStreamService;
@@ -158,6 +162,14 @@ public class CollateralExternalSyncWorker {
                         "completedAt", OffsetDateTime.now().toString()
                 ))
         );
+        List<String> settledSourceProofIds = extractSourceProofIds(metadata.get("metadata"));
+        if (!settledSourceProofIds.isEmpty()) {
+            offlinePaymentProofRepository.markReceivedCollateralSettled(
+                    settledSourceProofIds,
+                    operation.id(),
+                    operation.referenceId()
+            );
+        }
         eventBus.publishCollateralOperationResult(
                 operation.id(),
                 operation.operationType().name(),
@@ -479,6 +491,36 @@ public class CollateralExternalSyncWorker {
             return text;
         }
         return fallback;
+    }
+
+    private List<String> extractSourceProofIds(Object metadataValue) {
+        if (!(metadataValue instanceof com.fasterxml.jackson.databind.JsonNode metadataNode)) {
+            return List.of();
+        }
+        com.fasterxml.jackson.databind.JsonNode sourceIdsNode = metadataNode.path("sourceReceivedItemIds");
+        if (!sourceIdsNode.isArray()) {
+            return List.of();
+        }
+        List<String> proofIds = new ArrayList<>();
+        sourceIdsNode.forEach(node -> {
+            String sourceId = node.asText("");
+            String proofId = normalizeSourceProofId(sourceId);
+            if (!proofId.isBlank()) {
+                proofIds.add(proofId);
+            }
+        });
+        return proofIds;
+    }
+
+    private String normalizeSourceProofId(String sourceId) {
+        if (sourceId == null || sourceId.isBlank()) {
+            return "";
+        }
+        String normalized = sourceId.trim();
+        if (normalized.startsWith("proof:")) {
+            return normalized.substring("proof:".length());
+        }
+        return normalized;
     }
 
     private String resolveFailureReasonCode(CollateralOperationType operationType) {

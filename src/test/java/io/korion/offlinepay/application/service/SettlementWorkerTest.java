@@ -7,11 +7,13 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import io.korion.offlinepay.application.port.SettlementBatchEventBus;
+import io.korion.offlinepay.domain.model.CollateralLock;
 import io.korion.offlinepay.domain.model.CollateralOperation;
 import io.korion.offlinepay.config.AppProperties;
 import io.korion.offlinepay.domain.model.ReconciliationCase;
 import io.korion.offlinepay.domain.status.CollateralOperationStatus;
 import io.korion.offlinepay.domain.status.CollateralOperationType;
+import io.korion.offlinepay.domain.status.CollateralStatus;
 import io.korion.offlinepay.domain.status.ReconciliationCaseStatus;
 import java.time.OffsetDateTime;
 import java.math.BigDecimal;
@@ -458,6 +460,131 @@ class SettlementWorkerTest {
     }
 
     @Test
+    void collateralTopupCompletionMarksReceivedProofsSettled() {
+        AppProperties properties = new AppProperties(
+                "USDT",
+                24,
+                20,
+                1000,
+                new AppProperties.ProofIssuer("test-proof-issuer", "", ""),
+                new AppProperties.CoinManage("http://localhost:3000", "test-key", 5000),
+                new AppProperties.FoxCoin("http://localhost:3101", "test-key", 5000),
+                new AppProperties.Alerts(
+                        new AppProperties.Telegram("", ""),
+                        new AppProperties.CircuitBreaker(3, 60000)
+                ),
+                new AppProperties.Redis(
+                        "offlinepay",
+                        "stream:settlement:requested",
+                        "stream:settlement:result",
+                        "stream:settlement:conflict",
+                        "stream:settlement:dead-letter",
+                        "stream:collateral:requested",
+                        "stream:collateral:result",
+                        "offlinepay:settlement-group"
+                ),
+                new AppProperties.Worker(true, "worker-1", 60000, 3)
+        );
+        io.korion.offlinepay.application.port.CollateralOperationRepository collateralOperationRepository =
+                Mockito.mock(io.korion.offlinepay.application.port.CollateralOperationRepository.class);
+        io.korion.offlinepay.application.port.CollateralRepository collateralRepository =
+                Mockito.mock(io.korion.offlinepay.application.port.CollateralRepository.class);
+        io.korion.offlinepay.application.port.OfflinePaymentProofRepository proofRepository =
+                Mockito.mock(io.korion.offlinepay.application.port.OfflinePaymentProofRepository.class);
+        io.korion.offlinepay.application.port.CoinManageCollateralPort coinManageCollateralPort =
+                Mockito.mock(io.korion.offlinepay.application.port.CoinManageCollateralPort.class);
+        io.korion.offlinepay.application.port.ReconciliationCaseRepository reconciliationCaseRepository =
+                Mockito.mock(io.korion.offlinepay.application.port.ReconciliationCaseRepository.class);
+        OfflineSnapshotStreamService snapshotStreamService = Mockito.mock(OfflineSnapshotStreamService.class);
+        OfflineSagaService offlineSagaService = Mockito.mock(OfflineSagaService.class);
+        TelegramAlertService telegramAlertService = Mockito.mock(TelegramAlertService.class);
+        JsonService jsonService = new JsonService(new com.fasterxml.jackson.databind.ObjectMapper());
+        CollateralExternalSyncWorker worker = new CollateralExternalSyncWorker(
+                eventBus,
+                collateralOperationRepository,
+                collateralRepository,
+                proofRepository,
+                coinManageCollateralPort,
+                reconciliationCaseRepository,
+                snapshotStreamService,
+                offlineSagaService,
+                jsonService,
+                telegramAlertService,
+                properties
+        );
+        String operationId = "11111111-1111-1111-1111-111111111111";
+        String proofId = "22222222-2222-2222-2222-222222222222";
+        SettlementBatchEventBus.QueuedCollateralMessage message =
+                new SettlementBatchEventBus.QueuedCollateralMessage(
+                        "collateral-1",
+                        operationId,
+                        "TOPUP",
+                        "USDT",
+                        "topup:device-1:123",
+                        1
+                );
+        OffsetDateTime now = OffsetDateTime.parse("2026-06-07T00:00:00Z");
+        CollateralOperation operation = new CollateralOperation(
+                operationId,
+                null,
+                1L,
+                "device-1",
+                "USDT",
+                CollateralOperationType.TOPUP,
+                BigDecimal.TEN,
+                CollateralOperationStatus.REQUESTED,
+                "topup:device-1:123",
+                null,
+                "{\"policyVersion\":1,\"initialStateRoot\":\"GENESIS\",\"metadata\":{\"sourceReceivedItemIds\":[\"proof:" + proofId + "\"]}}",
+                now,
+                now
+        );
+        CollateralLock collateral = new CollateralLock(
+                "33333333-3333-3333-3333-333333333333",
+                1L,
+                "device-1",
+                "USDT",
+                BigDecimal.TEN,
+                BigDecimal.TEN,
+                "GENESIS",
+                1,
+                CollateralStatus.LOCKED,
+                "external-lock-1",
+                now.plusHours(24),
+                "{}",
+                now,
+                now
+        );
+        when(eventBus.pollCollateralOperationRequested(20)).thenReturn(List.of(message));
+        when(eventBus.reclaimStaleCollateralOperationRequested(20, 60000)).thenReturn(List.of());
+        when(collateralOperationRepository.findById(operationId)).thenReturn(java.util.Optional.of(operation));
+        when(coinManageCollateralPort.lockCollateral(1L, "device-1", "USDT", BigDecimal.TEN, "topup:device-1:123", 1))
+                .thenReturn(new io.korion.offlinepay.application.port.CoinManageCollateralPort.LockCollateralResult("external-lock-1", "LOCKED"));
+        when(collateralRepository.save(
+                eq(1L),
+                eq("device-1"),
+                eq("USDT"),
+                eq(BigDecimal.TEN),
+                eq(BigDecimal.TEN),
+                eq("GENESIS"),
+                eq(1),
+                eq(CollateralStatus.LOCKED),
+                eq("external-lock-1"),
+                Mockito.any(),
+                anyString()
+        )).thenReturn(collateral);
+
+        worker.poll();
+
+        verify(proofRepository).markReceivedCollateralSettled(
+                eq(List.of(proofId)),
+                eq(operationId),
+                eq("topup:device-1:123")
+        );
+        verify(eventBus).acknowledgeCollateral("collateral-1");
+    }
+
+    @Test
     void collateralExternalSyncWorkerDeadLettersAfterMaxAttempts() {
         AppProperties properties = new AppProperties(
                 "USDT",
@@ -487,6 +614,8 @@ class SettlementWorkerTest {
                 Mockito.mock(io.korion.offlinepay.application.port.CollateralOperationRepository.class);
         io.korion.offlinepay.application.port.CollateralRepository collateralRepository =
                 Mockito.mock(io.korion.offlinepay.application.port.CollateralRepository.class);
+        io.korion.offlinepay.application.port.OfflinePaymentProofRepository proofRepository =
+                Mockito.mock(io.korion.offlinepay.application.port.OfflinePaymentProofRepository.class);
         io.korion.offlinepay.application.port.CoinManageCollateralPort coinManageCollateralPort =
                 Mockito.mock(io.korion.offlinepay.application.port.CoinManageCollateralPort.class);
         io.korion.offlinepay.application.port.ReconciliationCaseRepository reconciliationCaseRepository =
@@ -499,6 +628,7 @@ class SettlementWorkerTest {
                 eventBus,
                 collateralOperationRepository,
                 collateralRepository,
+                proofRepository,
                 coinManageCollateralPort,
                 reconciliationCaseRepository,
                 snapshotStreamService,

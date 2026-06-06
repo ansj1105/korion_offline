@@ -627,8 +627,15 @@ class SettlementApplicationServiceTest {
 
         SettlementRequest result = service.finalizeSettlement("settlement-aggregate");
 
-        verify(collateralRepository, never()).deductLockedAndRemainingAmount(anyString(), any());
         assertEquals(SettlementStatus.SETTLED, result.status());
+        verify(collateralRepository).deductLockedAndRemainingAmount(
+                eq("collateral-primary"),
+                argThat(amount -> amount.compareTo(new BigDecimal("80")) == 0)
+        );
+        verify(collateralRepository).deductLockedAndRemainingAmount(
+                eq("collateral-secondary"),
+                argThat(amount -> amount.compareTo(new BigDecimal("40")) == 0)
+        );
     }
 
     @Test
@@ -786,7 +793,10 @@ class SettlementApplicationServiceTest {
         SettlementRequest result = service.finalizeSettlement("settlement-cross-chain");
 
         assertEquals(SettlementStatus.SETTLED, result.status());
-        verify(collateralRepository, never()).deductLockedAndRemainingAmount(anyString(), any());
+        verify(collateralRepository).deductLockedAndRemainingAmount(
+                eq("collateral-new"),
+                argThat(amount -> amount.compareTo(new BigDecimal("1")) == 0)
+        );
     }
 
     @Test
