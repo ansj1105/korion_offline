@@ -89,6 +89,10 @@ public class ProofChainValidator {
         if (collateral.initialStateRoot().equals(incomingProof.prevStateHash())) {
             return true;
         }
+        if ("GENESIS".equals(collateral.initialStateRoot())
+                && ("GENESIS:device:" + incomingProof.senderDeviceId()).equals(incomingProof.prevStateHash())) {
+            return true;
+        }
         return "AGGREGATED".equals(collateral.initialStateRoot())
                 && "GENESIS".equals(incomingProof.prevStateHash());
     }

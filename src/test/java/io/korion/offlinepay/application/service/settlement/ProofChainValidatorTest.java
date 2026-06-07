@@ -1,11 +1,14 @@
 package io.korion.offlinepay.application.service.settlement;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.korion.offlinepay.application.service.JsonService;
 import io.korion.offlinepay.domain.model.CollateralLock;
 import io.korion.offlinepay.domain.model.OfflinePaymentProof;
+import io.korion.offlinepay.domain.reason.OfflinePayReasonCode;
 import io.korion.offlinepay.domain.status.CollateralStatus;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
@@ -133,5 +136,82 @@ class ProofChainValidatorTest {
         ChainValidationResult result = validator.validate(aggregateCollateral, List.of(), proof);
 
         assertTrue(result.valid());
+    }
+
+    @Test
+    void validateAcceptsLegacyDeviceScopedGenesisWhenCollateralStartsAtGenesis() {
+        CollateralLock collateral = collateral("collateral-legacy", "device-1", "GENESIS");
+        String previousHash = "GENESIS:device:device-1";
+        String newHash = hashService.computeNewStateHash(previousHash, new BigDecimal("1"), 1, "device-1", "nonce-legacy");
+        OfflinePaymentProof proof = proof("proof-legacy", "collateral-legacy", "device-1", 1, previousHash, newHash, "nonce-legacy");
+
+        ChainValidationResult result = validator.validate(collateral, List.of(), proof);
+
+        assertTrue(result.valid());
+    }
+
+    @Test
+    void validateRejectsLegacyDeviceScopedGenesisForDifferentDevice() {
+        CollateralLock collateral = collateral("collateral-legacy", "device-1", "GENESIS");
+        String previousHash = "GENESIS:device:other-device";
+        String newHash = hashService.computeNewStateHash(previousHash, new BigDecimal("1"), 1, "device-1", "nonce-legacy");
+        OfflinePaymentProof proof = proof("proof-legacy", "collateral-legacy", "device-1", 1, previousHash, newHash, "nonce-legacy");
+
+        ChainValidationResult result = validator.validate(collateral, List.of(), proof);
+
+        assertFalse(result.valid());
+        assertEquals(OfflinePayReasonCode.INVALID_GENESIS_LINK, result.reasonCode());
+    }
+
+    private CollateralLock collateral(String collateralId, String deviceId, String initialStateRoot) {
+        return new CollateralLock(
+                collateralId,
+                1L,
+                deviceId,
+                "KORI",
+                new BigDecimal("10.00000000"),
+                new BigDecimal("10.00000000"),
+                initialStateRoot,
+                1,
+                CollateralStatus.LOCKED,
+                "lock-1",
+                OffsetDateTime.now().plusDays(1),
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+    }
+
+    private OfflinePaymentProof proof(
+            String proofId,
+            String collateralId,
+            String senderDeviceId,
+            long counter,
+            String previousHash,
+            String newHash,
+            String nonce
+    ) {
+        return new OfflinePaymentProof(
+                proofId,
+                "batch-1",
+                "voucher-1",
+                collateralId,
+                senderDeviceId,
+                "receiver-device",
+                1,
+                1,
+                counter,
+                nonce,
+                newHash,
+                previousHash,
+                "signature",
+                new BigDecimal("1.00000000"),
+                System.currentTimeMillis(),
+                System.currentTimeMillis() + 60_000,
+                "{}",
+                "SENDER",
+                "{}",
+                OffsetDateTime.now()
+        );
     }
 }
