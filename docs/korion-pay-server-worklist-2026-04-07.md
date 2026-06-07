@@ -83,8 +83,8 @@
   - [x] `SettlementBatchDetailResponse`에 `triggerMode` 노출
   - [x] `SettlementPolicyConstants` 클래스 생성 — trigger mode, reconciliation 조건, ledger mode 상수 + Javadoc
   - [x] 리컨실 운영 가이드: dead-lettered → `GET /settlements/requests/{id}` 확인 → 외부 원장 수동 보정 → `POST /settlements/{id}/finalize` 호출 → saga 재개. `reconciliationStatus=OPEN`이면 ops 개입 필요 signal
-  - [x] 받은쪽 `Settle now` / `Auto settle`은 receiver history를 재정산하는 기능이 아니라, 완료된 수취 합계를 기존 `COLLATERAL_TOPUP` 경로로 넘기는 담보 전환 트리거로 정의
-  - [x] receiver 수취금은 `OFFLINE_PAY_RECEIVE`로 Wallet 반영 후, 명시적 담보 전환 요청이 성공해야 총담보금/오프라인 결제 가능 금액에 반영
+  - [x] 받은쪽 `Settle now` / `Auto settle`은 완료된 수취 합계를 기존 `COLLATERAL_TOPUP` 경로로 넘기지 않고, KORION wallet(Foxya) history 반영과 offline_pay 정산 상태를 확인/완료하는 트리거로 정의
+  - [x] receiver 수취금은 `OFFLINE_PAY_RECEIVE`로 Wallet 반영 후 정산 완료 처리하며, 오프라인 담보 편입은 별도 `담보 채우기`에서만 수행
 
 ### BE-6. 사용자 알림 / 운영 알림 경계
 

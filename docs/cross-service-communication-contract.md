@@ -86,8 +86,9 @@
 ### 4.5 오프라인 결제 가능 금액
 
 - `총담보금`에서 사용된 금액과 로컬 pending 사용분을 반영한 값
-- receiver가 받은 KORI는 수취 확정 직후 자동 포함하지 않는다.
-- 받은쪽 `Settle now` / `Auto settle`이 기존 `COLLATERAL_TOPUP` 경로로 성공한 뒤에만 오프라인 결제 가능 금액에 포함한다.
+- receiver가 받은 KORI는 수취 확정 또는 정산하기/자동정산 직후에도 오프라인 담보에 자동 포함하지 않는다.
+- 받은쪽 `Settle now` / `Auto settle`은 KORION wallet(Foxya) history 반영과 offline_pay 정산 상태를 확인/완료하는 동작이다.
+- 수취금을 오프라인 결제 가능 금액으로 쓰려면 wallet 반영 후 별도의 `담보 채우기`를 실행한다.
 
 ### 4.6 락원장
 
@@ -96,15 +97,15 @@
 - 정산 보상은 `offline_pay` saga가 `LEDGER_COMPENSATION_REQUESTED`를 발행하고, `coin_manage /api/internal/offline-pay/settlements/compensate`가 역분개한다.
 - receiver history 실패처럼 sender foxya history가 이미 반영된 뒤 실패한 경우에는 `OFFLINE_PAY_COMPENSATION` history를 함께 기록해 foxya 사용자 지갑 반영도 되돌린다.
 
-### 4.7 receiver 수취금 담보 전환
+### 4.7 receiver 수취금 wallet 정산
 
 - 수취 확정:
   - `OFFLINE_PAY_RECEIVE` history와 `foxya user_wallets.balance` 반영
-- 담보 전환:
+- 정산 완료:
   - 앱의 받은쪽 `Settle now` / `Auto settle` 실행
-  - 완료된 수취 합계를 `COLLATERAL_TOPUP` 큐로 등록
-  - `offline_pay -> coin_manage collateral lock` 성공 후 총담보금과 오프라인 결제 가능 금액에 반영
-- 정책상 receiver 수취금을 settlement finalize 단계에서 담보로 직접 편입하지 않는다.
+  - 완료된 수취 source id를 wallet/history 반영 완료로 마킹
+  - `offline_pay` saga/detail은 `HISTORY_SYNCED` / `RECEIVER_HISTORY_SYNCED` 기준으로 정산 상태를 완료 처리
+- 정책상 receiver 수취금을 settlement finalize, `Settle now`, `Auto settle` 단계에서 담보로 직접 편입하지 않는다.
 
 ## 5. 상태 별칭
 

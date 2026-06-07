@@ -51,22 +51,22 @@
 - 해야 할 일:
   - [x] online collateral topup/release는 `QUEUE_FIRST_IMMEDIATE_SYNC` 유지 — 별도 direct path 미도입
 
-### LD-5. receiver 수취금 담보 전환 정책
+### LD-5. receiver 수취금 wallet 정산 정책
 
 - 상태: `정책 추가`
 - 해야 할 일:
   - [x] receiver 수취금은 settlement 성공 시 즉시 `receiver collateral`로 직접 편입하지 않는다.
   - [x] receiver 수취금은 먼저 `foxya user_wallets.balance`와 `OFFLINE_PAY_RECEIVE` history에 반영한다.
-  - [x] 사용자가 받은쪽 `Settle now` 또는 `Auto settle`을 실행하면, 완료된 수취 합계를 기존 `COLLATERAL_TOPUP` 큐로 등록한다.
-  - [x] 담보 전환은 기존 담보 충전 경로와 동일하게 `offline_pay -> coin_manage collateral lock`으로 처리한다.
-  - [x] 중복 전환 방지를 위해 앱은 담보 전환 요청에 사용한 received item id를 로컬 consumed marker로 관리한다.
+  - [x] 사용자가 받은쪽 `Settle now` 또는 `Auto settle`을 실행하면, 완료된 수취 합계의 KORION wallet(Foxya) 반영 상태와 offline_pay 정산 상태를 확인/완료한다.
+  - [x] `Settle now` / `Auto settle`은 `COLLATERAL_TOPUP` 큐를 만들지 않으며, 담보 편입은 별도 `담보 채우기`에서만 수행한다.
+  - [x] 중복 정산 표시 방지를 위해 앱은 wallet/history 반영이 확인된 received item id를 로컬 settled marker로 관리한다.
 
 ## 현재 결론
 
 - 구현 가능한 항목은 `1차 반영` 기준 대부분 완료됐다.
 - 구현 가능한 항목은 완료됐다.
-- 원장/정산 기준 남은 미완료는 없다. 단, receiver 수취금을 담보로 쓰려면 자동 편입이 아니라 명시적 담보 전환 요청을 거친다.
+- 원장/정산 기준 남은 미완료는 없다. 단, receiver 수취금을 담보로 쓰려면 wallet 반영 후 별도 담보 채우기를 거친다.
 - 현재 정책 고정값:
   - `receiver leg`는 `coin_manage` 독립 원장으로 올리지 않고 `SENDER_LEDGER_PLUS_RECEIVER_HISTORY` 유지
   - online collateral topup/release는 별도 direct path 없이 `QUEUE_FIRST_IMMEDIATE_SYNC` 유지
-  - receiver 수취금 담보 전환은 `OFFLINE_PAY_RECEIVE -> COLLATERAL_TOPUP` 2단계 모델 유지
+  - receiver 수취금 정산은 `OFFLINE_PAY_RECEIVE -> KORION wallet(Foxya) history 반영 -> offline_pay settled marker` 모델 유지
