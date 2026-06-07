@@ -73,6 +73,19 @@ public class JdbcSettlementRepository implements SettlementRepository {
     }
 
     @Override
+    public Optional<SettlementRequest> findLatestByProofId(String proofId) {
+        String sql = QueryBuilder.select("settlement_requests")
+                .where("proof_id", QueryBuilder.Op.EQ, ":proofId")
+                .orderBy("created_at DESC")
+                .limit(1)
+                .build();
+        return jdbcClient.sql(sql)
+                .param("proofId", java.util.UUID.fromString(proofId))
+                .query(settlementRequestRowMapper)
+                .optional();
+    }
+
+    @Override
     public boolean existsOpenByCollateralId(String collateralId) {
         String sql = QueryBuilder.select("settlement_requests", "COUNT(*)")
                 .where("collateral_id", QueryBuilder.Op.EQ, "CAST(:collateralId AS uuid)")

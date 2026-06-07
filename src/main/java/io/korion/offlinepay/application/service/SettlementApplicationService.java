@@ -152,6 +152,10 @@ public class SettlementApplicationService {
 
     private SettlementBatch createBatch(SubmitSettlementBatchCommand command) {
         for (ProofSubmission submission : command.proofs()) {
+            OfflinePaymentProof existing = proofRepository.findByVoucherId(submission.voucherId()).orElse(null);
+            if (existing != null && isReceiverConfirmation(command, submission, existing)) {
+                continue;
+            }
             assertProofSubmissionNotReplayed(submission);
         }
 
@@ -169,7 +173,18 @@ public class SettlementApplicationService {
         }
 
         List<String> requestIds = new ArrayList<>();
+        int receiverConfirmationCount = 0;
         for (ProofSubmission submission : command.proofs()) {
+            OfflinePaymentProof existing = proofRepository.findByVoucherId(submission.voucherId()).orElse(null);
+            if (existing != null && isReceiverConfirmation(command, submission, existing)) {
+                SettlementRequest request = settlementRepository.findLatestByProofId(existing.id())
+                        .orElseThrow(() -> new IllegalStateException("settlement request not found for proof: " + existing.id()));
+                handleReceiverOnlineConfirmation(existing, request);
+                requestIds.add(request.id());
+                receiverConfirmationCount++;
+                continue;
+            }
+
             CollateralLock collateral = collateralRepository.findById(submission.collateralId())
                     .orElseThrow(() -> new IllegalArgumentException("collateral not found: " + submission.collateralId()));
 
@@ -218,6 +233,21 @@ public class SettlementApplicationService {
             );
         }
 
+        if (receiverConfirmationCount == command.proofs().size()) {
+            batchRepository.updateStatus(
+                    batch.id(),
+                    SettlementBatchStatus.SETTLED,
+                    OfflinePayReasonCode.SETTLED,
+                    jsonService.write(Map.of(
+                            "requestIds", requestIds,
+                            "triggerMode", command.triggerMode() == null || command.triggerMode().isBlank() ? "MANUAL" : command.triggerMode(),
+                            "receiverConfirmationCount", receiverConfirmationCount,
+                            "finalizedAt", OffsetDateTime.now().toString()
+                    ))
+            );
+            return batchRepository.findById(batch.id()).orElseThrow();
+        }
+
         batchRepository.updateStatus(
                 batch.id(),
                 SettlementBatchStatus.UPLOADED,
@@ -258,6 +288,100 @@ public class SettlementApplicationService {
     private IllegalArgumentException duplicateProofSubmissionException(String field, OfflinePaymentProof existing) {
         return new IllegalArgumentException(
                 "duplicate offline proof submission by " + field + ": proofId=" + existing.id()
+        );
+    }
+
+    private boolean isReceiverConfirmation(
+            SubmitSettlementBatchCommand command,
+            ProofSubmission submission,
+            OfflinePaymentProof existing
+    ) {
+        if (command.uploaderType() != UploaderType.RECEIVER) {
+            return false;
+        }
+        if (!"SENDER".equalsIgnoreCase(existing.uploaderType())) {
+            return false;
+        }
+        return equalsText(existing.voucherId(), submission.voucherId())
+                && equalsText(existing.collateralId(), submission.collateralId())
+                && equalsText(existing.senderDeviceId(), submission.senderDeviceId())
+                && equalsText(existing.receiverDeviceId(), submission.receiverDeviceId())
+                && equalsText(existing.hashChainHead(), submission.hashChainHead())
+                && equalsText(existing.previousHash(), submission.previousHash())
+                && equalsText(existing.signature(), submission.signature())
+                && equalsText(existing.nonce(), submission.nonce())
+                && existing.monotonicCounter() == submission.counter()
+                && existing.amount().compareTo(submission.amount()) == 0;
+    }
+
+    private boolean equalsText(String left, String right) {
+        return String.valueOf(left == null ? "" : left).equals(String.valueOf(right == null ? "" : right));
+    }
+
+    private void handleReceiverOnlineConfirmation(OfflinePaymentProof proof, SettlementRequest request) {
+        if (proof.status() != OfflineProofStatus.SETTLED || request.status() != SettlementStatus.SETTLED) {
+            return;
+        }
+        OfflineSaga saga = offlineSagaRepository
+                .findBySagaTypeAndReferenceId(OfflineSagaType.SETTLEMENT, request.id())
+                .orElse(null);
+        if (saga != null && "RECEIVER_HISTORY_SYNCED".equals(saga.currentStep())) {
+            return;
+        }
+        Device receiverDevice = deviceIdentifierResolver.resolve(proof.receiverDeviceId()).orElse(null);
+        if (receiverDevice == null) {
+            return;
+        }
+        CollateralLock collateral = collateralRepository.findById(request.collateralId())
+                .orElseThrow(() -> new IllegalStateException("collateral not found for settlement: " + request.id()));
+        FoxCoinHistoryPort.SettlementHistoryCommand receiverHistoryCommand = settlementSyncCommandFactory.createReceiverHistoryCommand(
+                collateral,
+                proof.id(),
+                proof.amount(),
+                request,
+                request.status().name(),
+                "RELEASE",
+                receiverDevice
+        );
+        eventBus.publishExternalSyncRequested(
+                "RECEIVER_HISTORY_SYNC_REQUESTED",
+                request.id(),
+                request.batchId(),
+                proof.id(),
+                jsonService.write(Map.of(
+                        "settlementId", request.id(),
+                        "batchId", request.batchId(),
+                        "proofId", proof.id(),
+                        "receiverOnlineConfirmedAt", OffsetDateTime.now().toString(),
+                        "receiverHistoryCommand", Map.ofEntries(
+                                Map.entry("settlementId", receiverHistoryCommand.settlementId()),
+                                Map.entry("transferRef", receiverHistoryCommand.transferRef()),
+                                Map.entry("batchId", receiverHistoryCommand.batchId()),
+                                Map.entry("collateralId", receiverHistoryCommand.collateralId()),
+                                Map.entry("proofId", receiverHistoryCommand.proofId()),
+                                Map.entry("userId", receiverHistoryCommand.userId()),
+                                Map.entry("deviceId", receiverHistoryCommand.deviceId()),
+                                Map.entry("assetCode", receiverHistoryCommand.assetCode()),
+                                Map.entry("amount", receiverHistoryCommand.amount()),
+                                Map.entry("feeAmount", receiverHistoryCommand.feeAmount()),
+                                Map.entry("settlementStatus", receiverHistoryCommand.settlementStatus()),
+                                Map.entry("historyType", receiverHistoryCommand.historyType())
+                        )
+                )),
+                OffsetDateTime.now().toString()
+        );
+        offlineSagaService.markPartiallyApplied(
+                OfflineSagaType.SETTLEMENT,
+                request.id(),
+                "HISTORY_SYNCED",
+                Map.of(
+                        "settlementId", request.id(),
+                        "batchId", request.batchId(),
+                        "proofId", proof.id(),
+                        "senderHistorySynced", true,
+                        "receiverHistoryPending", true,
+                        "receiverOnlineConfirmed", true
+                )
         );
     }
 
@@ -761,7 +885,7 @@ public class SettlementApplicationService {
                 evaluation.conflictDetected()
         );
         FoxCoinHistoryPort.SettlementHistoryCommand receiverHistoryCommand = null;
-        if (receiverDevice != null) {
+        if (receiverDevice != null && "RECEIVER".equalsIgnoreCase(proof.uploaderType())) {
             receiverHistoryCommand = settlementSyncCommandFactory.createReceiverHistoryCommand(
                             collateral,
                             proof.id(),
