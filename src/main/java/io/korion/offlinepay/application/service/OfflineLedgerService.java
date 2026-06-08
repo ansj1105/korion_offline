@@ -98,6 +98,7 @@ public class OfflineLedgerService {
                 sentItems,
                 receivedItems,
                 receivedItems.stream()
+                        .filter(item -> !"FAILED".equals(item.statusCode()))
                         .map(item -> parseAmount(item.amount()))
                         .reduce(BigDecimal.ZERO, BigDecimal::add)
                         .toPlainString(),
