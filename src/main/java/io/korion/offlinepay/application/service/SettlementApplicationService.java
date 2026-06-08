@@ -38,6 +38,7 @@ import io.korion.offlinepay.domain.model.ReconciliationCase;
 import io.korion.offlinepay.domain.model.SettlementBatch;
 import io.korion.offlinepay.domain.model.SettlementRequest;
 import io.korion.offlinepay.domain.reason.OfflinePayReasonCode;
+import io.korion.offlinepay.domain.status.OfflineSagaStatus;
 import io.korion.offlinepay.domain.status.OfflineSagaType;
 import io.korion.offlinepay.domain.status.CollateralStatus;
 import io.korion.offlinepay.domain.status.DeviceStatus;
@@ -325,7 +326,7 @@ public class SettlementApplicationService {
         OfflineSaga saga = offlineSagaRepository
                 .findBySagaTypeAndReferenceId(OfflineSagaType.SETTLEMENT, request.id())
                 .orElse(null);
-        if (saga != null && "RECEIVER_HISTORY_SYNCED".equals(saga.currentStep())) {
+        if (saga != null && shouldIgnoreLateReceiverConfirmation(saga)) {
             return;
         }
         Device receiverDevice = deviceIdentifierResolver.resolve(proof.receiverDeviceId()).orElse(null);
@@ -383,6 +384,16 @@ public class SettlementApplicationService {
                         "receiverOnlineConfirmed", true
                 )
         );
+    }
+
+    private boolean shouldIgnoreLateReceiverConfirmation(OfflineSaga saga) {
+        if ("RECEIVER_HISTORY_SYNCED".equals(saga.currentStep())) {
+            return true;
+        }
+        return saga.status() == OfflineSagaStatus.COMPENSATION_REQUIRED
+                || saga.status() == OfflineSagaStatus.COMPENSATING
+                || saga.status() == OfflineSagaStatus.COMPENSATED
+                || OfflinePayReasonCode.RECEIVER_CONFIRMATION_EXPIRED.equals(saga.lastReasonCode());
     }
 
     @Transactional

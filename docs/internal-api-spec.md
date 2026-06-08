@@ -140,4 +140,12 @@ Error:
 - 일반 retryable case는 `POST /api/admin/anomalies/reconciliation-cases/{caseId}/retry`를 사용한다.
 - `OFFLINE_PAY_FEE_MISMATCH`처럼 서비스 간 계약 오류로 발생한 case는 계약 수정 및 배포가 끝난 뒤 `POST /api/admin/anomalies/reconciliation-cases/{caseId}/retry-contract-fixed`를 사용한다.
 - `retry-contract-fixed`는 `LEDGER_SYNC_FAILED` + `OFFLINE_PAY_FEE_MISMATCH` 이력만 허용하고, 원래 payload를 그대로 재발행한다.
+- `POST_FINAL_PROOF_CONFLICT`는 자동 보상하지 않는다. 운영자가 증거를 확인한 뒤 아래 admin API 중 하나로 종결한다.
+  - `POST /api/admin/anomalies/reconciliation-cases/{caseId}/request-compensation`
+  - `POST /api/admin/anomalies/reconciliation-cases/{caseId}/resolve-no-compensation`
+  - `POST /api/admin/anomalies/reconciliation-cases/{caseId}/close`
+- 세 API는 우선 `POST_FINAL_PROOF_CONFLICT` + `OPEN` case만 허용한다.
+- 요청 body는 선택적으로 `operatorId`, `reason`을 포함한다.
+- `request-compensation`은 즉시 금액을 이동하지 않고 `LEDGER_COMPENSATION_REQUESTED` event만 발행한다. event payload와 case detail에는 `manualCompensationIdempotencyKey=manual-compensation:{caseId}`가 기록되며 이미 보상 요청된 case는 재요청을 거절한다.
+- 감사 필드는 case detail/응답에 `manualOperatorId`, `manualReason`, `manualActionExecutedAt`, `manualCompensationRequestedAt` 또는 `manualResolvedAt`/`manualClosedAt`, `manualCompensationIdempotencyKey`로 남긴다. `caseId`, `settlementId`, `proofId`는 reconciliation case 본문 필드로 함께 조회된다.
 - 재처리 성공 여부는 outbox event, reconciliation case status, `coin_manage.offline_pay_pending`, `korion_offline.remaining_amount` 비교로 확인한다.

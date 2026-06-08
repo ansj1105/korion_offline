@@ -5,6 +5,7 @@ import io.korion.offlinepay.domain.reason.OfflinePayReasonCode;
 import io.korion.offlinepay.domain.model.SettlementRequest;
 import io.korion.offlinepay.domain.status.SettlementStatus;
 import io.korion.offlinepay.infrastructure.persistence.mapper.SettlementRequestRowMapper;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -116,6 +117,37 @@ public class JdbcSettlementRepository implements SettlementRepository {
                 .param("reasonCode", normalizedReasonCode)
                 .param("conflictDetected", conflictDetected)
                 .param("settlementResult", settlementResultJson)
+                .update();
+    }
+
+    @Override
+    public void updateReceiverConfirmationDeadline(String settlementId, OffsetDateTime deadlineAt) {
+        String sql = QueryBuilder.update("settlement_requests")
+                .set("receiver_confirmation_deadline_at", "COALESCE(receiver_confirmation_deadline_at, :deadlineAt)")
+                .touchUpdatedAt()
+                .where("id", QueryBuilder.Op.EQ, ":id")
+                .build();
+        jdbcClient.sql(sql)
+                .param("id", java.util.UUID.fromString(settlementId))
+                .param("deadlineAt", deadlineAt)
+                .update();
+    }
+
+    @Override
+    public void markReceiverConfirmationExpired(String settlementId, String reasonCode, String settlementResultJson) {
+        String normalizedReasonCode = requireReasonCode(reasonCode, "receiver confirmation expiry");
+        String sql = QueryBuilder.update("settlement_requests")
+                .set("reason_code", ":reasonCode")
+                .set("settlement_result", "settlement_result || CAST(:settlementResult AS jsonb)")
+                .set("receiver_confirmation_expired_at", "COALESCE(receiver_confirmation_expired_at, NOW())")
+                .touchUpdatedAt()
+                .where("id", QueryBuilder.Op.EQ, ":id")
+                .where("receiver_confirmation_expired_at IS NULL")
+                .build();
+        jdbcClient.sql(sql)
+                .param("id", java.util.UUID.fromString(settlementId))
+                .param("reasonCode", normalizedReasonCode)
+                .param("settlementResult", settlementResultJson == null || settlementResultJson.isBlank() ? "{}" : settlementResultJson)
                 .update();
     }
 

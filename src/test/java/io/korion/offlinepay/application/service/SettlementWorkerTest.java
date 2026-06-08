@@ -103,6 +103,10 @@ class SettlementWorkerTest {
                 Mockito.mock(io.korion.offlinepay.application.port.CoinManageSettlementPort.class);
         io.korion.offlinepay.application.port.FoxCoinHistoryPort foxCoinHistoryPort =
                 Mockito.mock(io.korion.offlinepay.application.port.FoxCoinHistoryPort.class);
+        io.korion.offlinepay.application.port.OfflinePaymentProofRepository proofRepository =
+                Mockito.mock(io.korion.offlinepay.application.port.OfflinePaymentProofRepository.class);
+        io.korion.offlinepay.application.port.SettlementRepository settlementRepository =
+                Mockito.mock(io.korion.offlinepay.application.port.SettlementRepository.class);
         io.korion.offlinepay.application.port.ReconciliationCaseRepository reconciliationCaseRepository =
                 Mockito.mock(io.korion.offlinepay.application.port.ReconciliationCaseRepository.class);
         OfflineSagaService offlineSagaService = Mockito.mock(OfflineSagaService.class);
@@ -112,6 +116,8 @@ class SettlementWorkerTest {
                 coinManageDeviceSyncPort,
                 coinManageSettlementPort,
                 foxCoinHistoryPort,
+                proofRepository,
+                settlementRepository,
                 reconciliationCaseRepository,
                 offlineSagaService,
                 jsonService,
@@ -181,6 +187,10 @@ class SettlementWorkerTest {
                 Mockito.mock(io.korion.offlinepay.application.port.CoinManageSettlementPort.class);
         io.korion.offlinepay.application.port.FoxCoinHistoryPort foxCoinHistoryPort =
                 Mockito.mock(io.korion.offlinepay.application.port.FoxCoinHistoryPort.class);
+        io.korion.offlinepay.application.port.OfflinePaymentProofRepository proofRepository =
+                Mockito.mock(io.korion.offlinepay.application.port.OfflinePaymentProofRepository.class);
+        io.korion.offlinepay.application.port.SettlementRepository settlementRepository =
+                Mockito.mock(io.korion.offlinepay.application.port.SettlementRepository.class);
         io.korion.offlinepay.application.port.ReconciliationCaseRepository reconciliationCaseRepository =
                 Mockito.mock(io.korion.offlinepay.application.port.ReconciliationCaseRepository.class);
         OfflineSagaService offlineSagaService = Mockito.mock(OfflineSagaService.class);
@@ -190,6 +200,8 @@ class SettlementWorkerTest {
                 coinManageDeviceSyncPort,
                 coinManageSettlementPort,
                 foxCoinHistoryPort,
+                proofRepository,
+                settlementRepository,
                 reconciliationCaseRepository,
                 offlineSagaService,
                 jsonService,
@@ -280,6 +292,10 @@ class SettlementWorkerTest {
                 Mockito.mock(io.korion.offlinepay.application.port.CoinManageSettlementPort.class);
         io.korion.offlinepay.application.port.FoxCoinHistoryPort foxCoinHistoryPort =
                 Mockito.mock(io.korion.offlinepay.application.port.FoxCoinHistoryPort.class);
+        io.korion.offlinepay.application.port.OfflinePaymentProofRepository proofRepository =
+                Mockito.mock(io.korion.offlinepay.application.port.OfflinePaymentProofRepository.class);
+        io.korion.offlinepay.application.port.SettlementRepository settlementRepository =
+                Mockito.mock(io.korion.offlinepay.application.port.SettlementRepository.class);
         io.korion.offlinepay.application.port.ReconciliationCaseRepository reconciliationCaseRepository =
                 Mockito.mock(io.korion.offlinepay.application.port.ReconciliationCaseRepository.class);
         OfflineSagaService offlineSagaService = Mockito.mock(OfflineSagaService.class);
@@ -289,6 +305,8 @@ class SettlementWorkerTest {
                 coinManageDeviceSyncPort,
                 coinManageSettlementPort,
                 foxCoinHistoryPort,
+                proofRepository,
+                settlementRepository,
                 reconciliationCaseRepository,
                 offlineSagaService,
                 jsonService,
@@ -330,6 +348,204 @@ class SettlementWorkerTest {
                 eq("HISTORY_SYNC_FAIL"),
                 Mockito.anyMap()
         );
+        verify(proofRepository, never()).markReceivedCollateralSettled(
+                Mockito.anyList(),
+                Mockito.anyString(),
+                Mockito.anyString()
+        );
+    }
+
+    @Test
+    void receiverHistorySuccessMarksReceivedProofWalletSettled() {
+        AppProperties properties = new AppProperties(
+                "USDT",
+                24,
+                20,
+                1000,
+                new AppProperties.ProofIssuer("test-proof-issuer", "", ""),
+                new AppProperties.CoinManage("http://localhost:3000", "test-key", 5000),
+                new AppProperties.FoxCoin("http://localhost:3101", "test-key", 5000),
+                new AppProperties.Alerts(
+                        new AppProperties.Telegram("", ""),
+                        new AppProperties.CircuitBreaker(3, 60000)
+                ),
+                new AppProperties.Redis(
+                        "offlinepay",
+                        "stream:settlement:requested",
+                        "stream:settlement:result",
+                        "stream:settlement:conflict",
+                        "stream:settlement:dead-letter",
+                        "stream:collateral:requested",
+                        "stream:collateral:result",
+                        "offlinepay:settlement-group"
+                ),
+                new AppProperties.Worker(true, "worker-1", 60000, 3)
+        );
+        io.korion.offlinepay.application.port.CoinManageDeviceSyncPort coinManageDeviceSyncPort =
+                Mockito.mock(io.korion.offlinepay.application.port.CoinManageDeviceSyncPort.class);
+        io.korion.offlinepay.application.port.CoinManageSettlementPort coinManageSettlementPort =
+                Mockito.mock(io.korion.offlinepay.application.port.CoinManageSettlementPort.class);
+        io.korion.offlinepay.application.port.FoxCoinHistoryPort foxCoinHistoryPort =
+                Mockito.mock(io.korion.offlinepay.application.port.FoxCoinHistoryPort.class);
+        io.korion.offlinepay.application.port.OfflinePaymentProofRepository proofRepository =
+                Mockito.mock(io.korion.offlinepay.application.port.OfflinePaymentProofRepository.class);
+        io.korion.offlinepay.application.port.SettlementRepository settlementRepository =
+                Mockito.mock(io.korion.offlinepay.application.port.SettlementRepository.class);
+        io.korion.offlinepay.application.port.ReconciliationCaseRepository reconciliationCaseRepository =
+                Mockito.mock(io.korion.offlinepay.application.port.ReconciliationCaseRepository.class);
+        OfflineSagaService offlineSagaService = Mockito.mock(OfflineSagaService.class);
+        JsonService jsonService = new JsonService(new com.fasterxml.jackson.databind.ObjectMapper());
+        SettlementExternalSyncWorker worker = new SettlementExternalSyncWorker(
+                eventBus,
+                coinManageDeviceSyncPort,
+                coinManageSettlementPort,
+                foxCoinHistoryPort,
+                proofRepository,
+                settlementRepository,
+                reconciliationCaseRepository,
+                offlineSagaService,
+                jsonService,
+                properties
+        );
+        SettlementBatchEventBus.QueuedExternalSyncMessage message =
+                new SettlementBatchEventBus.QueuedExternalSyncMessage(
+                        "sync-4",
+                        "RECEIVER_HISTORY_SYNC_REQUESTED",
+                        "settlement-1",
+                        "batch-1",
+                        "proof-1",
+                        "{\"receiverHistoryCommand\":{\"settlementId\":\"settlement-1\",\"transferRef\":\"settlement-1:R\",\"batchId\":\"batch-1\",\"collateralId\":\"collateral-1\",\"proofId\":\"proof-1\",\"userId\":2,\"deviceId\":\"device-2\",\"assetCode\":\"USDT\",\"amount\":10,\"settlementStatus\":\"SETTLED\",\"historyType\":\"OFFLINE_PAY_RECEIVE\"}}",
+                        1
+                );
+
+        when(eventBus.pollExternalSyncRequested(20)).thenReturn(List.of(message));
+        when(eventBus.reclaimStaleExternalSyncRequested(20, 60000)).thenReturn(List.of());
+
+        worker.poll();
+
+        verify(foxCoinHistoryPort).recordSettlementHistory(
+                Mockito.argThat(command -> "OFFLINE_PAY_RECEIVE".equals(command.historyType())
+                        && "settlement-1:R".equals(command.transferRef()))
+        );
+        verify(proofRepository).markReceivedCollateralSettled(
+                eq(List.of("proof-1")),
+                eq("settlement-1:R"),
+                eq("wallet:settlement-1")
+        );
+        verify(offlineSagaService).markCompleted(
+                eq(io.korion.offlinepay.domain.status.OfflineSagaType.SETTLEMENT),
+                eq("settlement-1"),
+                eq("RECEIVER_HISTORY_SYNCED"),
+                Mockito.anyMap()
+        );
+        verify(eventBus).acknowledgeExternalSync("sync-4");
+    }
+
+    @Test
+    void staleReceiverHistoryPendingRequestsLedgerAndFoxyaCompensation() {
+        AppProperties properties = new AppProperties(
+                "USDT",
+                24,
+                20,
+                1000,
+                new AppProperties.ProofIssuer("test-proof-issuer", "", ""),
+                new AppProperties.CoinManage("http://localhost:3000", "test-key", 5000),
+                new AppProperties.FoxCoin("http://localhost:3101", "test-key", 5000),
+                new AppProperties.Alerts(
+                        new AppProperties.Telegram("", ""),
+                        new AppProperties.CircuitBreaker(3, 60000)
+                ),
+                new AppProperties.Redis(
+                        "offlinepay",
+                        "stream:settlement:requested",
+                        "stream:settlement:result",
+                        "stream:settlement:conflict",
+                        "stream:settlement:dead-letter",
+                        "stream:collateral:requested",
+                        "stream:collateral:result",
+                        "offlinepay:settlement-group"
+                ),
+                new AppProperties.Worker(true, "worker-1", 60000, 3)
+        );
+        io.korion.offlinepay.application.port.CoinManageDeviceSyncPort coinManageDeviceSyncPort =
+                Mockito.mock(io.korion.offlinepay.application.port.CoinManageDeviceSyncPort.class);
+        io.korion.offlinepay.application.port.CoinManageSettlementPort coinManageSettlementPort =
+                Mockito.mock(io.korion.offlinepay.application.port.CoinManageSettlementPort.class);
+        io.korion.offlinepay.application.port.FoxCoinHistoryPort foxCoinHistoryPort =
+                Mockito.mock(io.korion.offlinepay.application.port.FoxCoinHistoryPort.class);
+        io.korion.offlinepay.application.port.OfflinePaymentProofRepository proofRepository =
+                Mockito.mock(io.korion.offlinepay.application.port.OfflinePaymentProofRepository.class);
+        io.korion.offlinepay.application.port.SettlementRepository settlementRepository =
+                Mockito.mock(io.korion.offlinepay.application.port.SettlementRepository.class);
+        io.korion.offlinepay.application.port.ReconciliationCaseRepository reconciliationCaseRepository =
+                Mockito.mock(io.korion.offlinepay.application.port.ReconciliationCaseRepository.class);
+        OfflineSagaService offlineSagaService = Mockito.mock(OfflineSagaService.class);
+        JsonService jsonService = new JsonService(new com.fasterxml.jackson.databind.ObjectMapper());
+        SettlementExternalSyncWorker worker = new SettlementExternalSyncWorker(
+                eventBus,
+                coinManageDeviceSyncPort,
+                coinManageSettlementPort,
+                foxCoinHistoryPort,
+                proofRepository,
+                settlementRepository,
+                reconciliationCaseRepository,
+                offlineSagaService,
+                jsonService,
+                properties
+        );
+        String payload = "{\"settlementId\":\"settlement-1\",\"batchId\":\"batch-1\",\"proofId\":\"proof-1\",\"receiverHistoryPending\":true,"
+                + "\"ledgerCommand\":{\"settlementId\":\"settlement-1\",\"batchId\":\"batch-1\",\"collateralId\":\"collateral-1\",\"proofId\":\"proof-1\",\"userId\":1,\"deviceId\":\"device-1\",\"receiverUserId\":2,\"receiverDeviceId\":\"device-2\",\"assetCode\":\"USDT\",\"amount\":10,\"settlementStatus\":\"SETTLED\",\"releaseAction\":\"RELEASE\",\"conflictDetected\":false,\"proofFingerprint\":\"fp\",\"newStateHash\":\"hash\",\"previousHash\":\"prev\",\"monotonicCounter\":1,\"nonce\":\"nonce\",\"signature\":\"sig\"},"
+                + "\"historyCommand\":{\"settlementId\":\"settlement-1\",\"transferRef\":\"settlement-1\",\"batchId\":\"batch-1\",\"collateralId\":\"collateral-1\",\"proofId\":\"proof-1\",\"userId\":1,\"deviceId\":\"device-1\",\"assetCode\":\"USDT\",\"amount\":10,\"settlementStatus\":\"SETTLED\",\"historyType\":\"OFFLINE_PAY_SETTLEMENT\"},"
+                + "\"historyCompensationCommand\":{\"settlementId\":\"settlement-1\",\"transferRef\":\"settlement-1:C\",\"batchId\":\"batch-1\",\"collateralId\":\"collateral-1\",\"proofId\":\"proof-1\",\"userId\":1,\"deviceId\":\"device-1\",\"assetCode\":\"USDT\",\"amount\":10,\"settlementStatus\":\"COMPENSATED\",\"historyType\":\"OFFLINE_PAY_COMPENSATION\"}}";
+        io.korion.offlinepay.domain.model.OfflineSaga saga = new io.korion.offlinepay.domain.model.OfflineSaga(
+                "saga-1",
+                io.korion.offlinepay.domain.status.OfflineSagaType.SETTLEMENT,
+                "settlement-1",
+                io.korion.offlinepay.domain.status.OfflineSagaStatus.PARTIALLY_APPLIED,
+                "HISTORY_SYNCED",
+                null,
+                payload,
+                OffsetDateTime.now().minusDays(2),
+                OffsetDateTime.now().minusDays(2)
+        );
+
+        when(eventBus.pollExternalSyncRequested(20)).thenReturn(List.of());
+        when(eventBus.reclaimStaleExternalSyncRequested(20, 60000)).thenReturn(List.of());
+        when(offlineSagaService.findReceiverHistoryPendingDue(
+                Mockito.any(OffsetDateTime.class),
+                Mockito.any(OffsetDateTime.class),
+                eq(20)))
+                .thenReturn(List.of(saga));
+
+        worker.poll();
+
+        verify(offlineSagaService).markCompensationRequired(
+                eq(io.korion.offlinepay.domain.status.OfflineSagaType.SETTLEMENT),
+                eq("settlement-1"),
+                eq("COMPENSATION_REQUIRED"),
+                eq("RECEIVER_CONFIRMATION_EXPIRED"),
+                Mockito.argThat(argument -> argument != null
+                        && Boolean.TRUE.equals(argument.get("receiverHistoryPending")))
+        );
+        verify(settlementRepository).markReceiverConfirmationExpired(
+                eq("settlement-1"),
+                eq("RECEIVER_CONFIRMATION_EXPIRED"),
+                Mockito.argThat(argument -> argument != null
+                        && argument.contains("RECEIVER_CONFIRMATION_EXPIRED"))
+        );
+        verify(eventBus).publishExternalSyncRequested(
+                eq("LEDGER_COMPENSATION_REQUESTED"),
+                eq("settlement-1"),
+                eq("batch-1"),
+                eq("proof-1"),
+                Mockito.argThat(argument -> argument != null
+                        && argument.contains("RECEIVER_CONFIRMATION_EXPIRED")
+                        && argument.contains("OFFLINE_PAY_COMPENSATION")
+                        && argument.contains("\"transferRef\":\"settlement-1:C\"")),
+                anyString()
+        );
+        verify(foxCoinHistoryPort, never()).recordSettlementHistory(Mockito.any());
+        verify(coinManageSettlementPort, never()).compensateSettlement(Mockito.any());
     }
 
     @Test

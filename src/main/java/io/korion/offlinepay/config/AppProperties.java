@@ -64,6 +64,17 @@ public record AppProperties(
             boolean enabled,
             String consumerName,
             int claimIdleMs,
-            int maxAttempts
-    ) {}
+            int maxAttempts,
+            long receiverHistoryPendingTimeoutMs,
+            int receiverHistoryPendingScanLimit
+    ) {
+        public Worker(boolean enabled, String consumerName, int claimIdleMs, int maxAttempts) {
+            this(enabled, consumerName, claimIdleMs, maxAttempts, 86_400_000L, 20);
+        }
+
+        public Worker {
+            receiverHistoryPendingTimeoutMs = receiverHistoryPendingTimeoutMs <= 0 ? 86_400_000L : receiverHistoryPendingTimeoutMs;
+            receiverHistoryPendingScanLimit = receiverHistoryPendingScanLimit <= 0 ? 20 : receiverHistoryPendingScanLimit;
+        }
+    }
 }

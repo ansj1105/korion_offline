@@ -240,6 +240,32 @@ public class JdbcOfflinePaymentProofRepository implements OfflinePaymentProofRep
     }
 
     @Override
+    public java.util.List<OfflinePaymentProof> findPostFinalConflictScanCandidates(int size) {
+        String sql = QueryBuilder.select("offline_payment_proofs")
+                .where("status", QueryBuilder.Op.EQ, ":status")
+                .where("post_final_conflict_scanned_at IS NULL")
+                .orderBy("COALESCE(settled_at, updated_at, created_at) ASC")
+                .limit(Math.max(1, size))
+                .build();
+        return jdbcClient.sql(sql)
+                .param("status", OfflineProofStatus.SETTLED.name())
+                .query(offlinePaymentProofRowMapper)
+                .list();
+    }
+
+    @Override
+    public void markPostFinalConflictScanned(String proofId) {
+        String sql = QueryBuilder.update("offline_payment_proofs")
+                .set("post_final_conflict_scanned_at", "COALESCE(post_final_conflict_scanned_at, NOW())")
+                .touchUpdatedAt()
+                .where("id", QueryBuilder.Op.EQ, ":id")
+                .build();
+        jdbcClient.sql(sql)
+                .param("id", java.util.UUID.fromString(proofId))
+                .update();
+    }
+
+    @Override
     public java.util.List<OfflinePaymentProof> findRecentByUserIdAndAssetCode(long userId, String assetCode, int size) {
         String sql = """
                 SELECT offline_payment_proofs.*

@@ -29,4 +29,8 @@ public class JsonService {
             throw new IllegalArgumentException("failed to parse json payload", exception);
         }
     }
+
+    public JsonNode valueToTree(Object value) {
+        return objectMapper.valueToTree(value == null ? java.util.Map.of() : value);
+    }
 }

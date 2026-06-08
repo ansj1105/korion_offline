@@ -22,6 +22,8 @@ public class SettlementRequestRowMapper implements RowMapper<SettlementRequest> 
                 resultSet.getString("reason_code"),
                 resultSet.getBoolean("conflict_detected"),
                 resultSet.getString("settlement_result"),
+                resultSet.getObject("receiver_confirmation_deadline_at", OffsetDateTime.class),
+                resultSet.getObject("receiver_confirmation_expired_at", OffsetDateTime.class),
                 resultSet.getObject("created_at", OffsetDateTime.class),
                 resultSet.getObject("updated_at", OffsetDateTime.class)
         );

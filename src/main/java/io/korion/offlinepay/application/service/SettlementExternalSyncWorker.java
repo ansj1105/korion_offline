@@ -4,9 +4,12 @@ import com.fasterxml.jackson.databind.JsonNode;
 import io.korion.offlinepay.application.port.CoinManageDeviceSyncPort;
 import io.korion.offlinepay.application.port.CoinManageSettlementPort;
 import io.korion.offlinepay.application.port.FoxCoinHistoryPort;
+import io.korion.offlinepay.application.port.OfflinePaymentProofRepository;
 import io.korion.offlinepay.application.port.ReconciliationCaseRepository;
 import io.korion.offlinepay.application.port.SettlementBatchEventBus;
+import io.korion.offlinepay.application.port.SettlementRepository;
 import io.korion.offlinepay.config.AppProperties;
+import io.korion.offlinepay.domain.model.OfflineSaga;
 import io.korion.offlinepay.domain.model.ReconciliationCase;
 import io.korion.offlinepay.domain.policy.OfflineFailureClass;
 import io.korion.offlinepay.domain.policy.OfflineFailurePolicy;
@@ -14,6 +17,7 @@ import io.korion.offlinepay.domain.reason.OfflinePayReasonCode;
 import io.korion.offlinepay.domain.status.OfflineSagaType;
 import io.korion.offlinepay.domain.status.OfflineWorkflowEventType;
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
@@ -27,6 +31,8 @@ public class SettlementExternalSyncWorker {
     private final CoinManageDeviceSyncPort coinManageDeviceSyncPort;
     private final CoinManageSettlementPort coinManageSettlementPort;
     private final FoxCoinHistoryPort foxCoinHistoryPort;
+    private final OfflinePaymentProofRepository proofRepository;
+    private final SettlementRepository settlementRepository;
     private final ReconciliationCaseRepository reconciliationCaseRepository;
     private final OfflineSagaService offlineSagaService;
     private final JsonService jsonService;
@@ -37,6 +43,8 @@ public class SettlementExternalSyncWorker {
             CoinManageDeviceSyncPort coinManageDeviceSyncPort,
             CoinManageSettlementPort coinManageSettlementPort,
             FoxCoinHistoryPort foxCoinHistoryPort,
+            OfflinePaymentProofRepository proofRepository,
+            SettlementRepository settlementRepository,
             ReconciliationCaseRepository reconciliationCaseRepository,
             OfflineSagaService offlineSagaService,
             JsonService jsonService,
@@ -46,6 +54,8 @@ public class SettlementExternalSyncWorker {
         this.coinManageDeviceSyncPort = coinManageDeviceSyncPort;
         this.coinManageSettlementPort = coinManageSettlementPort;
         this.foxCoinHistoryPort = foxCoinHistoryPort;
+        this.proofRepository = proofRepository;
+        this.settlementRepository = settlementRepository;
         this.reconciliationCaseRepository = reconciliationCaseRepository;
         this.offlineSagaService = offlineSagaService;
         this.jsonService = jsonService;
@@ -91,6 +101,7 @@ public class SettlementExternalSyncWorker {
                 }
             }
         }
+        expireReceiverHistoryPendingSettlements();
     }
 
     private void process(SettlementBatchEventBus.QueuedExternalSyncMessage message) {
@@ -185,6 +196,27 @@ public class SettlementExternalSyncWorker {
                                 "receiverHistoryPending", true
                         )
                 );
+            } else if (requiresReceiverConfirmation(payload)) {
+                OffsetDateTime deadlineAt = OffsetDateTime.now().plus(Duration.ofMillis(properties.worker().receiverHistoryPendingTimeoutMs()));
+                settlementRepository.updateReceiverConfirmationDeadline(message.settlementId(), deadlineAt);
+                java.util.LinkedHashMap<String, Object> pendingPayload = new java.util.LinkedHashMap<>();
+                pendingPayload.put("settlementId", message.settlementId());
+                pendingPayload.put("batchId", message.batchId());
+                pendingPayload.put("proofId", message.proofId());
+                pendingPayload.put("eventType", message.eventType());
+                pendingPayload.put("senderHistorySynced", true);
+                pendingPayload.put("receiverHistoryPending", true);
+                pendingPayload.put("receiverConfirmationSource", "WAIT_FOR_RECEIVER_UPLOAD");
+                pendingPayload.put("receiverConfirmationDeadlineAt", deadlineAt.toString());
+                pendingPayload.put("ledgerCommand", payload.path("ledgerCommand"));
+                pendingPayload.put("historyCommand", payload.path("historyCommand"));
+                pendingPayload.put("historyCompensationCommand", toHistoryCompensationPayload(payload.path("historyCommand")));
+                offlineSagaService.markPartiallyApplied(
+                        OfflineSagaType.SETTLEMENT,
+                        message.settlementId(),
+                        "HISTORY_SYNCED",
+                        pendingPayload
+                );
             } else {
                 offlineSagaService.markCompleted(
                         OfflineSagaType.SETTLEMENT,
@@ -210,6 +242,11 @@ public class SettlementExternalSyncWorker {
         if (OfflineWorkflowEventType.RECEIVER_HISTORY_SYNC_REQUESTED.name().equals(message.eventType())) {
             FoxCoinHistoryPort.SettlementHistoryCommand receiverCommand = toHistoryCommand(payload.path("receiverHistoryCommand"));
             foxCoinHistoryPort.recordSettlementHistory(receiverCommand);
+            proofRepository.markReceivedCollateralSettled(
+                    List.of(receiverCommand.proofId()),
+                    receiverCommand.transferRef(),
+                    "wallet:" + receiverCommand.settlementId()
+            );
             offlineSagaService.markCompleted(
                     OfflineSagaType.SETTLEMENT,
                     message.settlementId(),
@@ -270,7 +307,7 @@ public class SettlementExternalSyncWorker {
             );
             resolveReconciliationCases(
                     message.settlementId(),
-                    List.of("HISTORY_SYNC_FAILED", "HISTORY_CIRCUIT_OPEN"),
+                    List.of("HISTORY_SYNC_FAILED", "HISTORY_CIRCUIT_OPEN", "POST_FINAL_PROOF_CONFLICT"),
                     "LEDGER_COMPENSATED",
                     message.eventType()
             );
@@ -278,6 +315,85 @@ public class SettlementExternalSyncWorker {
         }
 
         throw new IllegalArgumentException("unsupported external sync message: " + message.eventType());
+    }
+
+    private void expireReceiverHistoryPendingSettlements() {
+        OffsetDateTime referenceTime = OffsetDateTime.now();
+        OffsetDateTime fallbackCutoff = referenceTime.minus(Duration.ofMillis(properties.worker().receiverHistoryPendingTimeoutMs()));
+        List<OfflineSaga> staleSagas = offlineSagaService.findReceiverHistoryPendingDue(
+                referenceTime,
+                fallbackCutoff,
+                properties.worker().receiverHistoryPendingScanLimit()
+        );
+        if (staleSagas == null || staleSagas.isEmpty()) {
+            return;
+        }
+        for (OfflineSaga saga : staleSagas) {
+            expireReceiverHistoryPendingSettlement(saga);
+        }
+    }
+
+    private void expireReceiverHistoryPendingSettlement(OfflineSaga saga) {
+        JsonNode payload = jsonService.readTree(saga.payloadJson());
+        if (!payload.path("receiverHistoryPending").asBoolean(false)) {
+            return;
+        }
+        JsonNode ledgerCommand = payload.path("ledgerCommand");
+        if (ledgerCommand.isMissingNode() || ledgerCommand.isNull() || !ledgerCommand.isObject()) {
+            return;
+        }
+        String reasonCode = OfflinePayReasonCode.RECEIVER_CONFIRMATION_EXPIRED;
+        JsonNode historyCompensationCommand = payload.path("historyCompensationCommand");
+        if (historyCompensationCommand.isMissingNode() || historyCompensationCommand.isNull()) {
+            historyCompensationCommand = jsonService.valueToTree(toHistoryCompensationPayload(payload.path("historyCommand")));
+        }
+        Object compensationCommand = toCompensationPayload(ledgerCommand, reasonCode);
+        String settlementId = requireText(ledgerCommand, "settlementId");
+        String batchId = requireText(ledgerCommand, "batchId");
+        String proofId = requireText(ledgerCommand, "proofId");
+        settlementRepository.markReceiverConfirmationExpired(
+                settlementId,
+                reasonCode,
+                jsonService.write(Map.of(
+                        "reasonCode", reasonCode,
+                        "receiverHistoryPending", true,
+                        "receiverConfirmationExpiredAt", OffsetDateTime.now().toString()
+                ))
+        );
+        offlineSagaService.markCompensationRequired(
+                OfflineSagaType.SETTLEMENT,
+                settlementId,
+                "COMPENSATION_REQUIRED",
+                reasonCode,
+                Map.of(
+                        "settlementId", settlementId,
+                        "batchId", batchId,
+                        "proofId", proofId,
+                        "previousStep", saga.currentStep(),
+                        "receiverHistoryPending", true,
+                        "receiverConfirmationExpiredAt", OffsetDateTime.now().toString()
+                )
+        );
+        eventBus.publishExternalSyncRequested(
+                OfflineWorkflowEventType.LEDGER_COMPENSATION_REQUESTED.name(),
+                settlementId,
+                batchId,
+                proofId,
+                jsonService.write(buildCompensationEventPayload(
+                        settlementId,
+                        batchId,
+                        proofId,
+                        compensationCommand,
+                        historyCompensationCommand
+                )),
+                OffsetDateTime.now().toString()
+        );
+    }
+
+    private boolean requiresReceiverConfirmation(JsonNode payload) {
+        JsonNode ledgerCommand = payload.path("ledgerCommand");
+        return ledgerCommand.hasNonNull("receiverUserId")
+                && ledgerCommand.hasNonNull("receiverDeviceId");
     }
 
     private void syncCoinManageDevice(JsonNode node) {
@@ -490,6 +606,25 @@ public class SettlementExternalSyncWorker {
         payload.put("settlementId", message.settlementId());
         payload.put("batchId", message.batchId());
         payload.put("proofId", message.proofId());
+        payload.put("compensationCommand", compensationCommand);
+        if (!historyCompensationCommand.isMissingNode() && !historyCompensationCommand.isNull()) {
+            payload.put("historyCompensationCommand", historyCompensationCommand);
+        }
+        payload.put("requestedAt", OffsetDateTime.now().toString());
+        return payload;
+    }
+
+    private Map<String, Object> buildCompensationEventPayload(
+            String settlementId,
+            String batchId,
+            String proofId,
+            Object compensationCommand,
+            JsonNode historyCompensationCommand
+    ) {
+        java.util.LinkedHashMap<String, Object> payload = new java.util.LinkedHashMap<>();
+        payload.put("settlementId", settlementId);
+        payload.put("batchId", batchId);
+        payload.put("proofId", proofId);
         payload.put("compensationCommand", compensationCommand);
         if (!historyCompensationCommand.isMissingNode() && !historyCompensationCommand.isNull()) {
             payload.put("historyCompensationCommand", historyCompensationCommand);

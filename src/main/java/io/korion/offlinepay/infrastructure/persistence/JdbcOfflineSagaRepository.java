@@ -5,6 +5,7 @@ import io.korion.offlinepay.domain.model.OfflineSaga;
 import io.korion.offlinepay.domain.status.OfflineSagaStatus;
 import io.korion.offlinepay.domain.status.OfflineSagaType;
 import io.korion.offlinepay.infrastructure.persistence.mapper.OfflineSagaRowMapper;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -100,5 +101,39 @@ public class JdbcOfflineSagaRepository implements OfflineSagaRepository {
             statement.param("status", status.name());
         }
         return statement.query(rowMapper).list();
+    }
+
+    @Override
+    public List<OfflineSaga> findReceiverHistoryPendingDue(OffsetDateTime referenceTime, OffsetDateTime fallbackCutoff, int limit) {
+        String sql = """
+                SELECT offline_sagas.*
+                FROM offline_sagas
+                LEFT JOIN settlement_requests
+                  ON settlement_requests.id::text = offline_sagas.reference_id
+                WHERE offline_sagas.saga_type = :sagaType
+                  AND offline_sagas.status = :status
+                  AND offline_sagas.current_step = :currentStep
+                  AND offline_sagas.payload_json @> CAST(:pendingPayload AS jsonb)
+                  AND COALESCE(settlement_requests.receiver_confirmation_expired_at, NULL) IS NULL
+                  AND (
+                    settlement_requests.receiver_confirmation_deadline_at <= :referenceTime
+                    OR (
+                      settlement_requests.receiver_confirmation_deadline_at IS NULL
+                      AND offline_sagas.updated_at < :fallbackCutoff
+                    )
+                  )
+                ORDER BY offline_sagas.updated_at ASC
+                LIMIT :limit
+                """;
+        return jdbcClient.sql(sql)
+                .param("sagaType", OfflineSagaType.SETTLEMENT.name())
+                .param("status", OfflineSagaStatus.PARTIALLY_APPLIED.name())
+                .param("currentStep", "HISTORY_SYNCED")
+                .param("pendingPayload", "{\"receiverHistoryPending\":true}")
+                .param("referenceTime", referenceTime)
+                .param("fallbackCutoff", fallbackCutoff)
+                .param("limit", Math.max(1, limit))
+                .query(rowMapper)
+                .list();
     }
 }

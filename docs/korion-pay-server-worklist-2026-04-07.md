@@ -29,7 +29,10 @@
   - [x] proof / collateral / saga / reconciliation 상태를 한 응답에서 조회 가능하게 확장
   - [x] `coin_manage` ledger sync 결과(`ledgerOutcome`, `duplicated`, `accountingSide`, `receiverSettlementMode`, `post*Balance`)를 settlement detail 응답에 포함
   - [x] sender/receiver leg 상태 분리 — `senderHistoryStatus` / `receiverHistoryStatus` 필드를 settlement detail 응답에 추가 (saga step `HISTORY_SYNCED` / `RECEIVER_HISTORY_SYNCED` 기반)
+  - [x] 수신자 미확인 만료 추적 — `receiverConfirmationDeadlineAt`, `receiverConfirmationExpiredAt`, `receiverConfirmationExpired`를 settlement detail 응답에 추가
   - [x] 현장 검증 통과(`proof 유효` → status PENDING) vs 서버 최종 판정(`status SETTLED/REJECTED`) 구분: `status` 필드가 서버 판정 기준, `sagaStep`이 내부 처리 단계 기준 — 응답에 두 값 모두 노출되므로 FE에서 구분 가능
+  - [x] 확정 후 proof 충돌 스캔 — `post_final_conflict_scanned_at` marker 기반으로 SETTLED proof를 순차 스캔하고, 뒤늦은 nonce/counter 충돌은 `POST_FINAL_PROOF_CONFLICT` reconciliation case로 격리
+  - [x] `POST_FINAL_PROOF_CONFLICT` 운영자 수동 액션 API 추가 — `request-compensation`, `resolve-no-compensation`, `close`
 
 ### BE-2. Receiver 정산 구조 확정
 
@@ -45,7 +48,10 @@
   - [x] `OFFLINE_PAY_COMPENSATION` TransactionType 추가: receiver history 실패 등 후속 leg 실패 시 sender foxya history를 역방향 internal transfer로 되돌림
   - [x] `createReceiverHistoryCommand()` factory 메서드 추가 (offline_pay)
   - [x] sender/receiver leg 각각의 정산 상태를 settlement detail 응답에 명시적으로 노출 — `senderHistoryStatus` / `receiverHistoryStatus` 추가, `RECEIVER_HISTORY_SYNCED` saga step으로 추적
+  - [x] receiver 미복귀 TTL 만료 보상 추적 — deadline/expired 시각을 settlement request에 저장하고 detail 응답에 노출
   - [x] `settlementModel=SENDER_LEDGER_PLUS_RECEIVER_HISTORY`를 ledger/admin/log 응답에 공통 노출
+  - [x] 확정 후 충돌 발견 시 자동 보상 대신 CRITICAL conflict/reconciliation/alert를 생성해 운영 확인 후 보상하도록 분리
+  - [x] 운영자 승인 후 수동 보상 요청은 기존 `LEDGER_COMPENSATION_REQUESTED` 경로를 재사용하고, 보상 불필요 판단은 reconciliation case를 `RESOLVED` 처리
 
 ### BE-3. Trust / TEE 최소 계약 정의
 

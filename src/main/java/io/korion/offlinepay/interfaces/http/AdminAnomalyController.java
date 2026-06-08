@@ -3,6 +3,7 @@ package io.korion.offlinepay.interfaces.http;
 import io.korion.offlinepay.application.service.AdminOperationsService;
 import io.korion.offlinepay.interfaces.http.factory.SettlementResponseFactory;
 import java.util.Map;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -99,4 +100,54 @@ public class AdminAnomalyController {
                 "case", adminOperationsService.retryContractFixedReconciliationCase(caseId)
         );
     }
+
+    @PostMapping("/reconciliation-cases/{caseId}/request-compensation")
+    public Object requestPostFinalConflictCompensation(
+            @PathVariable String caseId,
+            @RequestBody(required = false) ReconciliationCaseActionRequest request
+    ) {
+        return Map.of(
+                "status", "COMPENSATION_REQUESTED",
+                "case", adminOperationsService.requestPostFinalConflictCompensation(
+                        caseId,
+                        request == null ? null : request.operatorId(),
+                        request == null ? null : request.reason()
+                )
+        );
+    }
+
+    @PostMapping("/reconciliation-cases/{caseId}/resolve-no-compensation")
+    public Object resolvePostFinalConflictWithoutCompensation(
+            @PathVariable String caseId,
+            @RequestBody(required = false) ReconciliationCaseActionRequest request
+    ) {
+        return Map.of(
+                "status", "RESOLVED",
+                "case", adminOperationsService.resolvePostFinalConflictWithoutCompensation(
+                        caseId,
+                        request == null ? null : request.operatorId(),
+                        request == null ? null : request.reason()
+                )
+        );
+    }
+
+    @PostMapping("/reconciliation-cases/{caseId}/close")
+    public Object closePostFinalConflictCase(
+            @PathVariable String caseId,
+            @RequestBody(required = false) ReconciliationCaseActionRequest request
+    ) {
+        return Map.of(
+                "status", "CLOSED",
+                "case", adminOperationsService.closePostFinalConflictCase(
+                        caseId,
+                        request == null ? null : request.operatorId(),
+                        request == null ? null : request.reason()
+                )
+        );
+    }
+
+    public record ReconciliationCaseActionRequest(
+            String operatorId,
+            String reason
+    ) {}
 }

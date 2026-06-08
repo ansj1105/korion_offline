@@ -1,6 +1,7 @@
 package io.korion.offlinepay.interfaces.http.factory;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -227,6 +228,91 @@ class SettlementResponseFactoryTest {
         var response = factory.toBatchDetail(batch);
 
         assertEquals("DEAD_LETTERED", response.settlementWorkflowStage());
+    }
+
+    @Test
+    void requestDetailIncludesReceiverConfirmationExpiryTracking() {
+        OffsetDateTime deadlineAt = OffsetDateTime.parse("2026-06-08T01:00:00Z");
+        SettlementRequest request = new SettlementRequest(
+                "settlement-1",
+                "batch-1",
+                "collateral-1",
+                "proof-1",
+                SettlementStatus.SETTLED,
+                "SETTLED",
+                false,
+                "{}",
+                deadlineAt,
+                null,
+                OffsetDateTime.parse("2026-06-08T00:00:00Z"),
+                OffsetDateTime.parse("2026-06-08T00:10:00Z")
+        );
+        OfflineSaga saga = new OfflineSaga(
+                "saga-1",
+                OfflineSagaType.SETTLEMENT,
+                "settlement-1",
+                OfflineSagaStatus.PARTIALLY_APPLIED,
+                "HISTORY_SYNCED",
+                null,
+                "{}",
+                OffsetDateTime.parse("2026-06-08T00:00:00Z"),
+                OffsetDateTime.parse("2026-06-08T00:10:00Z")
+        );
+
+        var response = factory.toDetailResponse(new SettlementApplicationService.SettlementDetailView(
+                request,
+                saga,
+                null,
+                null,
+                null
+        ));
+
+        assertEquals("2026-06-08T01:00Z", response.receiverConfirmationDeadlineAt());
+        assertEquals(null, response.receiverConfirmationExpiredAt());
+        assertFalse(response.receiverConfirmationExpired());
+    }
+
+    @Test
+    void requestDetailIncludesReceiverConfirmationExpiredAt() {
+        OffsetDateTime deadlineAt = OffsetDateTime.parse("2026-06-08T01:00:00Z");
+        OffsetDateTime expiredAt = OffsetDateTime.parse("2026-06-08T01:05:00Z");
+        SettlementRequest request = new SettlementRequest(
+                "settlement-1",
+                "batch-1",
+                "collateral-1",
+                "proof-1",
+                SettlementStatus.SETTLED,
+                "RECEIVER_CONFIRMATION_EXPIRED",
+                false,
+                "{}",
+                deadlineAt,
+                expiredAt,
+                OffsetDateTime.parse("2026-06-08T00:00:00Z"),
+                OffsetDateTime.parse("2026-06-08T01:05:00Z")
+        );
+        OfflineSaga saga = new OfflineSaga(
+                "saga-1",
+                OfflineSagaType.SETTLEMENT,
+                "settlement-1",
+                OfflineSagaStatus.COMPENSATED,
+                "COMPENSATED",
+                "RECEIVER_CONFIRMATION_EXPIRED",
+                "{}",
+                OffsetDateTime.parse("2026-06-08T00:00:00Z"),
+                OffsetDateTime.parse("2026-06-08T01:05:00Z")
+        );
+
+        var response = factory.toDetailResponse(new SettlementApplicationService.SettlementDetailView(
+                request,
+                saga,
+                null,
+                null,
+                null
+        ));
+
+        assertEquals("2026-06-08T01:00Z", response.receiverConfirmationDeadlineAt());
+        assertEquals("2026-06-08T01:05Z", response.receiverConfirmationExpiredAt());
+        assertTrue(response.receiverConfirmationExpired());
     }
 
     @Test

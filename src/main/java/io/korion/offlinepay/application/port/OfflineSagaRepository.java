@@ -3,6 +3,7 @@ package io.korion.offlinepay.application.port;
 import io.korion.offlinepay.domain.model.OfflineSaga;
 import io.korion.offlinepay.domain.status.OfflineSagaStatus;
 import io.korion.offlinepay.domain.status.OfflineSagaType;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -29,4 +30,6 @@ public interface OfflineSagaRepository {
     Optional<OfflineSaga> findBySagaTypeAndReferenceId(OfflineSagaType sagaType, String referenceId);
 
     List<OfflineSaga> findRecent(int limit, OfflineSagaType sagaType, OfflineSagaStatus status);
+
+    List<OfflineSaga> findReceiverHistoryPendingDue(OffsetDateTime referenceTime, OffsetDateTime fallbackCutoff, int limit);
 }

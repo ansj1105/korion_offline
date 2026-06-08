@@ -1,8 +1,10 @@
 package io.korion.offlinepay.application.service;
 
 import io.korion.offlinepay.application.factory.SettlementBatchFactory;
+import io.korion.offlinepay.application.factory.SettlementSyncCommandFactory;
 import io.korion.offlinepay.application.factory.SettlementStreamEventFactory;
 import io.korion.offlinepay.application.port.CollateralOperationRepository;
+import io.korion.offlinepay.application.port.CollateralRepository;
 import io.korion.offlinepay.application.port.DeviceRepository;
 import io.korion.offlinepay.application.port.OfflineEventLogRepository;
 import io.korion.offlinepay.application.port.OfflinePaymentProofRepository;
@@ -13,6 +15,8 @@ import io.korion.offlinepay.application.port.SettlementBatchEventBus;
 import io.korion.offlinepay.application.port.SettlementBatchRepository;
 import io.korion.offlinepay.application.port.SettlementConflictRepository;
 import io.korion.offlinepay.application.port.SettlementOutboxEventRepository;
+import io.korion.offlinepay.application.port.SettlementRepository;
+import io.korion.offlinepay.domain.model.CollateralLock;
 import io.korion.offlinepay.domain.model.CollateralOperation;
 import io.korion.offlinepay.domain.model.Device;
 import io.korion.offlinepay.domain.model.OfflineEventLog;
@@ -20,6 +24,7 @@ import io.korion.offlinepay.domain.model.OfflinePaymentProof;
 import io.korion.offlinepay.domain.model.OfflineSaga;
 import io.korion.offlinepay.domain.model.OfflineWorkflowState;
 import io.korion.offlinepay.domain.model.ReconciliationCase;
+import io.korion.offlinepay.domain.model.SettlementRequest;
 import io.korion.offlinepay.domain.model.SettlementBatch;
 import io.korion.offlinepay.domain.model.SettlementConflict;
 import io.korion.offlinepay.domain.model.SettlementConflictMetric;
@@ -33,6 +38,7 @@ import io.korion.offlinepay.domain.status.OfflineEventType;
 import io.korion.offlinepay.domain.status.OfflineProofStatus;
 import io.korion.offlinepay.domain.status.OfflineSagaStatus;
 import io.korion.offlinepay.domain.status.OfflineSagaType;
+import io.korion.offlinepay.domain.status.OfflineWorkflowEventType;
 import io.korion.offlinepay.domain.status.ReconciliationCaseStatus;
 import io.korion.offlinepay.domain.status.SettlementBatchStatus;
 import java.time.OffsetDateTime;
@@ -46,6 +52,8 @@ import org.springframework.transaction.annotation.Transactional;
 public class AdminOperationsService {
 
     private final SettlementBatchRepository settlementBatchRepository;
+    private final SettlementRepository settlementRepository;
+    private final CollateralRepository collateralRepository;
     private final SettlementConflictRepository settlementConflictRepository;
     private final CollateralOperationRepository collateralOperationRepository;
     private final DeviceRepository deviceRepository;
@@ -57,11 +65,14 @@ public class AdminOperationsService {
     private final SettlementOutboxEventRepository settlementOutboxEventRepository;
     private final SettlementBatchEventBus settlementBatchEventBus;
     private final SettlementBatchFactory settlementBatchFactory;
+    private final SettlementSyncCommandFactory settlementSyncCommandFactory;
     private final SettlementStreamEventFactory settlementStreamEventFactory;
     private final JsonService jsonService;
 
     public AdminOperationsService(
             SettlementBatchRepository settlementBatchRepository,
+            SettlementRepository settlementRepository,
+            CollateralRepository collateralRepository,
             SettlementConflictRepository settlementConflictRepository,
             CollateralOperationRepository collateralOperationRepository,
             DeviceRepository deviceRepository,
@@ -73,10 +84,13 @@ public class AdminOperationsService {
             SettlementOutboxEventRepository settlementOutboxEventRepository,
             SettlementBatchEventBus settlementBatchEventBus,
             SettlementBatchFactory settlementBatchFactory,
+            SettlementSyncCommandFactory settlementSyncCommandFactory,
             SettlementStreamEventFactory settlementStreamEventFactory,
             JsonService jsonService
     ) {
         this.settlementBatchRepository = settlementBatchRepository;
+        this.settlementRepository = settlementRepository;
+        this.collateralRepository = collateralRepository;
         this.settlementConflictRepository = settlementConflictRepository;
         this.collateralOperationRepository = collateralOperationRepository;
         this.deviceRepository = deviceRepository;
@@ -88,6 +102,7 @@ public class AdminOperationsService {
         this.settlementOutboxEventRepository = settlementOutboxEventRepository;
         this.settlementBatchEventBus = settlementBatchEventBus;
         this.settlementBatchFactory = settlementBatchFactory;
+        this.settlementSyncCommandFactory = settlementSyncCommandFactory;
         this.settlementStreamEventFactory = settlementStreamEventFactory;
         this.jsonService = jsonService;
     }
@@ -254,6 +269,96 @@ public class AdminOperationsService {
         return reconciliationCaseRepository.findById(caseId).orElseThrow();
     }
 
+    @Transactional
+    public ReconciliationCase requestPostFinalConflictCompensation(String caseId, String operatorId, String reason) {
+        ReconciliationCase reconciliationCase = requirePostFinalConflictCase(caseId);
+        var detail = jsonService.readTree(reconciliationCase.detailJson());
+        if (detail.hasNonNull("manualCompensationRequestedAt")) {
+            throw new IllegalArgumentException("manual compensation already requested: " + caseId);
+        }
+        String manualActionExecutedAt = OffsetDateTime.now().toString();
+        String manualCompensationIdempotencyKey = "manual-compensation:" + caseId;
+        SettlementRequest settlement = settlementRepository.findById(reconciliationCase.settlementId())
+                .orElseThrow(() -> new IllegalArgumentException("settlement request not found: " + reconciliationCase.settlementId()));
+        OfflinePaymentProof proof = offlinePaymentProofRepository.findById(reconciliationCase.proofId())
+                .orElseThrow(() -> new IllegalArgumentException("offline proof not found: " + reconciliationCase.proofId()));
+        CollateralLock collateral = collateralRepository.findById(proof.collateralId())
+                .orElseThrow(() -> new IllegalArgumentException("collateral not found: " + proof.collateralId()));
+        var ledgerCommand = settlementSyncCommandFactory.createLedgerCommand(
+                collateral,
+                proof,
+                proof.amount(),
+                settlement,
+                "SETTLED",
+                "RELEASE",
+                false,
+                null
+        );
+        settlementBatchEventBus.publishExternalSyncRequested(
+                OfflineWorkflowEventType.LEDGER_COMPENSATION_REQUESTED.name(),
+                settlement.id(),
+                settlement.batchId(),
+                proof.id(),
+                jsonService.write(Map.ofEntries(
+                        Map.entry("settlementId", settlement.id()),
+                        Map.entry("batchId", settlement.batchId()),
+                        Map.entry("proofId", proof.id()),
+                        Map.entry("compensationCommand", toCompensationPayload(
+                                ledgerCommand,
+                                reconciliationCase.reasonCode() == null || reconciliationCase.reasonCode().isBlank()
+                                        ? "POST_FINAL_PROOF_CONFLICT"
+                                        : reconciliationCase.reasonCode()
+                        )),
+                        Map.entry("historyCompensationCommand", toHistoryCompensationPayload(collateral, proof, settlement)),
+                        Map.entry("manualCaseId", caseId),
+                        Map.entry("manualCompensationIdempotencyKey", manualCompensationIdempotencyKey),
+                        Map.entry("manualOperatorId", normalizeOperatorId(operatorId)),
+                        Map.entry("manualReason", normalizeManualReason(reason)),
+                        Map.entry("requestedAt", manualActionExecutedAt)
+                )),
+                manualActionExecutedAt
+        );
+        reconciliationCaseRepository.updateDetail(caseId, mergeAdminActionDetail(
+                detail,
+                normalizeOperatorId(operatorId),
+                normalizeManualReason(reason),
+                "MANUAL_COMPENSATION_REQUESTED",
+                manualActionExecutedAt,
+                manualCompensationIdempotencyKey
+        ));
+        return reconciliationCaseRepository.findById(caseId).orElseThrow();
+    }
+
+    @Transactional
+    public ReconciliationCase resolvePostFinalConflictWithoutCompensation(String caseId, String operatorId, String reason) {
+        ReconciliationCase reconciliationCase = requirePostFinalConflictCase(caseId);
+        var detail = jsonService.readTree(reconciliationCase.detailJson());
+        reconciliationCaseRepository.resolve(caseId, mergeAdminActionDetail(
+                detail,
+                normalizeOperatorId(operatorId),
+                normalizeManualReason(reason),
+                "RESOLVED_WITHOUT_COMPENSATION",
+                OffsetDateTime.now().toString(),
+                null
+        ));
+        return reconciliationCaseRepository.findById(caseId).orElseThrow();
+    }
+
+    @Transactional
+    public ReconciliationCase closePostFinalConflictCase(String caseId, String operatorId, String reason) {
+        ReconciliationCase reconciliationCase = requirePostFinalConflictCase(caseId);
+        var detail = jsonService.readTree(reconciliationCase.detailJson());
+        reconciliationCaseRepository.resolve(caseId, mergeAdminActionDetail(
+                detail,
+                normalizeOperatorId(operatorId),
+                normalizeManualReason(reason),
+                "CLOSED",
+                OffsetDateTime.now().toString(),
+                null
+        ));
+        return reconciliationCaseRepository.findById(caseId).orElseThrow();
+    }
+
     @Transactional(readOnly = true)
     public Map<String, Long> getOutboxOverview() {
         return Map.ofEntries(
@@ -296,6 +401,94 @@ public class AdminOperationsService {
         merged.put("adminAction", "CONTRACT_FIXED_RETRY_QUEUED");
         merged.put("nextRetryAt", OffsetDateTime.now().plusMinutes(5).toString());
         return jsonService.write(merged);
+    }
+
+    private ReconciliationCase requirePostFinalConflictCase(String caseId) {
+        ReconciliationCase reconciliationCase = reconciliationCaseRepository.findById(caseId)
+                .orElseThrow(() -> new IllegalArgumentException("reconciliation case not found: " + caseId));
+        if (!"POST_FINAL_PROOF_CONFLICT".equals(reconciliationCase.caseType())) {
+            throw new IllegalArgumentException("reconciliation case is not post-final proof conflict: " + caseId);
+        }
+        if (reconciliationCase.status() != ReconciliationCaseStatus.OPEN) {
+            throw new IllegalArgumentException("reconciliation case is not open: " + caseId);
+        }
+        return reconciliationCase;
+    }
+
+    private String mergeAdminActionDetail(
+            com.fasterxml.jackson.databind.JsonNode detail,
+            String operatorId,
+            String reason,
+            String adminAction,
+            String manualActionExecutedAt,
+            String manualCompensationIdempotencyKey
+    ) {
+        LinkedHashMap<String, Object> merged = new LinkedHashMap<>();
+        detail.fields().forEachRemaining(entry -> merged.put(entry.getKey(), entry.getValue()));
+        merged.put("adminAction", adminAction);
+        merged.put("manualOperatorId", operatorId);
+        merged.put("manualReason", reason);
+        merged.put("manualActionExecutedAt", manualActionExecutedAt);
+        if (manualCompensationIdempotencyKey != null && !manualCompensationIdempotencyKey.isBlank()) {
+            merged.put("manualCompensationIdempotencyKey", manualCompensationIdempotencyKey);
+        }
+        if ("MANUAL_COMPENSATION_REQUESTED".equals(adminAction)) {
+            merged.put("manualCompensationRequestedAt", manualActionExecutedAt);
+        } else if ("CLOSED".equals(adminAction)) {
+            merged.put("manualClosedAt", manualActionExecutedAt);
+        } else {
+            merged.put("manualResolvedAt", manualActionExecutedAt);
+        }
+        return jsonService.write(merged);
+    }
+
+    private String normalizeOperatorId(String operatorId) {
+        return operatorId == null || operatorId.isBlank() ? "admin" : operatorId.trim();
+    }
+
+    private String normalizeManualReason(String reason) {
+        return reason == null || reason.isBlank() ? "manual post-final proof conflict review" : reason.trim();
+    }
+
+    private Map<String, Object> toCompensationPayload(
+            io.korion.offlinepay.application.port.CoinManageSettlementPort.SettlementLedgerCommand ledgerCommand,
+            String compensationReason
+    ) {
+        return Map.ofEntries(
+                Map.entry("settlementId", ledgerCommand.settlementId()),
+                Map.entry("batchId", ledgerCommand.batchId()),
+                Map.entry("collateralId", ledgerCommand.collateralId()),
+                Map.entry("proofId", ledgerCommand.proofId()),
+                Map.entry("userId", ledgerCommand.userId()),
+                Map.entry("deviceId", ledgerCommand.deviceId()),
+                Map.entry("assetCode", ledgerCommand.assetCode()),
+                Map.entry("amount", ledgerCommand.amount()),
+                Map.entry("releaseAction", ledgerCommand.releaseAction()),
+                Map.entry("proofFingerprint", ledgerCommand.proofFingerprint()),
+                Map.entry("compensationReason", compensationReason == null || compensationReason.isBlank()
+                        ? "POST_FINAL_PROOF_CONFLICT"
+                        : compensationReason)
+        );
+    }
+
+    private Map<String, Object> toHistoryCompensationPayload(
+            CollateralLock collateral,
+            OfflinePaymentProof proof,
+            SettlementRequest settlement
+    ) {
+        return Map.ofEntries(
+                Map.entry("settlementId", settlement.id()),
+                Map.entry("transferRef", settlement.id() + ":C"),
+                Map.entry("batchId", settlement.batchId()),
+                Map.entry("collateralId", collateral.id()),
+                Map.entry("proofId", proof.id()),
+                Map.entry("userId", collateral.userId()),
+                Map.entry("deviceId", collateral.deviceId()),
+                Map.entry("assetCode", collateral.assetCode()),
+                Map.entry("amount", proof.amount()),
+                Map.entry("settlementStatus", "COMPENSATED"),
+                Map.entry("historyType", "OFFLINE_PAY_COMPENSATION")
+        );
     }
 
     @Transactional(readOnly = true)

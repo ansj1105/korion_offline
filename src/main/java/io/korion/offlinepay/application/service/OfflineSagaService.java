@@ -3,6 +3,9 @@ package io.korion.offlinepay.application.service;
 import io.korion.offlinepay.application.port.OfflineSagaRepository;
 import io.korion.offlinepay.domain.status.OfflineSagaStatus;
 import io.korion.offlinepay.domain.status.OfflineSagaType;
+import io.korion.offlinepay.domain.model.OfflineSaga;
+import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Map;
 import org.springframework.stereotype.Service;
 
@@ -114,5 +117,9 @@ public class OfflineSagaService {
                 null,
                 jsonService.write(payload)
         );
+    }
+
+    public List<OfflineSaga> findReceiverHistoryPendingDue(OffsetDateTime referenceTime, OffsetDateTime fallbackCutoff, int limit) {
+        return offlineSagaRepository.findReceiverHistoryPendingDue(referenceTime, fallbackCutoff, limit);
     }
 }

@@ -44,6 +44,10 @@ public interface OfflinePaymentProofRepository {
 
     java.util.List<OfflinePaymentProof> findRecent(int size, OfflineProofStatus status, String channelType);
 
+    java.util.List<OfflinePaymentProof> findPostFinalConflictScanCandidates(int size);
+
+    void markPostFinalConflictScanned(String proofId);
+
     java.util.List<OfflinePaymentProof> findRecentByUserIdAndAssetCode(long userId, String assetCode, int size);
 
     int markReceivedCollateralSettled(
