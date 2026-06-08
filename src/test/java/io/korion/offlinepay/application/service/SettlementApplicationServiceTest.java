@@ -1116,6 +1116,120 @@ class SettlementApplicationServiceTest {
     }
 
     @Test
+    void finalizeSettlementCreatesOverspendReconciliationCaseWhenLocalAvailableExceeded() {
+        SettlementRequest request = new SettlementRequest(
+                "settlement-overspend",
+                "batch-overspend",
+                "collateral-overspend",
+                "proof-overspend",
+                SettlementStatus.VALIDATING,
+                null,
+                false,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        CollateralLock collateral = new CollateralLock(
+                "collateral-overspend",
+                77L,
+                "device-1",
+                "USDT",
+                new BigDecimal("150"),
+                new BigDecimal("150"),
+                "GENESIS",
+                1,
+                CollateralStatus.LOCKED,
+                "lock-overspend",
+                OffsetDateTime.now().plusDays(1),
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        long now = System.currentTimeMillis();
+        long expiresAt = now + 60_000;
+        String hash = spendingProofHashService.computeNewStateHash(
+                "GENESIS",
+                new BigDecimal("100"),
+                1L,
+                "device-1",
+                "nonce-overspend"
+        );
+        String rawPayloadJson = "{\"voucherId\":\"voucher-overspend\",\"deviceId\":\"device-1\",\"counterpartyDeviceId\":\"device-2\",\"amount\":\"100\",\"expiresAt\":\""
+                + expiresAt
+                + "\",\"spendingProof\":{\"deviceId\":\"device-1\",\"amount\":\"100\",\"monotonicCounter\":\"1\",\"nonce\":\"nonce-overspend\",\"newStateHash\":\""
+                + hash
+                + "\",\"prevStateHash\":\"GENESIS\",\"signature\":\"local_sig_fake\",\"timestamp\":\""
+                + now
+                + "\"},\"deviceRegistrationId\":\"row-1\",\"signedUserId\":77,\"authMethod\":\"PIN\",\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"50\",\"uiMode\":\"SEND\",\"connectionType\":\"FAST_CONTACT\",\"paymentFlow\":\"FAST_PAYMENT\",\"senderAuthRequired\":true,\"ledgerExecutionMode\":\"INTERNAL_LEDGER_ONLY\",\"dualAmountEntered\":false}";
+        OfflinePaymentProof proof = new OfflinePaymentProof(
+                "proof-overspend",
+                "batch-overspend",
+                "voucher-overspend",
+                "collateral-overspend",
+                "device-1",
+                "device-2",
+                1,
+                1,
+                1L,
+                "nonce-overspend",
+                hash,
+                "GENESIS",
+                "local_sig_fake",
+                new BigDecimal("100"),
+                now,
+                expiresAt,
+                "{\"voucherId\":\"voucher-overspend\",\"counterpartyDeviceId\":\"device-2\"}",
+                "SENDER",
+                rawPayloadJson,
+                OffsetDateTime.now()
+        );
+        Device device = new Device(
+                "row-1",
+                "device-1",
+                77L,
+                "public-key",
+                1,
+                DeviceStatus.ACTIVE,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+
+        when(settlementRepository.findById("settlement-overspend"))
+                .thenReturn(Optional.of(request))
+                .thenReturn(Optional.of(new SettlementRequest(
+                        "settlement-overspend",
+                        "batch-overspend",
+                        "collateral-overspend",
+                        "proof-overspend",
+                        SettlementStatus.REJECTED,
+                        "LOCAL_AVAILABLE_AMOUNT_EXCEEDED",
+                        false,
+                        "{\"reasonCode\":\"LOCAL_AVAILABLE_AMOUNT_EXCEEDED\"}",
+                        OffsetDateTime.now(),
+                        OffsetDateTime.now()
+                )));
+        when(collateralRepository.findById("collateral-overspend")).thenReturn(Optional.of(collateral));
+        when(proofRepository.findById("proof-overspend")).thenReturn(Optional.of(proof));
+        when(deviceRepository.findByDeviceId("device-1")).thenReturn(Optional.of(device));
+
+        SettlementRequest result = service.finalizeSettlement("settlement-overspend");
+
+        assertEquals(SettlementStatus.REJECTED, result.status());
+        assertTrue(result.settlementResultJson().contains("LOCAL_AVAILABLE_AMOUNT_EXCEEDED"));
+        verify(reconciliationCaseRepository).save(
+                eq("settlement-overspend"),
+                eq("batch-overspend"),
+                eq("proof-overspend"),
+                eq("voucher-overspend"),
+                eq("OVERSPEND_ATTEMPT"),
+                eq(io.korion.offlinepay.domain.status.ReconciliationCaseStatus.OPEN),
+                eq("LOCAL_AVAILABLE_AMOUNT_EXCEEDED"),
+                anyString()
+        );
+    }
+
+    @Test
     void finalizeSettlementRejectsDualAmountConflict() {
         SettlementRequest request = new SettlementRequest(
                 "settlement-3",

@@ -1157,6 +1157,11 @@ public class SettlementApplicationService {
                 || OfflinePayReasonCode.DUPLICATE_COUNTER.equals(reasonCode)) {
             return "DUPLICATE_SEND";
         }
+        if (OfflinePayReasonCode.LOCAL_AVAILABLE_AMOUNT_EXCEEDED.equals(reasonCode)
+                || OfflinePayReasonCode.SERVER_AVAILABLE_AMOUNT_EXCEEDED.equals(reasonCode)
+                || OfflinePayReasonCode.INSUFFICIENT_REMAINING_AMOUNT.equals(reasonCode)) {
+            return "OVERSPEND_ATTEMPT";
+        }
         if (reasonCode != null && reasonCode.startsWith("ISSUED_PROOF_")) {
             return "ISSUED_PROOF_INVALID";
         }
