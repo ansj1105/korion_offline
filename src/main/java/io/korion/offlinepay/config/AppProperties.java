@@ -15,6 +15,11 @@ public record AppProperties(
         Redis redis,
         Worker worker
 ) {
+    public AppProperties {
+        if (worker == null) {
+            worker = new Worker(false, "offline-pay-worker", 60_000, 3, 86_400_000L, 20);
+        }
+    }
 
     public record ProofIssuer(
             String keyId,
