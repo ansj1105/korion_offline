@@ -168,8 +168,8 @@ public class CollateralApplicationService {
         if (command.amount() == null || command.amount().signum() <= 0) {
             throw new IllegalArgumentException("release amount is required");
         }
-        if (command.amount().compareTo(aggregate.remainingAmount()) > 0) {
-            throw new IllegalArgumentException("release amount exceeds remaining collateral");
+        if (command.amount().compareTo(aggregate.lockedAmount()) > 0) {
+            throw new IllegalArgumentException("release amount exceeds locked collateral");
         }
 
         String referenceId = buildReleaseReferenceId(collateralId, command);

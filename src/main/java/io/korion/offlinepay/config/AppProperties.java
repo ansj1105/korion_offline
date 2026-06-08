@@ -16,8 +16,17 @@ public record AppProperties(
         Worker worker
 ) {
     public AppProperties {
+        settlementStreamBatchSize = settlementStreamBatchSize <= 0 ? 20 : settlementStreamBatchSize;
+        settlementStreamBlockMs = settlementStreamBlockMs <= 0 ? 1000 : settlementStreamBlockMs;
         if (worker == null) {
-            worker = new Worker(false, "offline-pay-worker", 60_000, 3, 86_400_000L, 20);
+            worker = new Worker(
+                    envBoolean("SETTLEMENT_WORKER_ENABLED", false),
+                    envString("SETTLEMENT_CONSUMER_NAME", "offline-pay-worker"),
+                    envInt("SETTLEMENT_WORKER_CLAIM_IDLE_MS", 60_000),
+                    envInt("SETTLEMENT_WORKER_MAX_ATTEMPTS", 3),
+                    envLong("RECEIVER_HISTORY_PENDING_TIMEOUT_MS", 86_400_000L),
+                    envInt("RECEIVER_HISTORY_PENDING_SCAN_LIMIT", 20)
+            );
         }
     }
 
@@ -80,6 +89,40 @@ public record AppProperties(
         public Worker {
             receiverHistoryPendingTimeoutMs = receiverHistoryPendingTimeoutMs <= 0 ? 86_400_000L : receiverHistoryPendingTimeoutMs;
             receiverHistoryPendingScanLimit = receiverHistoryPendingScanLimit <= 0 ? 20 : receiverHistoryPendingScanLimit;
+        }
+    }
+
+    private static boolean envBoolean(String name, boolean fallback) {
+        String value = System.getenv(name);
+        return value == null || value.isBlank() ? fallback : Boolean.parseBoolean(value);
+    }
+
+    private static String envString(String name, String fallback) {
+        String value = System.getenv(name);
+        return value == null || value.isBlank() ? fallback : value.trim();
+    }
+
+    private static int envInt(String name, int fallback) {
+        String value = System.getenv(name);
+        if (value == null || value.isBlank()) {
+            return fallback;
+        }
+        try {
+            return Integer.parseInt(value.trim());
+        } catch (NumberFormatException ignored) {
+            return fallback;
+        }
+    }
+
+    private static long envLong(String name, long fallback) {
+        String value = System.getenv(name);
+        if (value == null || value.isBlank()) {
+            return fallback;
+        }
+        try {
+            return Long.parseLong(value.trim());
+        } catch (NumberFormatException ignored) {
+            return fallback;
         }
     }
 }

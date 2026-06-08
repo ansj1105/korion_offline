@@ -43,4 +43,38 @@ class HealthControllerTest {
         assertEquals("offline-pay-backend", response.get("service"));
         assertTrue(response.containsKey("now"));
     }
+
+    @Test
+    void defaultsMissingWorkerAndInvalidBatchSettings() {
+        AppProperties properties = new AppProperties(
+                "USDT",
+                24,
+                0,
+                0,
+                new AppProperties.ProofIssuer("test-proof-issuer", "", ""),
+                new AppProperties.CoinManage("http://localhost:3000", "test-key", 5000),
+                new AppProperties.FoxCoin("http://localhost:3101", "test-key", 5000),
+                new AppProperties.Alerts(
+                        new AppProperties.Telegram("", ""),
+                        new AppProperties.CircuitBreaker(3, 60000)
+                ),
+                new AppProperties.Redis(
+                        "offlinepay",
+                        "stream:settlement:requested",
+                        "stream:settlement:result",
+                        "stream:settlement:conflict",
+                        "stream:settlement:dead-letter",
+                        "stream:collateral:requested",
+                        "stream:collateral:result",
+                        "offlinepay:settlement-group"
+                ),
+                null
+        );
+
+        assertEquals(20, properties.settlementStreamBatchSize());
+        assertEquals(1000, properties.settlementStreamBlockMs());
+        assertEquals("offline-pay-worker", properties.worker().consumerName());
+        assertEquals(60000, properties.worker().claimIdleMs());
+        assertEquals(3, properties.worker().maxAttempts());
+    }
 }

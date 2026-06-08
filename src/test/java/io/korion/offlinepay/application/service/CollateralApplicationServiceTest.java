@@ -1,7 +1,11 @@
 package io.korion.offlinepay.application.service;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import io.korion.offlinepay.application.port.CollateralOperationRepository;
 import io.korion.offlinepay.application.port.CollateralRepository;
@@ -9,18 +13,32 @@ import io.korion.offlinepay.application.port.DeviceRepository;
 import io.korion.offlinepay.application.port.FoxCoinWalletSnapshotPort;
 import io.korion.offlinepay.application.port.SettlementBatchEventBus;
 import io.korion.offlinepay.config.AppProperties;
+import io.korion.offlinepay.domain.model.CollateralLock;
+import io.korion.offlinepay.domain.model.CollateralOperation;
+import io.korion.offlinepay.domain.status.CollateralOperationStatus;
+import io.korion.offlinepay.domain.status.CollateralOperationType;
+import io.korion.offlinepay.domain.status.CollateralStatus;
+import java.math.BigDecimal;
 import java.lang.reflect.Method;
+import java.time.OffsetDateTime;
+import java.util.Map;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 class CollateralApplicationServiceTest {
 
+    private final CollateralRepository collateralRepository = mock(CollateralRepository.class);
+    private final CollateralOperationRepository collateralOperationRepository = mock(CollateralOperationRepository.class);
+    private final SettlementBatchEventBus settlementBatchEventBus = mock(SettlementBatchEventBus.class);
+    private final OfflineSagaService offlineSagaService = mock(OfflineSagaService.class);
+
     private final CollateralApplicationService service = new CollateralApplicationService(
             mock(DeviceRepository.class),
-            mock(CollateralRepository.class),
-            mock(CollateralOperationRepository.class),
+            collateralRepository,
+            collateralOperationRepository,
             mock(FoxCoinWalletSnapshotPort.class),
-            mock(SettlementBatchEventBus.class),
-            mock(OfflineSagaService.class),
+            settlementBatchEventBus,
+            offlineSagaService,
             new JsonService(new com.fasterxml.jackson.databind.ObjectMapper()),
             new AppProperties(
                     "KORI",
@@ -35,6 +53,101 @@ class CollateralApplicationServiceTest {
                     new AppProperties.Worker(false, "worker", 60000, 3)
             )
     );
+
+    @Test
+    void releaseCollateralUsesLockedAmountInsteadOfOfflineRemainingAmount() {
+        OffsetDateTime now = OffsetDateTime.parse("2026-06-08T00:00:00Z");
+        CollateralLock collateral = new CollateralLock(
+                "13a46c26-96fc-4375-85cc-58b55c8229df",
+                1L,
+                "device-1",
+                "KORI",
+                new BigDecimal("20.000000"),
+                new BigDecimal("10.000000"),
+                "GENESIS",
+                1,
+                CollateralStatus.LOCKED,
+                "topup:device-1:key",
+                now.plusHours(1),
+                "{}",
+                now,
+                now
+        );
+        CollateralLock aggregate = new CollateralLock(
+                "aggregate",
+                1L,
+                "AGGREGATED",
+                "KORI",
+                new BigDecimal("20.000000"),
+                new BigDecimal("10.000000"),
+                "AGGREGATED",
+                1,
+                CollateralStatus.LOCKED,
+                "topup:device-1:key",
+                now.plusHours(1),
+                "{}",
+                now,
+                now
+        );
+        CollateralOperation operation = new CollateralOperation(
+                "11111111-1111-1111-1111-111111111111",
+                collateral.id(),
+                1L,
+                "device-1",
+                "KORI",
+                CollateralOperationType.RELEASE,
+                new BigDecimal("15.000000"),
+                CollateralOperationStatus.REQUESTED,
+                "release:13a46c26-96f:test",
+                null,
+                "{}",
+                now,
+                now
+        );
+
+        when(collateralRepository.findById(collateral.id())).thenReturn(Optional.of(collateral));
+        when(collateralRepository.findAggregateByUserIdAndAssetCode(1L, "KORI")).thenReturn(Optional.of(aggregate));
+        when(collateralOperationRepository.saveRequested(
+                eq(collateral.id()),
+                eq(1L),
+                eq("device-1"),
+                eq("KORI"),
+                eq(CollateralOperationType.RELEASE),
+                eq(new BigDecimal("15.000000")),
+                anyString(),
+                anyString()
+        )).thenReturn(operation);
+
+        service.releaseCollateral(
+                collateral.id(),
+                new CollateralApplicationService.ReleaseCollateralCommand(
+                        1L,
+                        "device-1",
+                        new BigDecimal("15.000000"),
+                        "manual_release",
+                        Map.of(),
+                        "test"
+                )
+        );
+
+        verify(collateralOperationRepository).saveRequested(
+                eq(collateral.id()),
+                eq(1L),
+                eq("device-1"),
+                eq("KORI"),
+                eq(CollateralOperationType.RELEASE),
+                eq(new BigDecimal("15.000000")),
+                anyString(),
+                anyString()
+        );
+        verify(settlementBatchEventBus).publishCollateralOperationRequested(
+                eq(operation.id()),
+                eq("RELEASE"),
+                eq("KORI"),
+                eq(operation.referenceId()),
+                anyString()
+        );
+    }
 
     @Test
     void buildReleaseReferenceIdKeepsReferenceWithinCoinManageLimit() throws Exception {
