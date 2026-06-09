@@ -2,6 +2,7 @@ package io.korion.offlinepay.application.service;
 
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -429,7 +430,7 @@ class SettlementWorkerTest {
         );
         verify(proofRepository).markReceivedCollateralSettled(
                 eq(List.of("proof-1")),
-                eq("settlement-1:R"),
+                isNull(),
                 eq("wallet:settlement-1")
         );
         verify(offlineSagaService).markCompleted(

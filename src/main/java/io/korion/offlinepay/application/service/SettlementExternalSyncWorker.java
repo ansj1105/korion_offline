@@ -244,7 +244,7 @@ public class SettlementExternalSyncWorker {
             foxCoinHistoryPort.recordSettlementHistory(receiverCommand);
             proofRepository.markReceivedCollateralSettled(
                     List.of(receiverCommand.proofId()),
-                    receiverCommand.transferRef(),
+                    null,
                     "wallet:" + receiverCommand.settlementId()
             );
             offlineSagaService.markCompleted(
