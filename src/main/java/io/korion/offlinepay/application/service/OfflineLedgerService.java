@@ -10,6 +10,7 @@ import io.korion.offlinepay.domain.model.CollateralLock;
 import io.korion.offlinepay.domain.model.CollateralOperation;
 import io.korion.offlinepay.domain.model.Device;
 import io.korion.offlinepay.domain.model.OfflinePaymentProof;
+import io.korion.offlinepay.domain.reason.OfflinePayReasonCode;
 import io.korion.offlinepay.domain.status.CollateralOperationStatus;
 import io.korion.offlinepay.domain.status.OfflineProofStatus;
 import java.math.BigDecimal;
@@ -24,6 +25,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class OfflineLedgerService {
+
+    private static final Set<String> RECEIVER_SETTLEMENT_PENDING_REASONS = Set.of(
+            OfflinePayReasonCode.COUNTER_GAP
+    );
 
     private final DeviceRepository deviceRepository;
     private final CollateralRepository collateralRepository;
@@ -261,13 +266,19 @@ public class OfflineLedgerService {
         String category = normalizeCategory(payload.path("category").asText(""));
         String paymentMethod = resolvePaymentMethod(payload, proof.channelType());
         String network = firstNonBlank(payload.path("network").asText(""), "mainnet");
+        LedgerDirection direction = senderOwned ? LedgerDirection.SEND : LedgerDirection.RECEIVE;
         boolean completed = proof.status() == OfflineProofStatus.SETTLED;
         boolean failed = switch (proof.status()) {
             case FAILED, CONFLICTED, REJECTED, EXPIRED -> true;
             default -> false;
         };
+        if (direction == LedgerDirection.RECEIVE && failed && shouldKeepReceivedProofPending(proof)) {
+            failed = false;
+        }
         String statusCode = failed ? "FAILED" : completed ? "COMPLETED" : "PENDING";
-        LedgerDirection direction = senderOwned ? LedgerDirection.SEND : LedgerDirection.RECEIVE;
+        BigDecimal receivedUnsettledAmount = senderOwned
+                ? BigDecimal.ZERO
+                : resolveReceivedUnsettledAmount(proof, statusCode);
 
         return new LedgerEvent(
                 "proof:" + proof.id(),
@@ -290,9 +301,26 @@ public class OfflineLedgerService {
                 paymentMethod,
                 completed,
                 false,
-                senderOwned ? BigDecimal.ZERO : normalizeAmount(proof.receivedUnsettledAmount()),
+                receivedUnsettledAmount,
                 senderOwned ? BigDecimal.ZERO : normalizeAmount(proof.receivedSettledAmount())
         );
+    }
+
+    private boolean shouldKeepReceivedProofPending(OfflinePaymentProof proof) {
+        String reasonCode = proof.reasonCode() == null ? "" : proof.reasonCode().trim().toUpperCase();
+        return RECEIVER_SETTLEMENT_PENDING_REASONS.contains(reasonCode);
+    }
+
+    private BigDecimal resolveReceivedUnsettledAmount(OfflinePaymentProof proof, String statusCode) {
+        BigDecimal unsettledAmount = normalizeAmount(proof.receivedUnsettledAmount());
+        if (!"PENDING".equals(statusCode) || unsettledAmount.compareTo(BigDecimal.ZERO) > 0) {
+            return unsettledAmount;
+        }
+        BigDecimal settledAmount = normalizeAmount(proof.receivedSettledAmount());
+        if (settledAmount.compareTo(BigDecimal.ZERO) > 0) {
+            return unsettledAmount;
+        }
+        return normalizeAmount(proof.amount());
     }
 
     private OffsetDateTime resolveProofTime(OfflinePaymentProof proof) {

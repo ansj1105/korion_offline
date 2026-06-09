@@ -63,7 +63,7 @@ class OfflineLedgerServiceTest {
     void excludesRejectedReceivedProofFromUnsettledBalanceAndTotal() {
         String receiverDeviceId = "98db6beb-4ae1-4027-b9ee-507ce7eaeaa7";
         Device receiverDevice = device(receiverDeviceId, 39L);
-        OfflinePaymentProof proof = rejectedProof("app-suffix:e7eaeaa7");
+        OfflinePaymentProof proof = rejectedProof("app-suffix:e7eaeaa7", "INVALID_DEVICE_SIGNATURE");
         when(deviceRepository.findActiveByUserId(39L)).thenReturn(List.of(receiverDevice));
         when(deviceRepository.findByDeviceId("47ba2d8b-5b95-4510-8b23-007957e4fe46")).thenReturn(Optional.empty());
         when(deviceRepository.findByDeviceId("app-suffix:e7eaeaa7")).thenReturn(Optional.empty());
@@ -80,6 +80,28 @@ class OfflineLedgerServiceTest {
         assertEquals("0", response.receivedItems().get(0).unsettledAmount());
         assertEquals("0", response.receivedItems().get(0).settledAmount());
         assertEquals("0", response.totalReceivedAmount());
+    }
+
+    @Test
+    void keepsCounterGapReceivedProofPendingForManualSettlement() {
+        String receiverDeviceId = "98db6beb-4ae1-4027-b9ee-507ce7eaeaa7";
+        Device receiverDevice = device(receiverDeviceId, 39L);
+        OfflinePaymentProof proof = rejectedProof("app-suffix:e7eaeaa7", "COUNTER_GAP");
+        when(deviceRepository.findActiveByUserId(39L)).thenReturn(List.of(receiverDevice));
+        when(deviceRepository.findByDeviceId("47ba2d8b-5b95-4510-8b23-007957e4fe46")).thenReturn(Optional.empty());
+        when(deviceRepository.findByDeviceId("app-suffix:e7eaeaa7")).thenReturn(Optional.empty());
+        when(deviceRepository.findUniqueActiveByDeviceIdSuffix("e7eaeaa7")).thenReturn(Optional.of(receiverDevice));
+        when(proofRepository.findRecentByUserIdAndAssetCode(39L, "KORI", 200)).thenReturn(List.of(proof));
+        when(collateralOperationRepository.findRecentByUserIdAndAssetCode(39L, "KORI", 200)).thenReturn(List.of());
+        when(collateralRepository.findAggregateByUserIdAndAssetCode(39L, "KORI")).thenReturn(Optional.empty());
+
+        OfflineLedgerService.LedgerHistoryResponse response = service.getLedgerHistory(39L, "KORI", 200);
+
+        assertEquals(1, response.receivedItems().size());
+        assertEquals("PENDING", response.receivedItems().get(0).statusCode());
+        assertEquals("1.00000000", response.receivedItems().get(0).unsettledAmount());
+        assertEquals("0", response.receivedItems().get(0).settledAmount());
+        assertEquals("1.00000000", response.totalReceivedAmount());
     }
 
     private Device device(String deviceId, long userId) {
@@ -132,7 +154,7 @@ class OfflineLedgerServiceTest {
         );
     }
 
-    private OfflinePaymentProof rejectedProof(String receiverDeviceId) {
+    private OfflinePaymentProof rejectedProof(String receiverDeviceId, String reasonCode) {
         OffsetDateTime now = OffsetDateTime.parse("2026-05-19T04:45:04Z");
         return new OfflinePaymentProof(
                 "c97ec0ca-c5a0-474d-9798-60d68017ee04",
@@ -155,7 +177,7 @@ class OfflineLedgerServiceTest {
                 "SENDER",
                 "MANUAL_SELECTION",
                 OfflineProofStatus.REJECTED,
-                "INVALID_DEVICE_SIGNATURE",
+                reasonCode,
                 BigDecimal.ZERO,
                 BigDecimal.ZERO,
                 null,
