@@ -158,7 +158,9 @@ public class OfflineLedgerService {
                     event.category(),
                     event.paymentMethod(),
                     event.unsettledAmount().toPlainString(),
-                    event.settledAmount().toPlainString()
+                    event.settledAmount().toPlainString(),
+                    event.proofId(),
+                    event.voucherId()
             ));
 
             if (!event.affectsServerBalance()) {
@@ -207,7 +209,9 @@ public class OfflineLedgerService {
                     event.category(),
                     event.paymentMethod(),
                     event.unsettledAmount().toPlainString(),
-                    event.settledAmount().toPlainString()
+                    event.settledAmount().toPlainString(),
+                    event.proofId(),
+                    event.voucherId()
             ));
             if (event.affectsServerBalance()) {
                 runningReceived = runningReceived.subtract(event.amount()).max(BigDecimal.ZERO);
@@ -248,7 +252,9 @@ public class OfflineLedgerService {
                 completed,
                 operation.operationType().name().equals("TOPUP"),
                 BigDecimal.ZERO,
-                BigDecimal.ZERO
+                BigDecimal.ZERO,
+                "",
+                ""
         );
     }
 
@@ -311,7 +317,9 @@ public class OfflineLedgerService {
                 completed,
                 false,
                 receivedUnsettledAmount,
-                senderOwned ? BigDecimal.ZERO : normalizeAmount(proof.receivedSettledAmount())
+                senderOwned ? BigDecimal.ZERO : normalizeAmount(proof.receivedSettledAmount()),
+                proof.id(),
+                proof.voucherId()
         );
     }
 
@@ -466,7 +474,9 @@ public class OfflineLedgerService {
             String category,
             String paymentMethod,
             String unsettledAmount,
-            String settledAmount
+            String settledAmount,
+            String proofId,
+            String voucherId
     ) {}
 
     private record LedgerEvent(
@@ -491,7 +501,9 @@ public class OfflineLedgerService {
             boolean affectsServerBalance,
             boolean isTopup,
             BigDecimal unsettledAmount,
-            BigDecimal settledAmount
+            BigDecimal settledAmount,
+            String proofId,
+            String voucherId
     ) {
         String date() {
             return String.format("%02d.%02d", time.getMonthValue(), time.getDayOfMonth());
