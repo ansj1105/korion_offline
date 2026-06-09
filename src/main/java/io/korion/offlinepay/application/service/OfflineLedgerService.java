@@ -111,13 +111,16 @@ public class OfflineLedgerService {
                 normalizedAssetCode,
                 sentItems,
                 receivedItems,
-                receivedItems.stream()
-                        .filter(item -> !"FAILED".equals(item.statusCode()))
-                        .map(item -> parseAmount(item.amount()))
-                        .reduce(BigDecimal.ZERO, BigDecimal::add)
-                        .toPlainString(),
+                calculateReceivedTotal(receivedItems).toPlainString(),
                 OffsetDateTime.now().toString()
         );
+    }
+
+    private BigDecimal calculateReceivedTotal(List<LedgerHistoryItem> receivedItems) {
+        return receivedItems.stream()
+                .filter(item -> !"FAILED".equals(item.statusCode()))
+                .map(item -> parseAmount(item.unsettledAmount()).add(parseAmount(item.settledAmount())))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
     private Set<String> loadActiveDeviceIds(long userId) {
@@ -331,6 +334,9 @@ public class OfflineLedgerService {
     private BigDecimal resolveReceivedUnsettledAmount(OfflinePaymentProof proof, String statusCode) {
         BigDecimal unsettledAmount = normalizeAmount(proof.receivedUnsettledAmount());
         if (!"PENDING".equals(statusCode) || unsettledAmount.compareTo(BigDecimal.ZERO) > 0) {
+            return unsettledAmount;
+        }
+        if (proof.status() == OfflineProofStatus.REJECTED) {
             return unsettledAmount;
         }
         BigDecimal settledAmount = normalizeAmount(proof.receivedSettledAmount());

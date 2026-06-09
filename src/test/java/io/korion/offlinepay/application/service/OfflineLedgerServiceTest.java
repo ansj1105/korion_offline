@@ -83,7 +83,7 @@ class OfflineLedgerServiceTest {
     }
 
     @Test
-    void keepsCounterGapReceivedProofPendingForManualSettlement() {
+    void doesNotRestoreZeroCounterGapReceivedProofIntoUnsettledBalance() {
         String receiverDeviceId = "98db6beb-4ae1-4027-b9ee-507ce7eaeaa7";
         Device receiverDevice = device(receiverDeviceId, 39L);
         OfflinePaymentProof proof = rejectedProof("app-suffix:e7eaeaa7", "COUNTER_GAP");
@@ -99,13 +99,13 @@ class OfflineLedgerServiceTest {
 
         assertEquals(1, response.receivedItems().size());
         assertEquals("PENDING", response.receivedItems().get(0).statusCode());
-        assertEquals("1.00000000", response.receivedItems().get(0).unsettledAmount());
+        assertEquals("0", response.receivedItems().get(0).unsettledAmount());
         assertEquals("0", response.receivedItems().get(0).settledAmount());
-        assertEquals("1.00000000", response.totalReceivedAmount());
+        assertEquals("0", response.totalReceivedAmount());
     }
 
     @Test
-    void keepsTransportInterruptedReceivedProofPendingForManualSettlement() {
+    void doesNotRestoreZeroTransportInterruptedReceivedProofIntoUnsettledBalance() {
         String receiverDeviceId = "98db6beb-4ae1-4027-b9ee-507ce7eaeaa7";
         Device receiverDevice = device(receiverDeviceId, 39L);
         OfflinePaymentProof proof = rejectedProof("app-suffix:e7eaeaa7", "SEND_INTERRUPTED");
@@ -121,9 +121,9 @@ class OfflineLedgerServiceTest {
 
         assertEquals(1, response.receivedItems().size());
         assertEquals("PENDING", response.receivedItems().get(0).statusCode());
-        assertEquals("1.00000000", response.receivedItems().get(0).unsettledAmount());
+        assertEquals("0", response.receivedItems().get(0).unsettledAmount());
         assertEquals("0", response.receivedItems().get(0).settledAmount());
-        assertEquals("1.00000000", response.totalReceivedAmount());
+        assertEquals("0", response.totalReceivedAmount());
     }
 
     private Device device(String deviceId, long userId) {
