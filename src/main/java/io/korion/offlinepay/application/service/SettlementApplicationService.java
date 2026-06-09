@@ -151,6 +151,39 @@ public class SettlementApplicationService {
                 .orElseGet(() -> createBatch(command));
     }
 
+    @Transactional
+    public ReceiverSettlementConfirmationResult confirmReceivedSettlements(ConfirmReceivedSettlementsCommand command) {
+        int requested = command.proofIds() == null ? 0 : command.proofIds().size();
+        int confirmed = 0;
+        int skipped = 0;
+        for (String proofId : command.proofIds() == null ? List.<String>of() : command.proofIds()) {
+            if (proofId == null || proofId.isBlank()) {
+                skipped++;
+                continue;
+            }
+            OfflinePaymentProof proof = proofRepository.findById(proofId.trim())
+                    .orElseThrow(() -> new IllegalArgumentException("offline proof not found: " + proofId));
+            Device receiverDevice = deviceIdentifierResolver.resolve(proof.receiverDeviceId())
+                    .orElseThrow(() -> new IllegalArgumentException("receiver device not found for proof: " + proof.id()));
+            if (receiverDevice.userId() != command.userId()) {
+                throw new IllegalArgumentException("received proof does not belong to user: " + proof.id());
+            }
+            if (proof.receivedUnsettledAmount() == null || proof.receivedUnsettledAmount().compareTo(BigDecimal.ZERO) <= 0) {
+                skipped++;
+                continue;
+            }
+            SettlementRequest request = settlementRepository.findLatestByProofId(proof.id())
+                    .orElseThrow(() -> new IllegalStateException("settlement request not found for proof: " + proof.id()));
+            if (proof.status() != OfflineProofStatus.SETTLED || request.status() != SettlementStatus.SETTLED) {
+                skipped++;
+                continue;
+            }
+            handleReceiverOnlineConfirmation(proof, request);
+            confirmed++;
+        }
+        return new ReceiverSettlementConfirmationResult(requested, confirmed, skipped);
+    }
+
     private SettlementBatch createBatch(SubmitSettlementBatchCommand command) {
         for (ProofSubmission submission : command.proofs()) {
             OfflinePaymentProof existing = proofRepository.findByVoucherId(submission.voucherId()).orElse(null);
@@ -1251,6 +1284,17 @@ public class SettlementApplicationService {
             String idempotencyKey,
             List<ProofSubmission> proofs,
             String triggerMode
+    ) {}
+
+    public record ConfirmReceivedSettlementsCommand(
+            long userId,
+            List<String> proofIds
+    ) {}
+
+    public record ReceiverSettlementConfirmationResult(
+            int requested,
+            int confirmed,
+            int skipped
     ) {}
 
     public record ProofSubmission(

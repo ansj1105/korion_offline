@@ -27,7 +27,16 @@ import org.springframework.transaction.annotation.Transactional;
 public class OfflineLedgerService {
 
     private static final Set<String> RECEIVER_SETTLEMENT_PENDING_REASONS = Set.of(
-            OfflinePayReasonCode.COUNTER_GAP
+            OfflinePayReasonCode.COUNTER_GAP,
+            OfflinePayReasonCode.SEND_INTERRUPTED,
+            OfflinePayReasonCode.SEND_TIMEOUT,
+            OfflinePayReasonCode.BATCH_SYNC_FAIL,
+            OfflinePayReasonCode.HISTORY_SYNC_FAIL,
+            OfflinePayReasonCode.HISTORY_CIRCUIT_OPEN,
+            "BLE_ACK_TIMEOUT",
+            "BLE_SEND_TIMEOUT",
+            "BLE_SEND_STOPPED",
+            "SESSION_CLEANUP"
     );
 
     private final DeviceRepository deviceRepository;

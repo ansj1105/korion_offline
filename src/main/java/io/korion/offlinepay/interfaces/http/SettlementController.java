@@ -2,6 +2,7 @@ package io.korion.offlinepay.interfaces.http;
 
 import io.korion.offlinepay.application.service.SettlementApplicationService;
 import io.korion.offlinepay.interfaces.http.factory.SettlementResponseFactory;
+import io.korion.offlinepay.interfaces.http.dto.ConfirmReceivedSettlementsRequest;
 import io.korion.offlinepay.interfaces.http.dto.SubmitSettlementBatchRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -55,5 +56,10 @@ public class SettlementController {
     public Object finalizeSettlement(@PathVariable String settlementId) {
         var settlement = settlementApplicationService.finalizeSettlement(settlementId);
         return settlementResponseFactory.toFinalizeResponse(settlement);
+    }
+
+    @PostMapping("/received/confirm")
+    public Object confirmReceivedSettlements(@Valid @RequestBody ConfirmReceivedSettlementsRequest request) {
+        return settlementApplicationService.confirmReceivedSettlements(request.toCommand());
     }
 }
