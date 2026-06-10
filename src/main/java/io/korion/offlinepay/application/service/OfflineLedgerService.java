@@ -96,6 +96,10 @@ public class OfflineLedgerService {
             }
             if (event.direction() == LedgerDirection.RECEIVE) {
                 receivedEvents.add(event);
+                LedgerEvent receivedSettlementEvent = toReceivedSettlementEvent(proof, event);
+                if (receivedSettlementEvent != null) {
+                    receivedEvents.add(receivedSettlementEvent);
+                }
             } else {
                 sentEvents.add(event);
             }
@@ -184,18 +188,21 @@ public class OfflineLedgerService {
         BigDecimal runningReceived = BigDecimal.ZERO;
         for (LedgerEvent event : events) {
             if (event.affectsServerBalance()) {
-                runningReceived = runningReceived.add(event.amount());
+                runningReceived = event.isTopup()
+                        ? runningReceived.add(event.amount())
+                        : runningReceived.subtract(event.amount());
             }
         }
 
         for (LedgerEvent event : events) {
             BigDecimal cumulativeAmount = runningReceived.max(BigDecimal.ZERO);
+            String formattedAmount = (event.isTopup() ? "+" : "-") + event.amount().toPlainString();
             items.add(new LedgerHistoryItem(
                     event.id(),
                     event.date(),
                     event.title(),
                     event.memo(),
-                    "+" + event.amount().toPlainString(),
+                    formattedAmount,
                     cumulativeAmount.toPlainString(),
                     cumulativeAmount.toPlainString(),
                     event.statusLabel(),
@@ -217,7 +224,9 @@ public class OfflineLedgerService {
                     event.voucherId()
             ));
             if (event.affectsServerBalance()) {
-                runningReceived = runningReceived.subtract(event.amount()).max(BigDecimal.ZERO);
+                runningReceived = event.isTopup()
+                        ? runningReceived.subtract(event.amount()).max(BigDecimal.ZERO)
+                        : runningReceived.add(event.amount());
             }
         }
         return items;
@@ -318,9 +327,47 @@ public class OfflineLedgerService {
                 category,
                 paymentMethod,
                 completed,
-                false,
+                !senderOwned,
                 receivedUnsettledAmount,
                 senderOwned ? BigDecimal.ZERO : normalizeAmount(proof.receivedSettledAmount()),
+                proof.id(),
+                proof.voucherId()
+        );
+    }
+
+    private LedgerEvent toReceivedSettlementEvent(OfflinePaymentProof proof, LedgerEvent receiveEvent) {
+        BigDecimal settledAmount = normalizeAmount(proof.receivedSettledAmount());
+        if (settledAmount.compareTo(BigDecimal.ZERO) <= 0) {
+            return null;
+        }
+        OffsetDateTime time = proof.receivedCollateralSettledAt() != null
+                ? proof.receivedCollateralSettledAt()
+                : proof.updatedAt() != null
+                    ? proof.updatedAt()
+                    : receiveEvent.time();
+        return new LedgerEvent(
+                "received-settlement:" + proof.id(),
+                LedgerDirection.RECEIVE,
+                "수취 정산",
+                "미정산 결제금 KORION wallet 반영",
+                settledAmount.abs(),
+                "COMPLETED",
+                statusLabel("COMPLETED"),
+                receiveEvent.network(),
+                receiveEvent.assetCode(),
+                receiveEvent.walletAddress(),
+                time,
+                "Offline Receive Settlement",
+                "Offline",
+                "정산",
+                receiveEvent.counterpartyName(),
+                "0.000000",
+                "SETTLEMENT",
+                receiveEvent.paymentMethod(),
+                true,
+                false,
+                BigDecimal.ZERO,
+                BigDecimal.ZERO,
                 proof.id(),
                 proof.voucherId()
         );
