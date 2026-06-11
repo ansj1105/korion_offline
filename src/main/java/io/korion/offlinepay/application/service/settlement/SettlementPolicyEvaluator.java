@@ -10,7 +10,6 @@ import io.korion.offlinepay.domain.model.OfflinePaymentProof;
 import io.korion.offlinepay.domain.status.DeviceStatus;
 import io.korion.offlinepay.domain.status.SettlementStatus;
 import java.math.BigDecimal;
-import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import org.springframework.stereotype.Component;
@@ -47,16 +46,6 @@ public class SettlementPolicyEvaluator {
         }
         if (proof.keyVersion() != device.keyVersion()) {
             return rejected(OfflinePayReasonCode.KEY_VERSION_MISMATCH);
-        }
-        if (proof.expiresAtMs() < Instant.now().toEpochMilli()) {
-            return new SettlementEvaluation(
-                    SettlementStatus.EXPIRED,
-                    false,
-                    OfflinePayReasonCode.PROOF_EXPIRED,
-                    jsonService.write(Map.of("reasonCode", OfflinePayReasonCode.PROOF_EXPIRED)),
-                    BigDecimal.ZERO,
-                    "ADJUST"
-            );
         }
         if (uiMode == null) {
             return rejected(OfflinePayReasonCode.PAYMENT_MODE_REQUIRED);

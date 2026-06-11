@@ -63,6 +63,33 @@ class SettlementPolicyEvaluatorTest {
     }
 
     @Test
+    void acceptsOfflineSettlementUploadedAfterLocalTransportExpiry() {
+        String rawPayload = """
+                {
+                  "network": "TRC-20",
+                  "token": "KORI",
+                  "uiMode": "SEND",
+                  "paymentFlow": "MANUAL_PAYMENT",
+                  "connectionType": "MANUAL_SELECTION",
+                  "availableAmount": "94.000000",
+                  "ledgerExecutionMode": "INTERNAL_LEDGER_ONLY",
+                  "senderAuthRequired": true,
+                  "dualAmountEntered": false
+                }
+                """;
+        long expiredTransportDeadline = 1_700_000_180_000L;
+
+        SettlementEvaluation result = evaluator.evaluate(
+                proof(rawPayload, rawPayload, 1_700_000_000_000L, expiredTransportDeadline),
+                collateral(),
+                device()
+        );
+
+        assertEquals(SettlementStatus.SETTLED, result.status());
+        assertEquals(OfflinePayReasonCode.SETTLED, jsonService.readTree(result.resultJson()).path("reasonCode").asText());
+    }
+
+    @Test
     void rejectsWhenPolicyFieldsAreMissingFromRawAndCanonicalPayloads() {
         SettlementEvaluation result = evaluator.evaluate(
                 proof("{\"network\":\"TRC-20\",\"token\":\"KORI\"}", "{}"),
@@ -76,6 +103,10 @@ class SettlementPolicyEvaluatorTest {
 
     private OfflinePaymentProof proof(String rawPayload, String canonicalPayload) {
         long timestamp = System.currentTimeMillis();
+        return proof(rawPayload, canonicalPayload, timestamp, timestamp + 60_000);
+    }
+
+    private OfflinePaymentProof proof(String rawPayload, String canonicalPayload, long timestamp, long expiresAtMs) {
         return new OfflinePaymentProof(
                 "proof-policy",
                 "batch-policy",
@@ -92,7 +123,7 @@ class SettlementPolicyEvaluatorTest {
                 "signature-policy",
                 new BigDecimal("1.000000"),
                 timestamp,
-                timestamp + 60_000,
+                expiresAtMs,
                 canonicalPayload,
                 "SENDER",
                 "QR_SCAN",
