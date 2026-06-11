@@ -301,8 +301,22 @@ public class SettlementApplicationService {
 
     private void preserveReceivedUnsettledAmount(OfflinePaymentProof proof, SettlementRequest request) {
         if (proof.status() == OfflineProofStatus.SETTLED && request.status() == SettlementStatus.SETTLED) {
-            proofRepository.ensureReceivedUnsettledAmount(proof.id());
+            proofRepository.ensureReceivedUnsettledAmount(proof.id(), calculateReceiverAmount(proof, resolveProofAssetCode(proof)));
         }
+    }
+
+    private BigDecimal calculateReceiverAmount(OfflinePaymentProof proof, String assetCode) {
+        return feeCalculator.calculateReceiverAmount(assetCode, proof.amount());
+    }
+
+    private String resolveProofAssetCode(OfflinePaymentProof proof) {
+        JsonNode payload = jsonService.readTree(proof.rawPayloadJson());
+        String token = payload.path("token").asText("");
+        if (!token.isBlank()) {
+            return token;
+        }
+        String assetCode = payload.path("assetCode").asText("");
+        return assetCode.isBlank() ? "KORI" : assetCode;
     }
 
     private void assertProofSubmissionNotReplayed(ProofSubmission submission) {
@@ -654,7 +668,10 @@ public class SettlementApplicationService {
                 evaluation.status() == SettlementStatus.SETTLED
         );
         if (evaluation.status() == SettlementStatus.SETTLED) {
-            proofRepository.ensureReceivedUnsettledAmount(proof.id());
+            proofRepository.ensureReceivedUnsettledAmount(
+                    proof.id(),
+                    calculateReceiverAmount(proof, settlementCollateralScope.assetCode())
+            );
             deductSettlementAmountAcrossCollateralScope(collateral, proof, request);
         }
         settlementRepository.update(

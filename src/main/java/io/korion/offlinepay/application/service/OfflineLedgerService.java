@@ -13,6 +13,7 @@ import io.korion.offlinepay.domain.model.OfflinePaymentProof;
 import io.korion.offlinepay.domain.reason.OfflinePayReasonCode;
 import io.korion.offlinepay.domain.status.CollateralOperationStatus;
 import io.korion.offlinepay.domain.status.OfflineProofStatus;
+import io.korion.offlinepay.application.service.settlement.OfflinePaySettlementFeeCalculator;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
@@ -50,6 +51,7 @@ public class OfflineLedgerService {
     private final OfflinePayDeviceIdentifierResolver deviceIdentifierResolver;
     private final AppProperties properties;
     private final JsonService jsonService;
+    private final OfflinePaySettlementFeeCalculator feeCalculator;
 
     public OfflineLedgerService(
             DeviceRepository deviceRepository,
@@ -58,7 +60,8 @@ public class OfflineLedgerService {
             OfflinePaymentProofRepository offlinePaymentProofRepository,
             OfflinePayDeviceIdentifierResolver deviceIdentifierResolver,
             AppProperties properties,
-            JsonService jsonService
+            JsonService jsonService,
+            OfflinePaySettlementFeeCalculator feeCalculator
     ) {
         this.deviceRepository = deviceRepository;
         this.collateralRepository = collateralRepository;
@@ -67,6 +70,7 @@ public class OfflineLedgerService {
         this.deviceIdentifierResolver = deviceIdentifierResolver;
         this.properties = properties;
         this.jsonService = jsonService;
+        this.feeCalculator = feeCalculator;
     }
 
     @Transactional(readOnly = true)
@@ -364,13 +368,16 @@ public class OfflineLedgerService {
         BigDecimal receivedUnsettledAmount = senderOwned
                 ? BigDecimal.ZERO
                 : resolveReceivedUnsettledAmount(proof, statusCode);
+        BigDecimal displayAmount = senderOwned
+                ? proof.amount().abs()
+                : resolveReceivedDisplayAmount(proof, payload, receivedUnsettledAmount, statusCode);
 
         return new LedgerEvent(
                 "proof:" + proof.id(),
                 direction,
                 counterparty,
                 description,
-                proof.amount().abs(),
+                displayAmount,
                 statusCode,
                 statusLabel(statusCode),
                 network,
@@ -387,7 +394,7 @@ public class OfflineLedgerService {
                 completed,
                 !senderOwned,
                 receivedUnsettledAmount,
-                senderOwned ? BigDecimal.ZERO : normalizeAmount(proof.receivedSettledAmount()),
+                senderOwned ? BigDecimal.ZERO : resolveReceivedSettledAmount(proof, payload),
                 proof.id(),
                 proof.voucherId(),
                 offlineTxSequence
@@ -395,7 +402,7 @@ public class OfflineLedgerService {
     }
 
     private LedgerEvent toReceivedSettlementEvent(OfflinePaymentProof proof, LedgerEvent receiveEvent) {
-        BigDecimal settledAmount = normalizeAmount(proof.receivedSettledAmount());
+        BigDecimal settledAmount = resolveReceivedSettledAmount(proof, jsonService.readTree(proof.rawPayloadJson()));
         if (settledAmount.compareTo(BigDecimal.ZERO) <= 0) {
             return null;
         }
@@ -441,16 +448,52 @@ public class OfflineLedgerService {
     private BigDecimal resolveReceivedUnsettledAmount(OfflinePaymentProof proof, String statusCode) {
         BigDecimal unsettledAmount = normalizeAmount(proof.receivedUnsettledAmount());
         if (!"PENDING".equals(statusCode) || unsettledAmount.compareTo(BigDecimal.ZERO) > 0) {
-            return unsettledAmount;
+            return normalizeReceivedAmount(proof, unsettledAmount);
         }
         if (proof.status() == OfflineProofStatus.REJECTED) {
             return unsettledAmount;
         }
-        BigDecimal settledAmount = normalizeAmount(proof.receivedSettledAmount());
+        BigDecimal settledAmount = resolveReceivedSettledAmount(proof, jsonService.readTree(proof.rawPayloadJson()));
         if (settledAmount.compareTo(BigDecimal.ZERO) > 0) {
             return unsettledAmount;
         }
-        return normalizeAmount(proof.amount());
+        return calculateReceiverAmount(proof, jsonService.readTree(proof.rawPayloadJson()));
+    }
+
+    private BigDecimal resolveReceivedSettledAmount(OfflinePaymentProof proof, JsonNode payload) {
+        return normalizeReceivedAmount(proof, normalizeAmount(proof.receivedSettledAmount()));
+    }
+
+    private BigDecimal resolveReceivedDisplayAmount(
+            OfflinePaymentProof proof,
+            JsonNode payload,
+            BigDecimal receivedUnsettledAmount,
+            String statusCode
+    ) {
+        if ("SETTLED".equals(statusCode)) {
+            BigDecimal settledAmount = resolveReceivedSettledAmount(proof, payload);
+            if (settledAmount.compareTo(BigDecimal.ZERO) > 0) {
+                return settledAmount;
+            }
+        }
+        if (receivedUnsettledAmount.compareTo(BigDecimal.ZERO) > 0) {
+            return normalizeReceivedAmount(proof, receivedUnsettledAmount);
+        }
+        return calculateReceiverAmount(proof, payload);
+    }
+
+    private BigDecimal normalizeReceivedAmount(OfflinePaymentProof proof, BigDecimal amount) {
+        BigDecimal normalizedAmount = normalizeAmount(amount);
+        BigDecimal grossAmount = normalizeAmount(proof.amount());
+        if (grossAmount.compareTo(BigDecimal.ZERO) > 0 && normalizedAmount.compareTo(grossAmount) >= 0) {
+            return calculateReceiverAmount(proof, jsonService.readTree(proof.rawPayloadJson()));
+        }
+        return normalizedAmount;
+    }
+
+    private BigDecimal calculateReceiverAmount(OfflinePaymentProof proof, JsonNode payload) {
+        String assetCode = payload.path("token").asText(payload.path("assetCode").asText(properties.assetCode()));
+        return feeCalculator.calculateReceiverAmount(assetCode, proof.amount());
     }
 
     private OffsetDateTime resolveProofTime(OfflinePaymentProof proof) {

@@ -14,6 +14,7 @@ import io.korion.offlinepay.domain.model.Device;
 import io.korion.offlinepay.domain.model.OfflinePaymentProof;
 import io.korion.offlinepay.domain.status.DeviceStatus;
 import io.korion.offlinepay.domain.status.OfflineProofStatus;
+import io.korion.offlinepay.application.service.settlement.OfflinePaySettlementFeeCalculator;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -35,7 +36,8 @@ class OfflineLedgerServiceTest {
             proofRepository,
             deviceIdentifierResolver,
             new AppProperties("KORI", 0, 0, 0, null, null, null, null, null, null),
-            new JsonService(new ObjectMapper())
+            new JsonService(new ObjectMapper()),
+            new OfflinePaySettlementFeeCalculator()
     );
 
     @Test
@@ -57,7 +59,7 @@ class OfflineLedgerServiceTest {
         assertEquals("Offline Receive", response.receivedItems().get(0).transactionType());
         assertEquals("COMPLETED", response.receivedItems().get(0).statusCode());
         assertEquals("47ba2d8b-5b95-4510-8b23-007957e4fe46", response.receivedItems().get(0).walletAddress());
-        assertEquals("1.00000000", response.receivedItems().get(0).unsettledAmount());
+        assertEquals("0.999000", response.receivedItems().get(0).unsettledAmount());
         assertEquals("0", response.receivedItems().get(0).settledAmount());
         assertTrue(response.receivedItems().get(0).receivedSettlementRequired());
         assertEquals("UNSETTLED", response.receivedItems().get(0).receivedSettlementState());
@@ -114,15 +116,15 @@ class OfflineLedgerServiceTest {
         assertEquals(2, response.receivedItems().size());
         assertEquals("Offline Receive Settlement", response.receivedItems().get(0).transactionType());
         assertEquals("SETTLED", response.receivedItems().get(0).statusCode());
-        assertEquals("-1.00000000", response.receivedItems().get(0).amount());
+        assertEquals("-0.999000", response.receivedItems().get(0).amount());
         assertEquals("0", response.receivedItems().get(0).unsettledAmount());
         assertEquals("0", response.receivedItems().get(0).settledAmount());
         assertEquals("Offline Receive", response.receivedItems().get(1).transactionType());
         assertEquals("SETTLED", response.receivedItems().get(1).statusCode());
-        assertEquals("+1.00000000", response.receivedItems().get(1).amount());
+        assertEquals("+0.999000", response.receivedItems().get(1).amount());
         assertEquals("0", response.receivedItems().get(1).unsettledAmount());
         assertEquals("SETTLED", response.receivedItems().get(1).receivedSettlementState());
-        assertEquals("1.00000000", response.totalReceivedAmount());
+        assertEquals("0.999000", response.totalReceivedAmount());
     }
 
     @Test

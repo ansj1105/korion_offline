@@ -2,6 +2,8 @@ package io.korion.offlinepay.application.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -11,9 +13,14 @@ import io.korion.offlinepay.application.port.FoxCoinWalletSnapshotPort;
 import io.korion.offlinepay.application.port.IssuedOfflineProofRepository;
 import io.korion.offlinepay.config.AppProperties;
 import io.korion.offlinepay.domain.model.CollateralLock;
+import io.korion.offlinepay.domain.model.Device;
+import io.korion.offlinepay.domain.model.IssuedOfflineProof;
 import io.korion.offlinepay.domain.status.CollateralStatus;
+import io.korion.offlinepay.domain.status.DeviceStatus;
+import io.korion.offlinepay.domain.status.IssuedProofStatus;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
@@ -176,5 +183,119 @@ class OfflineSnapshotServiceTest {
 
         assertNotNull(snapshot.wallet());
         assertEquals("291.614611", snapshot.wallet().additionalCollateralAvailableAmount());
+    }
+
+    @Test
+    void currentSnapshotDoesNotExposeProofFromStaleCollateral() {
+        DeviceRepository deviceRepository = mock(DeviceRepository.class);
+        CollateralRepository collateralRepository = mock(CollateralRepository.class);
+        IssuedOfflineProofRepository issuedOfflineProofRepository = mock(IssuedOfflineProofRepository.class);
+        FoxCoinWalletSnapshotPort foxCoinWalletSnapshotPort = mock(FoxCoinWalletSnapshotPort.class);
+        ProofIssuerSignatureService proofIssuerSignatureService = mock(ProofIssuerSignatureService.class);
+
+        when(deviceRepository.findByUserIdAndDeviceId(39L, "device-39"))
+                .thenReturn(Optional.of(new Device(
+                        "registration-39",
+                        "device-39",
+                        39L,
+                        "public-key",
+                        1,
+                        DeviceStatus.ACTIVE,
+                        "{}",
+                        OffsetDateTime.parse("2026-06-11T19:00:00Z"),
+                        OffsetDateTime.parse("2026-06-11T19:00:00Z")
+                )));
+        when(collateralRepository.findAggregateByUserIdAndAssetCode(39L, "KORI"))
+                .thenReturn(Optional.of(new CollateralLock(
+                        "aggregate-collateral",
+                        39L,
+                        "AGGREGATED",
+                        "KORI",
+                        new BigDecimal("10.00000000"),
+                        new BigDecimal("10.00000000"),
+                        "AGGREGATED",
+                        1,
+                        CollateralStatus.LOCKED,
+                        "lock-39",
+                        OffsetDateTime.parse("2026-06-12T21:27:20Z"),
+                        "{}",
+                        OffsetDateTime.parse("2026-06-11T21:27:20Z"),
+                        OffsetDateTime.parse("2026-06-11T21:27:20Z")
+                )));
+        when(collateralRepository.findActiveByUserIdAndAssetCode(39L, "KORI"))
+                .thenReturn(List.of(new CollateralLock(
+                        "active-collateral",
+                        39L,
+                        "device-39",
+                        "KORI",
+                        new BigDecimal("10.00000000"),
+                        new BigDecimal("10.00000000"),
+                        "ACTIVE_ROOT",
+                        1,
+                        CollateralStatus.LOCKED,
+                        "active-lock",
+                        OffsetDateTime.parse("2026-06-12T21:27:20Z"),
+                        "{}",
+                        OffsetDateTime.parse("2026-06-11T21:27:20Z"),
+                        OffsetDateTime.parse("2026-06-11T21:27:20Z")
+                )));
+        when(issuedOfflineProofRepository.findLatestActiveByUserIdAndDeviceIdAndAssetCode(39L, "device-39", "KORI"))
+                .thenReturn(Optional.of(new IssuedOfflineProof(
+                        "proof-stale",
+                        39L,
+                        "device-39",
+                        "expired-collateral",
+                        "KORI",
+                        new BigDecimal("22.00000000"),
+                        "proof_nonce",
+                        "issuer-key",
+                        "issuer-public-key",
+                        "issuer-signature",
+                        "{}",
+                        IssuedProofStatus.ACTIVE,
+                        null,
+                        OffsetDateTime.parse("2026-06-12T20:27:39Z"),
+                        OffsetDateTime.parse("2026-06-11T20:27:39Z"),
+                        OffsetDateTime.parse("2026-06-11T20:27:39Z")
+                )));
+        when(proofIssuerSignatureService.verify(anyString(), anyString(), anyString())).thenReturn(true);
+        when(foxCoinWalletSnapshotPort.getCanonicalWalletSnapshot(39L, "KORI"))
+                .thenReturn(new FoxCoinWalletSnapshotPort.WalletSnapshot(
+                        39L,
+                        "KORI",
+                        new BigDecimal("105.807278"),
+                        BigDecimal.ZERO,
+                        "FOX_CLIENT_VISIBLE_AVAILABLE_KORI_EXCLUDING_OFFLINE_COLLATERAL",
+                        "2026-06-11T21:42:05Z"
+                ));
+
+        JsonService jsonService = new JsonService(new com.fasterxml.jackson.databind.ObjectMapper());
+        OfflineSnapshotService service = new OfflineSnapshotService(
+                deviceRepository,
+                collateralRepository,
+                issuedOfflineProofRepository,
+                foxCoinWalletSnapshotPort,
+                new AppProperties(
+                        "KORI",
+                        24,
+                        20,
+                        1000,
+                        null,
+                        new AppProperties.CoinManage("http://localhost:3000", "secret", 5000),
+                        new AppProperties.FoxCoin("http://localhost:8080", "secret", 5000),
+                        null,
+                        null,
+                        new AppProperties.Worker(false, "worker", 60000, 3)
+                ),
+                jsonService,
+                new JsonPayloadCanonicalizationService(jsonService),
+                proofIssuerSignatureService
+        );
+
+        OfflineSnapshotService.CurrentSnapshot snapshot = service.getCurrentSnapshot(39L, "device-39", "KORI");
+
+        assertNotNull(snapshot.collateral());
+        assertEquals("10.00000000", snapshot.collateral().availableForPay());
+        assertNull(snapshot.issuedProof());
     }
 }

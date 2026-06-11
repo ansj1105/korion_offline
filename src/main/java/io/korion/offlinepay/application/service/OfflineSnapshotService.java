@@ -10,7 +10,9 @@ import io.korion.offlinepay.domain.model.Device;
 import io.korion.offlinepay.domain.model.IssuedOfflineProof;
 import io.korion.offlinepay.domain.policy.SettlementPolicyConstants;
 import com.fasterxml.jackson.databind.JsonNode;
+import java.math.BigDecimal;
 import java.time.OffsetDateTime;
+import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -61,6 +63,7 @@ public class OfflineSnapshotService {
                 : issuedOfflineProofRepository
                         .findLatestActiveByUserIdAndDeviceIdAndAssetCode(userId, deviceId, normalizedAssetCode)
                         .filter(this::hasValidIssuerSignature)
+                        .filter(proof -> isUsableForCurrentCollateral(proof, userId, normalizedAssetCode, collateral))
                         .orElse(null);
         WalletSnapshot walletSnapshot = loadWalletSnapshot(
                 userId,
@@ -120,6 +123,29 @@ public class OfflineSnapshotService {
                 jsonPayloadCanonicalizationService.canonicalize(issuedProof.issuedPayloadJson()),
                 issuedProof.issuerPublicKey(),
                 issuedProof.issuerSignature()
+        );
+    }
+
+    private boolean isUsableForCurrentCollateral(
+            IssuedOfflineProof proof,
+            long userId,
+            String assetCode,
+            CollateralLock aggregateCollateral
+    ) {
+        if (aggregateCollateral == null || aggregateCollateral.remainingAmount().compareTo(BigDecimal.ZERO) <= 0) {
+            return false;
+        }
+        if (proof.usableAmount().compareTo(BigDecimal.ZERO) <= 0
+                || proof.usableAmount().compareTo(aggregateCollateral.remainingAmount()) > 0) {
+            return false;
+        }
+
+        OffsetDateTime now = OffsetDateTime.now();
+        List<CollateralLock> activeCollaterals = collateralRepository.findActiveByUserIdAndAssetCode(userId, assetCode);
+        return activeCollaterals.stream().anyMatch(collateral ->
+                collateral.id().equals(proof.collateralId())
+                        && collateral.remainingAmount().compareTo(BigDecimal.ZERO) > 0
+                        && (collateral.expiresAt() == null || collateral.expiresAt().isAfter(now))
         );
     }
 

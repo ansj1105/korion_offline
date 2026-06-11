@@ -450,7 +450,7 @@ class SettlementApplicationServiceTest {
         ));
 
         assertEquals(SettlementBatchStatus.SETTLED, result.status());
-        verify(proofRepository).ensureReceivedUnsettledAmount("proof-receiver-confirm");
+        verify(proofRepository).ensureReceivedUnsettledAmount("proof-receiver-confirm", new BigDecimal("5.294700"));
         verify(eventBus, never()).publishExternalSyncRequested(
                 eq("RECEIVER_HISTORY_SYNC_REQUESTED"),
                 anyString(),
@@ -670,7 +670,7 @@ class SettlementApplicationServiceTest {
                 anyString()
         );
         verify(settlementRepository).update(anyString(), any(SettlementStatus.class), any(), anyBoolean(), anyString());
-        verify(proofRepository).ensureReceivedUnsettledAmount("proof-1");
+        verify(proofRepository).ensureReceivedUnsettledAmount("proof-1", new BigDecimal("100.000000"));
         verify(issuedProofVerificationService, never()).markConsumed(any());
         assertEquals(SettlementStatus.SETTLED, result.status());
     }
