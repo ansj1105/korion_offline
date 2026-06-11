@@ -213,7 +213,7 @@ public class SettlementApplicationService {
             if (existing != null && isReceiverConfirmation(command, submission, existing)) {
                 SettlementRequest request = settlementRepository.findLatestByProofId(existing.id())
                         .orElseThrow(() -> new IllegalStateException("settlement request not found for proof: " + existing.id()));
-                handleReceiverOnlineConfirmation(existing, request);
+                preserveReceivedUnsettledAmount(existing, request);
                 requestIds.add(request.id());
                 receiverConfirmationCount++;
                 continue;
@@ -297,6 +297,12 @@ public class SettlementApplicationService {
                 requestedBatchEvent.requestedAt()
         );
         return batchRepository.findById(batch.id()).orElseThrow();
+    }
+
+    private void preserveReceivedUnsettledAmount(OfflinePaymentProof proof, SettlementRequest request) {
+        if (proof.status() == OfflineProofStatus.SETTLED && request.status() == SettlementStatus.SETTLED) {
+            proofRepository.ensureReceivedUnsettledAmount(proof.id());
+        }
     }
 
     private void assertProofSubmissionNotReplayed(ProofSubmission submission) {
@@ -648,6 +654,7 @@ public class SettlementApplicationService {
                 evaluation.status() == SettlementStatus.SETTLED
         );
         if (evaluation.status() == SettlementStatus.SETTLED) {
+            proofRepository.ensureReceivedUnsettledAmount(proof.id());
             deductSettlementAmountAcrossCollateralScope(collateral, proof, request);
         }
         settlementRepository.update(

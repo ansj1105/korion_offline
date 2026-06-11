@@ -1,6 +1,7 @@
 package io.korion.offlinepay.application.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -58,6 +59,9 @@ class OfflineLedgerServiceTest {
         assertEquals("47ba2d8b-5b95-4510-8b23-007957e4fe46", response.receivedItems().get(0).walletAddress());
         assertEquals("1.00000000", response.receivedItems().get(0).unsettledAmount());
         assertEquals("0", response.receivedItems().get(0).settledAmount());
+        assertTrue(response.receivedItems().get(0).receivedSettlementRequired());
+        assertEquals("UNSETTLED", response.receivedItems().get(0).receivedSettlementState());
+        assertEquals("c97ec0ca-c5a0-474d-9798-60d68017ee04", response.receivedItems().get(0).receivedSettlementProofId());
     }
 
     @Test
@@ -117,6 +121,7 @@ class OfflineLedgerServiceTest {
         assertEquals("SETTLED", response.receivedItems().get(1).statusCode());
         assertEquals("+1.00000000", response.receivedItems().get(1).amount());
         assertEquals("0", response.receivedItems().get(1).unsettledAmount());
+        assertEquals("SETTLED", response.receivedItems().get(1).receivedSettlementState());
         assertEquals("1.00000000", response.totalReceivedAmount());
     }
 
@@ -140,6 +145,7 @@ class OfflineLedgerServiceTest {
         assertEquals("0", response.receivedItems().get(0).balance());
         assertEquals("0", response.receivedItems().get(0).unsettledAmount());
         assertEquals("0", response.receivedItems().get(0).settledAmount());
+        assertEquals("NONE", response.receivedItems().get(0).receivedSettlementState());
         assertEquals("0", response.totalReceivedAmount());
     }
 

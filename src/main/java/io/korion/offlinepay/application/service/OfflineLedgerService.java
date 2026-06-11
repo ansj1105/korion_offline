@@ -208,7 +208,10 @@ public class OfflineLedgerService {
                     event.unsettledAmount().toPlainString(),
                     event.settledAmount().toPlainString(),
                     event.proofId(),
-                    event.voucherId()
+                    event.voucherId(),
+                    false,
+                    "NONE",
+                    null
             ));
 
             if (!event.affectsServerBalance()) {
@@ -238,6 +241,13 @@ public class OfflineLedgerService {
         for (LedgerEvent event : events) {
             BigDecimal cumulativeAmount = runningReceived.max(BigDecimal.ZERO);
             String formattedAmount = (event.isTopup() ? "+" : "-") + event.amount().toPlainString();
+            boolean receivedSettlementRequired = event.direction() == LedgerDirection.RECEIVE
+                    && event.unsettledAmount().compareTo(BigDecimal.ZERO) > 0;
+            String receivedSettlementState = receivedSettlementRequired
+                    ? "UNSETTLED"
+                    : event.settledAmount().compareTo(BigDecimal.ZERO) > 0
+                        ? "SETTLED"
+                        : "NONE";
             items.add(new LedgerHistoryItem(
                     event.id(),
                     event.date(),
@@ -262,7 +272,10 @@ public class OfflineLedgerService {
                     event.unsettledAmount().toPlainString(),
                     event.settledAmount().toPlainString(),
                     event.proofId(),
-                    event.voucherId()
+                    event.voucherId(),
+                    receivedSettlementRequired,
+                    receivedSettlementState,
+                    receivedSettlementRequired ? event.proofId() : null
             ));
             if (event.affectsServerBalance()) {
                 runningReceived = event.isTopup()
@@ -590,7 +603,10 @@ public class OfflineLedgerService {
             String unsettledAmount,
             String settledAmount,
             String proofId,
-            String voucherId
+            String voucherId,
+            boolean receivedSettlementRequired,
+            String receivedSettlementState,
+            String receivedSettlementProofId
     ) {}
 
     private record LedgerEvent(

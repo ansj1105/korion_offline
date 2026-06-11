@@ -59,6 +59,7 @@ import io.korion.offlinepay.domain.status.CollateralOperationType;
 import io.korion.offlinepay.domain.status.DeviceStatus;
 import io.korion.offlinepay.domain.status.OfflineSagaStatus;
 import io.korion.offlinepay.domain.status.OfflineSagaType;
+import io.korion.offlinepay.domain.status.OfflineProofStatus;
 import io.korion.offlinepay.domain.status.ReconciliationCaseStatus;
 import io.korion.offlinepay.domain.status.SettlementBatchStatus;
 import io.korion.offlinepay.domain.status.SettlementStatus;
@@ -337,6 +338,130 @@ class SettlementApplicationServiceTest {
     }
 
     @Test
+    void receiverDuplicateUploadKeepsReceivedAmountUnsettledUntilExplicitConfirmation() {
+        long now = System.currentTimeMillis();
+        OfflinePaymentProof existingProof = new OfflinePaymentProof(
+                "proof-receiver-confirm",
+                "batch-existing-receiver-confirm",
+                "voucher-receiver-confirm",
+                "collateral-receiver-confirm",
+                "sender-device",
+                "receiver-device",
+                1,
+                1,
+                7L,
+                "nonce-receiver-confirm",
+                "hash-receiver-confirm",
+                "GENESIS",
+                "signature-receiver-confirm",
+                new BigDecimal("5.30000000"),
+                now,
+                now + 60_000,
+                "{}",
+                "SENDER",
+                "BLE",
+                OfflineProofStatus.SETTLED,
+                "SETTLED",
+                BigDecimal.ZERO,
+                BigDecimal.ZERO,
+                null,
+                null,
+                null,
+                "{\"requestId\":\"req-receiver-confirm\"}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now(),
+                OffsetDateTime.now(),
+                OffsetDateTime.now(),
+                OffsetDateTime.now(),
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        SettlementRequest request = new SettlementRequest(
+                "settlement-receiver-confirm",
+                "batch-existing-receiver-confirm",
+                "collateral-receiver-confirm",
+                "proof-receiver-confirm",
+                SettlementStatus.SETTLED,
+                "SETTLED",
+                false,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        SettlementBatch createdBatch = new SettlementBatch(
+                "batch-receiver-confirm",
+                "receiver-device",
+                "idempotency-receiver-confirm",
+                SettlementBatchStatus.CREATED,
+                null,
+                1,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        SettlementBatch settledBatch = new SettlementBatch(
+                "batch-receiver-confirm",
+                "receiver-device",
+                "idempotency-receiver-confirm",
+                SettlementBatchStatus.SETTLED,
+                "SETTLED",
+                1,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        SettlementApplicationService.ProofSubmission submission = new SettlementApplicationService.ProofSubmission(
+                "voucher-receiver-confirm",
+                "collateral-receiver-confirm",
+                "sender-device",
+                "receiver-device",
+                1,
+                1,
+                7L,
+                "nonce-receiver-confirm",
+                "hash-receiver-confirm",
+                "GENESIS",
+                "signature-receiver-confirm",
+                new BigDecimal("5.30000000"),
+                now,
+                now + 60_000,
+                "{}",
+                java.util.Map.of("requestId", "req-receiver-confirm")
+        );
+        when(proofRepository.findByVoucherId("voucher-receiver-confirm")).thenReturn(Optional.of(existingProof));
+        when(settlementRepository.findLatestByProofId("proof-receiver-confirm")).thenReturn(Optional.of(request));
+        when(batchRepository.findByIdempotencyKey("idempotency-receiver-confirm")).thenReturn(Optional.empty());
+        when(batchRepository.save(
+                anyString(),
+                anyString(),
+                any(SettlementBatchStatus.class),
+                any(),
+                anyInt(),
+                anyString()
+        )).thenReturn(createdBatch);
+        when(batchRepository.findById("batch-receiver-confirm")).thenReturn(Optional.of(settledBatch));
+
+        SettlementBatch result = service.submitBatch(new SettlementApplicationService.SubmitSettlementBatchCommand(
+                SettlementApplicationService.UploaderType.RECEIVER,
+                "receiver-device",
+                "idempotency-receiver-confirm",
+                java.util.List.of(submission),
+                "MANUAL"
+        ));
+
+        assertEquals(SettlementBatchStatus.SETTLED, result.status());
+        verify(proofRepository).ensureReceivedUnsettledAmount("proof-receiver-confirm");
+        verify(eventBus, never()).publishExternalSyncRequested(
+                eq("RECEIVER_HISTORY_SYNC_REQUESTED"),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString()
+        );
+    }
+
+    @Test
     void submitBatchRejectsDuplicateSenderOfflineTxSequenceBeforeCreatingBatch() {
         long now = System.currentTimeMillis();
         OfflinePaymentProof existingProof = new OfflinePaymentProof(
@@ -545,6 +670,7 @@ class SettlementApplicationServiceTest {
                 anyString()
         );
         verify(settlementRepository).update(anyString(), any(SettlementStatus.class), any(), anyBoolean(), anyString());
+        verify(proofRepository).ensureReceivedUnsettledAmount("proof-1");
         verify(issuedProofVerificationService, never()).markConsumed(any());
         assertEquals(SettlementStatus.SETTLED, result.status());
     }

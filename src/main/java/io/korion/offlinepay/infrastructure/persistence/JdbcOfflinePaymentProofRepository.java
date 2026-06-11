@@ -135,6 +135,23 @@ public class JdbcOfflinePaymentProofRepository implements OfflinePaymentProofRep
     }
 
     @Override
+    public int ensureReceivedUnsettledAmount(String proofId) {
+        String sql = QueryBuilder.update("offline_payment_proofs")
+                .set("received_unsettled_amount", "amount")
+                .touchUpdatedAt()
+                .where("id", QueryBuilder.Op.EQ, ":id")
+                .where("status", QueryBuilder.Op.EQ, ":status")
+                .where("received_unsettled_amount", QueryBuilder.Op.EQ, "0")
+                .where("received_settled_amount", QueryBuilder.Op.EQ, "0")
+                .where("amount", QueryBuilder.Op.GT, "0")
+                .build();
+        return jdbcClient.sql(sql)
+                .param("id", java.util.UUID.fromString(proofId))
+                .param("status", OfflineProofStatus.SETTLED.name())
+                .update();
+    }
+
+    @Override
     public java.util.Optional<OfflinePaymentProof> findById(String proofId) {
         String sql = QueryBuilder.select("offline_payment_proofs")
                 .where("id", QueryBuilder.Op.EQ, ":id")
