@@ -92,6 +92,7 @@ class OfflineSnapshotServiceTest {
         OfflineSnapshotService.CurrentSnapshot snapshot = service.getCurrentSnapshot(1L, "device-1", "KORI");
 
         assertNotNull(snapshot.collateral());
+        assertEquals("device-1", snapshot.collateral().deviceId());
         assertNotNull(snapshot.wallet());
         assertEquals("76.00000000", snapshot.collateral().lockedAmount());
         assertEquals("23.00000000", snapshot.collateral().remainingAmount());
