@@ -8,6 +8,8 @@ import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.OffsetDateTime;
+import java.time.format.DateTimeParseException;
 import java.util.Map;
 import org.springframework.stereotype.Component;
 
@@ -64,6 +66,10 @@ public class ProofPayloadConsistencyValidator {
                 && mismatch(text(rawPayload, "payloadHash"), sha256Hex(proof.canonicalPayload()))) {
             return invalid(OfflinePayReasonCode.PAYLOAD_HASH_MISMATCH, proof, "payloadHash mismatch");
         }
+        ValidationResult hybridTimeValidation = validateHybridTime(proof, rawPayload, canonicalPayload);
+        if (!hybridTimeValidation.passed()) {
+            return hybridTimeValidation;
+        }
         return ValidationResult.success();
     }
 
@@ -102,6 +108,66 @@ public class ProofPayloadConsistencyValidator {
         }
         if (longValue(rawPayload, "expiresAt") == null) {
             return invalid(OfflinePayReasonCode.PAYLOAD_REQUIRED_FIELD_MISSING, proof, "expiresAt missing");
+        }
+        return ValidationResult.success();
+    }
+
+    private ValidationResult validateHybridTime(
+            OfflinePaymentProof proof,
+            JsonNode rawPayload,
+            JsonNode canonicalPayload
+    ) {
+        boolean present = longValue(rawPayload, "offlineTxSequence") != null
+                || longValue(canonicalPayload, "offlineTxSequence") != null
+                || text(rawPayload, "estimatedServerTime") != null
+                || text(canonicalPayload, "estimatedServerTime") != null;
+        if (!present) {
+            return ValidationResult.success();
+        }
+
+        Long rawSequence = longValue(rawPayload, "offlineTxSequence");
+        Long canonicalSequence = longValue(canonicalPayload, "offlineTxSequence");
+        Long rawElapsed = longValue(rawPayload, "elapsedTimeMs");
+        Long canonicalElapsed = longValue(canonicalPayload, "elapsedTimeMs");
+        String rawLastSync = text(rawPayload, "lastServerSyncTime");
+        String canonicalLastSync = text(canonicalPayload, "lastServerSyncTime");
+        String rawEstimated = text(rawPayload, "estimatedServerTime");
+        String canonicalEstimated = text(canonicalPayload, "estimatedServerTime");
+        String rawTxId = text(rawPayload, "txId");
+        String canonicalTxId = text(canonicalPayload, "txId");
+        String requestId = text(rawPayload, "requestId");
+
+        if (rawSequence == null || canonicalSequence == null || rawElapsed == null || canonicalElapsed == null
+                || isBlank(rawLastSync) || isBlank(canonicalLastSync)
+                || isBlank(rawEstimated) || isBlank(canonicalEstimated)
+                || isBlank(rawTxId) || isBlank(canonicalTxId)) {
+            return invalid(OfflinePayReasonCode.PAYLOAD_REQUIRED_FIELD_MISSING, proof, "hybrid time fields missing");
+        }
+        if (rawSequence < 1 || !rawSequence.equals(canonicalSequence)) {
+            return invalid(OfflinePayReasonCode.PAYLOAD_HYBRID_TIME_INVALID, proof, "offlineTxSequence invalid");
+        }
+        if (rawElapsed < 0 || !rawElapsed.equals(canonicalElapsed)) {
+            return invalid(OfflinePayReasonCode.PAYLOAD_HYBRID_TIME_INVALID, proof, "elapsedTimeMs invalid");
+        }
+        if (!rawLastSync.equals(canonicalLastSync) || !rawEstimated.equals(canonicalEstimated) || !rawTxId.equals(canonicalTxId)) {
+            return invalid(OfflinePayReasonCode.PAYLOAD_HYBRID_TIME_INVALID, proof, "hybrid time raw/canonical mismatch");
+        }
+        if (requestId != null && !requestId.equals(rawTxId)) {
+            return invalid(OfflinePayReasonCode.PAYLOAD_HYBRID_TIME_INVALID, proof, "txId requestId mismatch");
+        }
+
+        OffsetDateTime lastSync = parseOffsetTime(rawLastSync);
+        OffsetDateTime estimated = parseOffsetTime(rawEstimated);
+        if (lastSync == null || estimated == null) {
+            return invalid(OfflinePayReasonCode.PAYLOAD_HYBRID_TIME_INVALID, proof, "hybrid time parse failed");
+        }
+        long expectedEstimatedMs = lastSync.toInstant().toEpochMilli() + rawElapsed;
+        long actualEstimatedMs = estimated.toInstant().toEpochMilli();
+        if (Math.abs(expectedEstimatedMs - actualEstimatedMs) > 1_000L) {
+            return invalid(OfflinePayReasonCode.PAYLOAD_HYBRID_TIME_INVALID, proof, "estimatedServerTime elapsed mismatch");
+        }
+        if (estimated.isAfter(OffsetDateTime.now().plusMinutes(10))) {
+            return invalid(OfflinePayReasonCode.PAYLOAD_HYBRID_TIME_INVALID, proof, "estimatedServerTime is too far in the future");
         }
         return ValidationResult.success();
     }
@@ -150,6 +216,14 @@ public class ProofPayloadConsistencyValidator {
         try {
             return Long.parseLong(value.trim());
         } catch (NumberFormatException exception) {
+            return null;
+        }
+    }
+
+    private OffsetDateTime parseOffsetTime(String value) {
+        try {
+            return OffsetDateTime.parse(value);
+        } catch (DateTimeParseException exception) {
             return null;
         }
     }

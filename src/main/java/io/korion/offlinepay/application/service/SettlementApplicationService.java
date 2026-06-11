@@ -310,6 +310,13 @@ public class SettlementApplicationService {
                         throw duplicateProofSubmissionException("nonce", existing);
                     });
         }
+        Long offlineTxSequence = extractOfflineTxSequence(submission.payload());
+        if (offlineTxSequence != null) {
+            proofRepository.findBySenderOfflineTxSequence(submission.senderDeviceId(), offlineTxSequence)
+                    .ifPresent(existing -> {
+                        throw duplicateProofSubmissionException("offlineTxSequence", existing);
+                    });
+        }
         String requestId = extractRequestId(submission.payload());
         if (requestId != null) {
             proofRepository.findBySenderRequestId(submission.senderDeviceId(), requestId)
@@ -323,6 +330,26 @@ public class SettlementApplicationService {
         return new IllegalArgumentException(
                 "duplicate offline proof submission by " + field + ": proofId=" + existing.id()
         );
+    }
+
+    private Long extractOfflineTxSequence(Map<String, Object> payload) {
+        if (payload == null) {
+            return null;
+        }
+        Object value = payload.get("offlineTxSequence");
+        if (value instanceof Number number) {
+            long sequence = number.longValue();
+            return sequence > 0 ? sequence : null;
+        }
+        if (value instanceof String text && !text.isBlank()) {
+            try {
+                long sequence = Long.parseLong(text.trim());
+                return sequence > 0 ? sequence : null;
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
     }
 
     private boolean isReceiverConfirmation(

@@ -60,6 +60,38 @@ class OfflineLedgerServiceTest {
     }
 
     @Test
+    void ordersOfflineSentLedgerItemsByEstimatedServerTimeThenSequence() {
+        Device senderDevice = device("device-1", 1L);
+        OfflinePaymentProof lowerSequence = settledSentProofWithHybridTime(
+                "proof-sequence-11",
+                "voucher-sequence-11",
+                "nonce-sequence-11",
+                "2026-06-11T03:02:03Z",
+                11
+        );
+        OfflinePaymentProof higherSequence = settledSentProofWithHybridTime(
+                "proof-sequence-12",
+                "voucher-sequence-12",
+                "nonce-sequence-12",
+                "2026-06-11T03:02:03Z",
+                12
+        );
+        when(deviceRepository.findActiveByUserId(1L)).thenReturn(List.of(senderDevice));
+        when(deviceRepository.findByDeviceId("device-1")).thenReturn(Optional.of(senderDevice));
+        when(deviceRepository.findByDeviceId("device-2")).thenReturn(Optional.empty());
+        when(proofRepository.findRecentByUserIdAndAssetCode(1L, "KORI", 31))
+                .thenReturn(List.of(lowerSequence, higherSequence));
+        when(collateralOperationRepository.findRecentByUserIdAndAssetCode(1L, "KORI", 31)).thenReturn(List.of());
+        when(collateralRepository.findAggregateByUserIdAndAssetCode(1L, "KORI")).thenReturn(Optional.empty());
+
+        OfflineLedgerService.LedgerHistoryResponse response = service.getLedgerHistory(1L, "KORI", 30);
+
+        assertEquals(2, response.sentItems().size());
+        assertEquals("proof-sequence-12", response.sentItems().get(0).proofId());
+        assertEquals("proof-sequence-11", response.sentItems().get(1).proofId());
+    }
+
+    @Test
     void emitsNegativeReceivedSettlementLedgerItemWhenReceivedAmountIsSettled() {
         String receiverDeviceId = "98db6beb-4ae1-4027-b9ee-507ce7eaeaa7";
         Device receiverDevice = device(receiverDeviceId, 39L);
@@ -192,6 +224,61 @@ class OfflineLedgerServiceTest {
                 OfflineProofStatus.SETTLED,
                 "SETTLED",
                 "{\"paymentMethod\":\"BLE\",\"token\":\"KORI\",\"fee\":\"0.001000\"}",
+                now,
+                now,
+                null,
+                now,
+                now,
+                now,
+                now
+        );
+    }
+
+    private OfflinePaymentProof settledSentProofWithHybridTime(
+            String proofId,
+            String voucherId,
+            String nonce,
+            String estimatedServerTime,
+            long offlineTxSequence
+    ) {
+        OffsetDateTime now = OffsetDateTime.parse("2026-05-19T04:45:04Z");
+        String rawPayload = """
+                {
+                  "requestId": "%s",
+                  "txId": "%s",
+                  "offlineTxSequence": %d,
+                  "deviceTime": "2026-06-11T12:02:03Z",
+                  "lastServerSyncTime": "2026-06-11T03:00:00Z",
+                  "estimatedServerTime": "%s",
+                  "elapsedTimeMs": 123000,
+                  "paymentMethod": "BLE",
+                  "token": "KORI",
+                  "fee": "0.001000"
+                }
+                """.formatted(voucherId, voucherId, offlineTxSequence, estimatedServerTime);
+        return new OfflinePaymentProof(
+                proofId,
+                "batch-" + proofId,
+                voucherId,
+                "collateral-id",
+                "device-1",
+                "device-2",
+                1,
+                1,
+                offlineTxSequence,
+                nonce,
+                "hash-" + proofId,
+                "previous-hash",
+                "signature",
+                new BigDecimal("1.00000000"),
+                1779133504000L,
+                1779137104000L,
+                "{}",
+                "SENDER",
+                "MANUAL_SELECTION",
+                OfflineProofStatus.SETTLED,
+                "SETTLED",
+                rawPayload,
                 now,
                 now,
                 null,

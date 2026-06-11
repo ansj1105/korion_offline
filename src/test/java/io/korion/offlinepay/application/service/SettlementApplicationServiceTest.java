@@ -337,6 +337,88 @@ class SettlementApplicationServiceTest {
     }
 
     @Test
+    void submitBatchRejectsDuplicateSenderOfflineTxSequenceBeforeCreatingBatch() {
+        long now = System.currentTimeMillis();
+        OfflinePaymentProof existingProof = new OfflinePaymentProof(
+                "proof-existing-sequence-submit",
+                "batch-existing-sequence-submit",
+                "voucher-existing-sequence-submit",
+                "collateral-existing-sequence-submit",
+                "device-1",
+                "device-2",
+                1,
+                1,
+                1L,
+                "nonce-existing-sequence-submit",
+                "hash-existing",
+                "GENESIS",
+                "signature-existing",
+                new BigDecimal("1"),
+                now,
+                now + 60_000,
+                "{}",
+                "SENDER",
+                "{\"requestId\":\"request-existing\",\"offlineTxSequence\":12}",
+                OffsetDateTime.now()
+        );
+        SettlementApplicationService.ProofSubmission submission = new SettlementApplicationService.ProofSubmission(
+                "voucher-new-sequence-submit",
+                "collateral-new-sequence-submit",
+                "device-1",
+                "device-2",
+                1,
+                1,
+                2L,
+                "nonce-new-sequence-submit",
+                "hash-new",
+                "GENESIS",
+                "signature-new",
+                new BigDecimal("1"),
+                now,
+                now + 60_000,
+                "{}",
+                java.util.Map.of("requestId", "request-new-sequence-submit", "offlineTxSequence", 12)
+        );
+        when(proofRepository.findBySenderOfflineTxSequence("device-1", 12L))
+                .thenReturn(Optional.of(existingProof));
+
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> service.submitBatch(new SettlementApplicationService.SubmitSettlementBatchCommand(
+                        SettlementApplicationService.UploaderType.RECEIVER,
+                        "device-2",
+                        "idempotency-new-sequence-submit",
+                        java.util.List.of(submission),
+                        "MANUAL"
+                ))
+        );
+
+        assertTrue(exception.getMessage().contains("duplicate offline proof submission by offlineTxSequence"));
+        verify(batchRepository, never()).save(anyString(), anyString(), any(), any(), anyInt(), anyString());
+        verify(proofRepository, never()).save(
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyInt(),
+                anyInt(),
+                anyLong(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString(),
+                any(),
+                anyLong(),
+                anyLong(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString()
+        );
+    }
+
+    @Test
     void finalizeSettlementSyncsCoinManageLedgerAndFoxCoinHistory() {
         SettlementRequest request = new SettlementRequest(
                 "settlement-1",

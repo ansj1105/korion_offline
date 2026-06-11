@@ -125,8 +125,12 @@ public class OfflineLedgerService {
             }
         }
 
-        sentEvents.sort(Comparator.comparing(LedgerEvent::time).reversed());
-        receivedEvents.sort(Comparator.comparing(LedgerEvent::time).reversed());
+        Comparator<LedgerEvent> ledgerOrder = Comparator
+                .comparing(LedgerEvent::time)
+                .thenComparingLong(LedgerEvent::offlineTxSequence)
+                .reversed();
+        sentEvents.sort(ledgerOrder);
+        receivedEvents.sort(ledgerOrder);
 
         List<LedgerHistoryItem> allSentItems = buildSentItems(sentEvents, currentRemainingAmount);
         List<LedgerHistoryItem> allReceivedItems = buildReceivedItems(receivedEvents);
@@ -303,7 +307,8 @@ public class OfflineLedgerService {
                 BigDecimal.ZERO,
                 BigDecimal.ZERO,
                 "",
-                ""
+                "",
+                0L
         );
     }
 
@@ -330,6 +335,7 @@ public class OfflineLedgerService {
         String category = normalizeCategory(payload.path("category").asText(""));
         String paymentMethod = resolvePaymentMethod(payload, proof.channelType());
         String network = firstNonBlank(payload.path("network").asText(""), "mainnet");
+        long offlineTxSequence = Math.max(0L, payload.path("offlineTxSequence").asLong(0L));
         LedgerDirection direction = senderOwned ? LedgerDirection.SEND : LedgerDirection.RECEIVE;
         boolean completed = proof.status() == OfflineProofStatus.SETTLED;
         boolean failed = switch (proof.status()) {
@@ -368,7 +374,8 @@ public class OfflineLedgerService {
                 receivedUnsettledAmount,
                 senderOwned ? BigDecimal.ZERO : normalizeAmount(proof.receivedSettledAmount()),
                 proof.id(),
-                proof.voucherId()
+                proof.voucherId(),
+                offlineTxSequence
         );
     }
 
@@ -406,7 +413,8 @@ public class OfflineLedgerService {
                 BigDecimal.ZERO,
                 BigDecimal.ZERO,
                 proof.id(),
-                proof.voucherId()
+                proof.voucherId(),
+                receiveEvent.offlineTxSequence()
         );
     }
 
@@ -431,6 +439,15 @@ public class OfflineLedgerService {
     }
 
     private OffsetDateTime resolveProofTime(OfflinePaymentProof proof) {
+        JsonNode payload = jsonService.readTree(proof.rawPayloadJson());
+        String estimatedServerTime = payload.path("estimatedServerTime").asText("");
+        if (!estimatedServerTime.isBlank()) {
+            try {
+                return OffsetDateTime.parse(estimatedServerTime);
+            } catch (RuntimeException ignored) {
+                // Fall through to persisted server timestamps for legacy or malformed payloads.
+            }
+        }
         if (proof.settledAt() != null) {
             return proof.settledAt();
         }
@@ -597,7 +614,8 @@ public class OfflineLedgerService {
             BigDecimal unsettledAmount,
             BigDecimal settledAmount,
             String proofId,
-            String voucherId
+            String voucherId,
+            long offlineTxSequence
     ) {
         String date() {
             return String.format("%02d.%02d", time.getMonthValue(), time.getDayOfMonth());

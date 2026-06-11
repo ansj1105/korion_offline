@@ -21,11 +21,20 @@ public class DeviceBindingVerificationService {
     }
 
     public VerificationResult verify(Device device, OfflinePaymentProof proof) {
-        JsonNode payloadNode = jsonService.readTree(proof.rawPayloadJson());
-        String deviceRegistrationId = textValue(payloadNode.get("deviceRegistrationId"));
-        String deviceBindingKey = textValue(payloadNode.get("deviceBindingKey"));
-        String authMethod = textValue(payloadNode.get("authMethod"));
-        Long signedUserId = longValue(payloadNode.get("signedUserId"));
+        JsonNode payloadNode = readPayload(proof.rawPayloadJson());
+        JsonNode canonicalPayloadNode = readPayload(proof.canonicalPayload());
+        FieldResolution deviceRegistrationIdField = resolveTextField("deviceRegistrationId", payloadNode, canonicalPayloadNode);
+        FieldResolution authMethodField = resolveTextField("authMethod", payloadNode, canonicalPayloadNode);
+        FieldResolution signedUserIdField = resolveTextField("signedUserId", payloadNode, canonicalPayloadNode);
+        FieldResolution deviceBindingKeyField = resolveTopLevelTextField("deviceBindingKey", payloadNode, canonicalPayloadNode);
+        String fieldError = firstError(deviceRegistrationIdField, authMethodField, signedUserIdField, deviceBindingKeyField);
+        if (fieldError != null) {
+            return VerificationResult.invalidResult(fieldError);
+        }
+        String deviceRegistrationId = deviceRegistrationIdField.value();
+        String deviceBindingKey = deviceBindingKeyField.value();
+        String authMethod = authMethodField.value();
+        Long signedUserId = longValue(signedUserIdField.value());
 
         boolean hasBindingFields =
                 deviceRegistrationId != null ||
@@ -73,6 +82,58 @@ public class DeviceBindingVerificationService {
         return trimmed.isEmpty() ? null : trimmed;
     }
 
+    private JsonNode readPayload(String payload) {
+        return jsonService.readTree(payload == null || payload.isBlank() ? "{}" : payload);
+    }
+
+    private FieldResolution resolveTextField(String fieldName, JsonNode rawPayload, JsonNode canonicalPayload) {
+        return resolveCandidates(fieldName, new FieldCandidate[] {
+                candidate(fieldName, "raw", rawPayload),
+                candidate(fieldName, "raw.spendingProof", rawPayload.path("spendingProof")),
+                candidate(fieldName, "canonical", canonicalPayload),
+                candidate(fieldName, "canonical.spendingProof", canonicalPayload.path("spendingProof"))
+        });
+    }
+
+    private FieldResolution resolveTopLevelTextField(String fieldName, JsonNode rawPayload, JsonNode canonicalPayload) {
+        return resolveCandidates(fieldName, new FieldCandidate[] {
+                candidate(fieldName, "raw", rawPayload),
+                candidate(fieldName, "canonical", canonicalPayload)
+        });
+    }
+
+    private FieldResolution resolveCandidates(String fieldName, FieldCandidate[] candidates) {
+        String value = null;
+        String source = "";
+        for (FieldCandidate candidate : candidates) {
+            if (candidate.value() == null) {
+                continue;
+            }
+            if (value == null) {
+                value = candidate.value();
+                source = candidate.source();
+                continue;
+            }
+            if (!value.equals(candidate.value())) {
+                return new FieldResolution(null, fieldName + " mismatch between " + source + " and " + candidate.source());
+            }
+        }
+        return new FieldResolution(value, null);
+    }
+
+    private FieldCandidate candidate(String fieldName, String source, JsonNode node) {
+        return new FieldCandidate(source, textValue(node == null || node.isMissingNode() ? null : node.get(fieldName)));
+    }
+
+    private String firstError(FieldResolution... resolutions) {
+        for (FieldResolution resolution : resolutions) {
+            if (resolution.error() != null) {
+                return resolution.error();
+            }
+        }
+        return null;
+    }
+
     private Long longValue(JsonNode node) {
         if (node == null || node.isNull()) {
             return null;
@@ -86,6 +147,17 @@ public class DeviceBindingVerificationService {
         }
         try {
             return Long.parseLong(text);
+        } catch (NumberFormatException exception) {
+            return null;
+        }
+    }
+
+    private Long longValue(String value) {
+        if (value == null) {
+            return null;
+        }
+        try {
+            return Long.parseLong(value);
         } catch (NumberFormatException exception) {
             return null;
         }
@@ -114,4 +186,8 @@ public class DeviceBindingVerificationService {
             return new VerificationResult(false, detail == null ? "invalid binding" : detail);
         }
     }
+
+    private record FieldResolution(String value, String error) {}
+
+    private record FieldCandidate(String source, String value) {}
 }

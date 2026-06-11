@@ -29,9 +29,13 @@ public class DeviceSignatureVerificationService {
 
         try {
             PublicKey publicKey = parseEcPublicKey(device.publicKey());
+            BindingContext bindingContext = resolveBindingContext(proof);
+            if (bindingContext.error() != null) {
+                return VerificationResult.invalidResult(bindingContext.error());
+            }
             Signature verifier = Signature.getInstance("SHA256withECDSA");
             verifier.initVerify(publicKey);
-            verifier.update(signingPayload(proof).getBytes(StandardCharsets.UTF_8));
+            verifier.update(signingPayload(proof, bindingContext).getBytes(StandardCharsets.UTF_8));
             boolean verified = verifier.verify(Base64.getDecoder().decode(normalizeBase64(proof.signature())));
             return verified
                     ? VerificationResult.verifiedResult()
@@ -49,21 +53,85 @@ public class DeviceSignatureVerificationService {
         return KeyFactory.getInstance("EC").generatePublic(keySpec);
     }
 
-    private String signingPayload(OfflinePaymentProof proof) {
-        String deviceRegistrationId = "";
-        String signedUserId = "";
-        String authMethod = "";
+    private String signingPayload(OfflinePaymentProof proof, BindingContext bindingContext) {
+        return buildSigningPayloadForVerification(
+                proof.newStateHash(),
+                proof.timestampMs(),
+                bindingContext.deviceRegistrationId(),
+                bindingContext.signedUserId(),
+                bindingContext.authMethod()
+        );
+    }
+
+    static String buildSigningPayloadForVerification(
+            String newStateHash,
+            long timestampMs,
+            String deviceRegistrationId,
+            String signedUserId,
+            String authMethod
+    ) {
+        return safe(newStateHash) + "|" + timestampMs + "|"
+                + safeBinding(deviceRegistrationId) + "|"
+                + safeBinding(signedUserId) + "|"
+                + safeBinding(authMethod);
+    }
+
+    private BindingContext resolveBindingContext(OfflinePaymentProof proof) {
         try {
-            JsonNode payloadNode = objectMapper.readTree(
-                    proof.rawPayloadJson() == null || proof.rawPayloadJson().isBlank() ? "{}" : proof.rawPayloadJson()
-            );
-            deviceRegistrationId = textValue(payloadNode.get("deviceRegistrationId"));
-            signedUserId = textValue(payloadNode.get("signedUserId"));
-            authMethod = textValue(payloadNode.get("authMethod"));
-        } catch (Exception ignored) {
-            // Keep backward compatibility for old payloads with no binding context.
+            JsonNode rawPayload = readPayload(proof.rawPayloadJson());
+            JsonNode canonicalPayload = readPayload(proof.canonicalPayload());
+            FieldResolution deviceRegistrationId = resolveField("deviceRegistrationId", rawPayload, canonicalPayload);
+            FieldResolution signedUserId = resolveField("signedUserId", rawPayload, canonicalPayload);
+            FieldResolution authMethod = resolveField("authMethod", rawPayload, canonicalPayload);
+            String error = firstError(deviceRegistrationId, signedUserId, authMethod);
+            if (error != null) {
+                return new BindingContext("", "", "", error);
+            }
+            return new BindingContext(deviceRegistrationId.value(), signedUserId.value(), authMethod.value(), null);
+        } catch (Exception exception) {
+            return new BindingContext("", "", "", "invalid signature payload context");
         }
-        return proof.newStateHash() + "|" + proof.timestampMs() + "|" + deviceRegistrationId + "|" + signedUserId + "|" + authMethod;
+    }
+
+    private JsonNode readPayload(String payload) throws Exception {
+        return objectMapper.readTree(payload == null || payload.isBlank() ? "{}" : payload);
+    }
+
+    private FieldResolution resolveField(String fieldName, JsonNode rawPayload, JsonNode canonicalPayload) {
+        String value = "";
+        String source = "";
+        for (FieldCandidate candidate : new FieldCandidate[] {
+                candidate(fieldName, "raw", rawPayload),
+                candidate(fieldName, "raw.spendingProof", rawPayload.path("spendingProof")),
+                candidate(fieldName, "canonical", canonicalPayload),
+                candidate(fieldName, "canonical.spendingProof", canonicalPayload.path("spendingProof"))
+        }) {
+            if (candidate.value() == null || candidate.value().isBlank()) {
+                continue;
+            }
+            if (value.isBlank()) {
+                value = candidate.value();
+                source = candidate.source();
+                continue;
+            }
+            if (!value.equals(candidate.value())) {
+                return new FieldResolution("", fieldName + " mismatch between " + source + " and " + candidate.source());
+            }
+        }
+        return new FieldResolution(value, null);
+    }
+
+    private FieldCandidate candidate(String fieldName, String source, JsonNode node) {
+        return new FieldCandidate(source, textValue(node == null || node.isMissingNode() ? null : node.get(fieldName)));
+    }
+
+    private String firstError(FieldResolution... resolutions) {
+        for (FieldResolution resolution : resolutions) {
+            if (resolution.error() != null) {
+                return resolution.error();
+            }
+        }
+        return null;
     }
 
     private String textValue(JsonNode node) {
@@ -84,6 +152,20 @@ public class DeviceSignatureVerificationService {
     private String normalizeBase64(String value) {
         return value.replaceAll("\\s+", "");
     }
+
+    private static String safe(String value) {
+        return value == null ? "" : value;
+    }
+
+    private static String safeBinding(String value) {
+        return value == null ? "" : value.trim();
+    }
+
+    private record BindingContext(String deviceRegistrationId, String signedUserId, String authMethod, String error) {}
+
+    private record FieldResolution(String value, String error) {}
+
+    private record FieldCandidate(String source, String value) {}
 
     public record VerificationResult(
             boolean verified,

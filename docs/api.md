@@ -827,7 +827,46 @@ components:
           type: object
           required: [paymentFlow]
           additionalProperties: true
+          description: |
+            Offline sender envelope. Legacy payloads without hybrid time fields remain accepted, but any payload that includes one hybrid time field must include the full hybrid time/sequence envelope in both `payload` and `canonicalPayload`.
+            Server validation treats `offlineTxSequence` as the sender-device ordering key and rejects duplicate or inconsistent sequence submissions.
           properties:
+            requestId:
+              type: string
+              description: Concrete offline payment request/session id. When present it must match `txId`.
+            txId:
+              type: string
+              description: Unique offline transaction id signed by the sender device.
+            offlineTxSequence:
+              type: integer
+              format: int64
+              minimum: 1
+              description: Monotonic per-sender-device offline transaction sequence. Server uses this as the primary deterministic order key when offline estimated times collide and rejects duplicate sender-device sequence submissions.
+            deviceTime:
+              type: string
+              format: date-time
+              description: Device wall-clock timestamp captured for diagnostics only. It is not trusted as the canonical offline order source.
+            lastServerSyncTime:
+              type: string
+              format: date-time
+              description: Last server time cached while the device was online.
+            estimatedServerTime:
+              type: string
+              format: date-time
+              description: Calculated offline server-time estimate, equal to `lastServerSyncTime + elapsedTimeMs` within server tolerance.
+            elapsedTimeMs:
+              type: integer
+              format: int64
+              minimum: 0
+              description: Monotonic elapsed milliseconds since `lastServerSyncTime`.
+            elapsedTimeSource:
+              type: string
+              description: Client monotonic clock source used to derive `elapsedTimeMs`.
+            serverSyncAgeMs:
+              type: integer
+              format: int64
+              minimum: 0
+              description: Diagnostic age of the cached server sync at payload creation time.
             paymentFlow:
               type: string
               enum: [FAST_PAYMENT, MANUAL_PAYMENT, QR_OFFLINE_PAYMENT]

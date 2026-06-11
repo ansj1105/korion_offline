@@ -183,6 +183,21 @@ public class JdbcOfflinePaymentProofRepository implements OfflinePaymentProofRep
     }
 
     @Override
+    public java.util.Optional<OfflinePaymentProof> findBySenderOfflineTxSequence(String senderDeviceId, long offlineTxSequence) {
+        String sql = QueryBuilder.select("offline_payment_proofs")
+                .where("sender_device_id", QueryBuilder.Op.EQ, ":senderDeviceId")
+                .where("raw_payload ? 'offlineTxSequence'")
+                .where("raw_payload ->> 'offlineTxSequence' ~ '^[0-9]+$'")
+                .where("(raw_payload ->> 'offlineTxSequence')::bigint", QueryBuilder.Op.EQ, ":offlineTxSequence")
+                .build();
+        return jdbcClient.sql(sql)
+                .param("senderDeviceId", senderDeviceId)
+                .param("offlineTxSequence", offlineTxSequence)
+                .query(offlinePaymentProofRowMapper)
+                .optional();
+    }
+
+    @Override
     public java.util.List<OfflinePaymentProof> findByCollateralId(String collateralId) {
         String sql = QueryBuilder.select("offline_payment_proofs")
                 .where("collateral_id", QueryBuilder.Op.EQ, ":collateralId")
