@@ -128,6 +128,12 @@ class DeviceSignatureVerificationServiceTest {
                         " 39 ",
                         " FACE_ID "
                 ));
+        assertEquals(
+                "b465f4818f228ce8abe2ae7fa5bce234ee96876d60d19b1be2d7ec451c72abe1",
+                DeviceSignatureVerificationService.signingPayloadHashForVerification(
+                        "hash-new|1781181671841|registration-cached|39|FACE_ID"
+                )
+        );
     }
 
     @Test
@@ -221,6 +227,40 @@ class DeviceSignatureVerificationServiceTest {
 
         assertTrue(result.verified());
         assertFalse(result.unsupported());
+    }
+
+    @Test
+    void includesComparableSigningPayloadHashWhenSignatureMismatches() throws Exception {
+        KeyPairGenerator generator = KeyPairGenerator.getInstance("EC");
+        generator.initialize(256);
+        KeyPair keyPair = generator.generateKeyPair();
+        long timestamp = 1781197644602L;
+        String stateHash = "2e2c0ffabd51e9b199243c949fc9f62bcfdda5c2f062976401054ecf5d6a28e8";
+        String rawPayload = """
+                {
+                  "deviceRegistrationId": "f27ba581-3df5-4b43-ae96-f17f676257f3",
+                  "signedUserId": 39,
+                  "authMethod": "FINGERPRINT"
+                }
+                """;
+
+        Signature signer = Signature.getInstance("SHA256withECDSA");
+        signer.initSign(keyPair.getPrivate());
+        signer.update("different-payload".getBytes(StandardCharsets.UTF_8));
+        String signature = Base64.getEncoder().encodeToString(signer.sign());
+
+        Device device = device(Base64.getEncoder().encodeToString(keyPair.getPublic().getEncoded()));
+        OfflinePaymentProof proof = proof(stateHash, timestamp, signature, rawPayload, "{}");
+
+        DeviceSignatureVerificationService.VerificationResult result = service.verify(device, proof);
+
+        assertFalse(result.verified());
+        assertFalse(result.unsupported());
+        assertTrue(result.detail().contains("signature mismatch"));
+        assertTrue(result.detail().contains("signingPayloadHash="));
+        assertTrue(result.detail().contains("deviceRegistrationId=f27ba581-3df5-4b43-ae96-f17f676257f3"));
+        assertTrue(result.detail().contains("signedUserId=39"));
+        assertTrue(result.detail().contains("authMethod=FINGERPRINT"));
     }
 
     private Device device(String publicKey) {

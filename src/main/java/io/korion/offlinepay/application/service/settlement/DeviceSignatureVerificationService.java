@@ -5,6 +5,7 @@ import io.korion.offlinepay.domain.model.Device;
 import io.korion.offlinepay.domain.model.OfflinePaymentProof;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyFactory;
+import java.security.MessageDigest;
 import java.security.PublicKey;
 import java.security.Signature;
 import java.security.spec.X509EncodedKeySpec;
@@ -33,13 +34,14 @@ public class DeviceSignatureVerificationService {
             if (bindingContext.error() != null) {
                 return VerificationResult.invalidResult(bindingContext.error());
             }
+            String signingPayload = signingPayload(proof, bindingContext);
             Signature verifier = Signature.getInstance("SHA256withECDSA");
             verifier.initVerify(publicKey);
-            verifier.update(signingPayload(proof, bindingContext).getBytes(StandardCharsets.UTF_8));
+            verifier.update(signingPayload.getBytes(StandardCharsets.UTF_8));
             boolean verified = verifier.verify(Base64.getDecoder().decode(normalizeBase64(proof.signature())));
             return verified
                     ? VerificationResult.verifiedResult()
-                    : VerificationResult.invalidResult("signature mismatch");
+                    : VerificationResult.invalidResult(signatureMismatchDetail(proof, bindingContext, signingPayload));
         } catch (IllegalArgumentException exception) {
             return VerificationResult.invalidResult("invalid signature encoding");
         } catch (Exception exception) {
@@ -74,6 +76,34 @@ public class DeviceSignatureVerificationService {
                 + safeBinding(deviceRegistrationId) + "|"
                 + safeBinding(signedUserId) + "|"
                 + safeBinding(authMethod);
+    }
+
+    static String signingPayloadHashForVerification(String signingPayload) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] bytes = digest.digest(safe(signingPayload).getBytes(StandardCharsets.UTF_8));
+            StringBuilder builder = new StringBuilder(bytes.length * 2);
+            for (byte current : bytes) {
+                builder.append(String.format("%02x", current));
+            }
+            return builder.toString();
+        } catch (Exception exception) {
+            return "";
+        }
+    }
+
+    private String signatureMismatchDetail(
+            OfflinePaymentProof proof,
+            BindingContext bindingContext,
+            String signingPayload
+    ) {
+        return "signature mismatch"
+                + "; signingPayloadHash=" + signingPayloadHashForVerification(signingPayload)
+                + "; newStateHash=" + safe(proof.newStateHash())
+                + "; timestamp=" + proof.timestampMs()
+                + "; deviceRegistrationId=" + safeBinding(bindingContext.deviceRegistrationId())
+                + "; signedUserId=" + safeBinding(bindingContext.signedUserId())
+                + "; authMethod=" + safeBinding(bindingContext.authMethod());
     }
 
     private BindingContext resolveBindingContext(OfflinePaymentProof proof) {
