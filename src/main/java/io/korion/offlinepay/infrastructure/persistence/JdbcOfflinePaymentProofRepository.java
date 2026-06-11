@@ -184,17 +184,21 @@ public class JdbcOfflinePaymentProofRepository implements OfflinePaymentProofRep
 
     @Override
     public java.util.Optional<OfflinePaymentProof> findBySenderOfflineTxSequence(String senderDeviceId, long offlineTxSequence) {
-        String sql = QueryBuilder.select("offline_payment_proofs")
-                .where("sender_device_id", QueryBuilder.Op.EQ, ":senderDeviceId")
-                .where("raw_payload ? 'offlineTxSequence'")
-                .where("raw_payload ->> 'offlineTxSequence' ~ '^[0-9]+$'")
-                .where("(raw_payload ->> 'offlineTxSequence')::bigint", QueryBuilder.Op.EQ, ":offlineTxSequence")
-                .build();
+        String sql = senderOfflineTxSequenceLookupSql();
         return jdbcClient.sql(sql)
                 .param("senderDeviceId", senderDeviceId)
                 .param("offlineTxSequence", offlineTxSequence)
                 .query(offlinePaymentProofRowMapper)
                 .optional();
+    }
+
+    static String senderOfflineTxSequenceLookupSql() {
+        return QueryBuilder.select("offline_payment_proofs")
+                .where("sender_device_id", QueryBuilder.Op.EQ, ":senderDeviceId")
+                .where("jsonb_exists(raw_payload, 'offlineTxSequence')")
+                .where("raw_payload ->> 'offlineTxSequence' ~ '^[0-9]+$'")
+                .where("(raw_payload ->> 'offlineTxSequence')::bigint", QueryBuilder.Op.EQ, ":offlineTxSequence")
+                .build();
     }
 
     @Override
