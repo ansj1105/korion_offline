@@ -1014,22 +1014,6 @@ class SettlementApplicationServiceTest {
                 OffsetDateTime.now(),
                 OffsetDateTime.now()
         );
-        CollateralOperation releaseOperation = new CollateralOperation(
-                "op-1",
-                "collateral-1",
-                77L,
-                "device-1",
-                "USDT",
-                CollateralOperationType.RELEASE,
-                new BigDecimal("10"),
-                CollateralOperationStatus.REQUESTED,
-                "release:settlement-1:failed_settlement",
-                null,
-                "{}",
-                OffsetDateTime.now(),
-                OffsetDateTime.now()
-        );
-
         when(settlementRepository.findById("settlement-1")).thenReturn(
                 Optional.of(request),
                 Optional.of(new SettlementRequest(
@@ -1048,16 +1032,6 @@ class SettlementApplicationServiceTest {
         when(proofRepository.findById("proof-1")).thenReturn(Optional.of(proof));
         when(collateralRepository.findById("collateral-1")).thenReturn(Optional.of(collateral));
         when(deviceRepository.findByDeviceId("device-1")).thenReturn(Optional.of(inactiveDevice));
-        when(collateralOperationRepository.saveRequested(
-                eq("collateral-1"),
-                eq(77L),
-                eq("device-1"),
-                eq("USDT"),
-                eq(CollateralOperationType.RELEASE),
-                eq(new BigDecimal("10")),
-                eq("release:settlement-1:failed_settlement"),
-                anyString()
-        )).thenReturn(releaseOperation);
 
         service.finalizeSettlement("settlement-1");
 
@@ -1069,11 +1043,21 @@ class SettlementApplicationServiceTest {
                 anyString(),
                 anyString()
         );
-        verify(eventBus).publishCollateralOperationRequested(
-                eq("op-1"),
+        verify(collateralOperationRepository, never()).saveRequested(
+                anyString(),
+                anyLong(),
+                anyString(),
+                anyString(),
+                eq(CollateralOperationType.RELEASE),
+                any(),
+                anyString(),
+                anyString()
+        );
+        verify(eventBus, never()).publishCollateralOperationRequested(
+                anyString(),
                 eq("RELEASE"),
-                eq("USDT"),
-                eq("release:settlement-1:failed_settlement"),
+                anyString(),
+                anyString(),
                 anyString()
         );
         verify(offlineSagaService).markFailed(

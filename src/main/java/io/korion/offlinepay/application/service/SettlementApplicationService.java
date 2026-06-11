@@ -694,7 +694,6 @@ public class SettlementApplicationService {
             );
             syncExternalSettlement(collateral, proof, request, evaluation);
         } else {
-            scheduleFailedSettlementRelease(collateral, proof, request, terminalReasonCode);
             offlineSagaService.markFailed(
                     OfflineSagaType.SETTLEMENT,
                     request.id(),
