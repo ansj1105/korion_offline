@@ -34,12 +34,13 @@ public class SettlementSyncCommandFactory {
             boolean conflictDetected,
             Device receiverDevice
     ) {
+        String senderDeviceId = proof.senderDeviceId();
         String proofFingerprint = proofFingerprintService.computeFingerprint(
                 request.id(),
                 request.batchId(),
                 collateral.id(),
                 proof.id(),
-                collateral.deviceId(),
+                senderDeviceId,
                 proof.newStateHash(),
                 proof.prevStateHash(),
                 proof.monotonicCounter(),
@@ -52,7 +53,7 @@ public class SettlementSyncCommandFactory {
                 collateral.id(),
                 proof.id(),
                 collateral.userId(),
-                collateral.deviceId(),
+                senderDeviceId,
                 receiverDevice == null ? null : receiverDevice.userId(),
                 receiverDevice == null ? null : receiverDevice.deviceId(),
                 collateral.assetCode(),
@@ -79,7 +80,7 @@ public class SettlementSyncCommandFactory {
 
     public FoxCoinHistoryPort.SettlementHistoryCommand createHistoryCommand(
             CollateralLock collateral,
-            String proofId,
+            OfflinePaymentProof proof,
             BigDecimal amount,
             SettlementRequest request,
             String settlementStatus,
@@ -91,9 +92,9 @@ public class SettlementSyncCommandFactory {
                 request.id(), // transferRef = settlementId for sender
                 request.batchId(),
                 collateral.id(),
-                proofId,
+                proof.id(),
                 collateral.userId(),
-                collateral.deviceId(),
+                proof.senderDeviceId(),
                 collateral.assetCode(),
                 amount,
                 settlementFeeAmount(collateral.assetCode(), amount, settlementStatus, releaseAction),

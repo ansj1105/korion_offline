@@ -945,7 +945,7 @@ public class SettlementApplicationService {
         );
         FoxCoinHistoryPort.SettlementHistoryCommand historyCommand = settlementSyncCommandFactory.createHistoryCommand(
                 collateral,
-                proof.id(),
+                proof,
                 proof.amount(),
                 request,
                 evaluation.status().name(),
@@ -1097,7 +1097,7 @@ public class SettlementApplicationService {
         var operation = collateralOperationRepository.saveRequested(
                 collateral.id(),
                 collateral.userId(),
-                collateral.deviceId(),
+                proof.senderDeviceId(),
                 collateral.assetCode(),
                 io.korion.offlinepay.domain.status.CollateralOperationType.RELEASE,
                 proof.amount(),

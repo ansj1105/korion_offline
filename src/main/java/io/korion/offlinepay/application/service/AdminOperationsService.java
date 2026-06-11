@@ -483,7 +483,7 @@ public class AdminOperationsService {
                 Map.entry("collateralId", collateral.id()),
                 Map.entry("proofId", proof.id()),
                 Map.entry("userId", collateral.userId()),
-                Map.entry("deviceId", collateral.deviceId()),
+                Map.entry("deviceId", proof.senderDeviceId()),
                 Map.entry("assetCode", collateral.assetCode()),
                 Map.entry("amount", proof.amount()),
                 Map.entry("settlementStatus", "COMPENSATED"),

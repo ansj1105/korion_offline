@@ -802,6 +802,144 @@ class SettlementWorkerTest {
     }
 
     @Test
+    void collateralReleaseWorkerUsesRemainingAmountForSegments() {
+        AppProperties properties = new AppProperties(
+                "USDT",
+                24,
+                20,
+                1000,
+                new AppProperties.ProofIssuer("test-proof-issuer", "", ""),
+                new AppProperties.CoinManage("http://localhost:3000", "test-key", 5000),
+                new AppProperties.FoxCoin("http://localhost:3101", "test-key", 5000),
+                new AppProperties.Alerts(
+                        new AppProperties.Telegram("", ""),
+                        new AppProperties.CircuitBreaker(3, 60000)
+                ),
+                new AppProperties.Redis(
+                        "offlinepay",
+                        "stream:settlement:requested",
+                        "stream:settlement:result",
+                        "stream:settlement:conflict",
+                        "stream:settlement:dead-letter",
+                        "stream:collateral:requested",
+                        "stream:collateral:result",
+                        "offlinepay:settlement-group"
+                ),
+                new AppProperties.Worker(true, "worker-1", 60000, 3)
+        );
+        io.korion.offlinepay.application.port.CollateralOperationRepository collateralOperationRepository =
+                Mockito.mock(io.korion.offlinepay.application.port.CollateralOperationRepository.class);
+        io.korion.offlinepay.application.port.CollateralRepository collateralRepository =
+                Mockito.mock(io.korion.offlinepay.application.port.CollateralRepository.class);
+        io.korion.offlinepay.application.port.OfflinePaymentProofRepository proofRepository =
+                Mockito.mock(io.korion.offlinepay.application.port.OfflinePaymentProofRepository.class);
+        io.korion.offlinepay.application.port.CoinManageCollateralPort coinManageCollateralPort =
+                Mockito.mock(io.korion.offlinepay.application.port.CoinManageCollateralPort.class);
+        io.korion.offlinepay.application.port.ReconciliationCaseRepository reconciliationCaseRepository =
+                Mockito.mock(io.korion.offlinepay.application.port.ReconciliationCaseRepository.class);
+        OfflineSnapshotStreamService snapshotStreamService = Mockito.mock(OfflineSnapshotStreamService.class);
+        OfflineSagaService offlineSagaService = Mockito.mock(OfflineSagaService.class);
+        TelegramAlertService telegramAlertService = Mockito.mock(TelegramAlertService.class);
+        JsonService jsonService = new JsonService(new com.fasterxml.jackson.databind.ObjectMapper());
+        CollateralExternalSyncWorker worker = new CollateralExternalSyncWorker(
+                eventBus,
+                collateralOperationRepository,
+                collateralRepository,
+                proofRepository,
+                coinManageCollateralPort,
+                reconciliationCaseRepository,
+                snapshotStreamService,
+                offlineSagaService,
+                jsonService,
+                telegramAlertService,
+                properties
+        );
+        OffsetDateTime now = OffsetDateTime.parse("2026-06-12T00:00:00Z");
+        CollateralOperation operation = new CollateralOperation(
+                "11111111-1111-1111-1111-111111111111",
+                "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+                1L,
+                "device-active",
+                "USDT",
+                CollateralOperationType.RELEASE,
+                new BigDecimal("6.700000"),
+                CollateralOperationStatus.REQUESTED,
+                "release:user-pool:test",
+                null,
+                "{}",
+                now,
+                now
+        );
+        CollateralLock exhausted = new CollateralLock(
+                "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+                1L,
+                "old-device",
+                "USDT",
+                new BigDecimal("6.700000"),
+                BigDecimal.ZERO,
+                "GENESIS",
+                1,
+                CollateralStatus.PARTIALLY_SETTLED,
+                "old-lock",
+                now.plusHours(1),
+                "{}",
+                now.minusDays(1),
+                now
+        );
+        CollateralLock releasable = new CollateralLock(
+                "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+                1L,
+                "old-device",
+                "USDT",
+                new BigDecimal("6.700000"),
+                new BigDecimal("6.700000"),
+                "GENESIS",
+                1,
+                CollateralStatus.PARTIALLY_SETTLED,
+                "active-lock",
+                now.plusHours(1),
+                "{}",
+                now,
+                now
+        );
+        SettlementBatchEventBus.QueuedCollateralMessage message =
+                new SettlementBatchEventBus.QueuedCollateralMessage(
+                        "collateral-1",
+                        operation.id(),
+                        "RELEASE",
+                        "USDT",
+                        operation.referenceId(),
+                        1
+                );
+
+        when(eventBus.pollCollateralOperationRequested(20)).thenReturn(List.of(message));
+        when(eventBus.reclaimStaleCollateralOperationRequested(20, 60000)).thenReturn(List.of());
+        when(collateralOperationRepository.findById(operation.id())).thenReturn(java.util.Optional.of(operation));
+        when(collateralRepository.findActiveByUserIdAndAssetCode(1L, "USDT")).thenReturn(List.of(exhausted, releasable));
+
+        worker.poll();
+
+        verify(coinManageCollateralPort, never()).releaseCollateral(
+                eq(1L),
+                eq("device-active"),
+                eq(exhausted.id()),
+                eq("USDT"),
+                eq(new BigDecimal("6.700000")),
+                anyString()
+        );
+        verify(coinManageCollateralPort).releaseCollateral(
+                eq(1L),
+                eq("device-active"),
+                eq(releasable.id()),
+                eq("USDT"),
+                eq(new BigDecimal("6.700000")),
+                eq("release:user-pool:test:0")
+        );
+        verify(collateralRepository).deductLockedAndRemainingAmount(releasable.id(), new BigDecimal("6.700000"));
+        verify(eventBus).acknowledgeCollateral("collateral-1");
+    }
+
+    @Test
     void collateralExternalSyncWorkerDeadLettersAfterMaxAttempts() {
         AppProperties properties = new AppProperties(
                 "USDT",

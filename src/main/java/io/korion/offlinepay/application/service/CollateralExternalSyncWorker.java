@@ -227,7 +227,7 @@ public class CollateralExternalSyncWorker {
             if (remainingToRelease.signum() <= 0) {
                 break;
             }
-            BigDecimal releasable = collateral.lockedAmount().min(remainingToRelease);
+            BigDecimal releasable = collateral.remainingAmount().min(remainingToRelease);
             if (releasable.signum() <= 0) {
                 continue;
             }
@@ -242,7 +242,7 @@ public class CollateralExternalSyncWorker {
                     segmentReferenceId
             );
             collateralRepository.deductLockedAndRemainingAmount(collateral.id(), releasable);
-            boolean fullyReleased = collateral.lockedAmount().compareTo(releasable) <= 0;
+            boolean fullyReleased = collateral.remainingAmount().compareTo(releasable) <= 0;
             collateralRepository.updateStatus(
                     collateral.id(),
                     fullyReleased ? CollateralStatus.RELEASED : CollateralStatus.LOCKED,

@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -58,7 +57,7 @@ class IssuedProofApplicationServiceTest {
     }
 
     @Test
-    void fallsBackToUserAssetCollateralWhenCurrentDeviceHasNoCollateral() {
+    void issuesProofFromUserAssetCollateralWithoutRebindingLocksToCurrentDevice() {
         when(properties.assetCode()).thenReturn("KORI");
         when(properties.defaultCollateralExpiryHours()).thenReturn(24);
         when(proofIssuerSignatureService.keyId()).thenReturn("issuer-1");
@@ -66,8 +65,6 @@ class IssuedProofApplicationServiceTest {
         when(proofIssuerSignatureService.sign(anyString())).thenReturn("issuer-signature");
         when(deviceRepository.findByUserIdAndDeviceId(35L, "new-device"))
                 .thenReturn(Optional.of(device(35L, "new-device")));
-        when(collateralRepository.findActiveByUserIdAndDeviceIdAndAssetCode(35L, "new-device", "KORI"))
-                .thenReturn(List.of(collateral("large-lock", 35L, "new-device", "90")));
         when(collateralRepository.findActiveByUserIdAndAssetCode(35L, "KORI"))
                 .thenReturn(List.of(
                         collateral("small-lock", 35L, "old-device", "10"),
@@ -75,7 +72,6 @@ class IssuedProofApplicationServiceTest {
                 ));
         when(settlementRepository.existsOpenByCollateralId("small-lock")).thenReturn(false);
         when(settlementRepository.existsOpenByCollateralId("large-lock")).thenReturn(false);
-        when(collateralRepository.rebindDevice(anyString(), anyString(), anyString(), anyString())).thenReturn(true);
         when(issuedOfflineProofRepository.save(
                 anyString(),
                 anyLong(),
@@ -115,8 +111,8 @@ class IssuedProofApplicationServiceTest {
 
         assertThat(envelope.deviceId()).isEqualTo("new-device");
         assertThat(envelope.collateralLockId()).isEqualTo("large-lock");
-        assertThat(envelope.usableAmount()).isEqualTo("90");
-        verify(collateralRepository, atLeastOnce()).rebindDevice(anyString(), anyString(), anyString(), anyString());
+        assertThat(envelope.collateralLockIds()).containsExactly("small-lock", "large-lock");
+        assertThat(envelope.usableAmount()).isEqualTo("100");
     }
 
     @Test
@@ -128,12 +124,9 @@ class IssuedProofApplicationServiceTest {
         when(proofIssuerSignatureService.sign(anyString())).thenReturn("issuer-signature");
         when(deviceRepository.findByUserIdAndDeviceId(35L, "new-device"))
                 .thenReturn(Optional.of(device(35L, "new-device")));
-        when(collateralRepository.findActiveByUserIdAndDeviceIdAndAssetCode(35L, "new-device", "KORI"))
-                .thenReturn(List.of(collateral("active-proof-lock", 35L, "new-device", "90")));
         when(collateralRepository.findActiveByUserIdAndAssetCode(35L, "KORI"))
                 .thenReturn(List.of(collateral("active-proof-lock", 35L, "old-device", "90")));
         when(settlementRepository.existsOpenByCollateralId("active-proof-lock")).thenReturn(false);
-        when(collateralRepository.rebindDevice(anyString(), anyString(), anyString(), anyString())).thenReturn(true);
         when(issuedOfflineProofRepository.save(
                 anyString(),
                 anyLong(),
@@ -185,11 +178,6 @@ class IssuedProofApplicationServiceTest {
         when(deviceRepository.findByUserIdAndDeviceId(35L, "new-device"))
                 .thenReturn(Optional.of(device(35L, "new-device")));
         when(collateralRepository.findActiveByUserIdAndAssetCode(35L, "KORI"))
-                .thenReturn(List.of(
-                        collateral("small-lock", 35L, "new-device", "10"),
-                        collateral("large-lock", 35L, "new-device", "90")
-                ));
-        when(collateralRepository.findActiveByUserIdAndDeviceIdAndAssetCode(35L, "new-device", "KORI"))
                 .thenReturn(List.of(
                         collateral("small-lock", 35L, "new-device", "10"),
                         collateral("large-lock", 35L, "new-device", "90")
@@ -247,8 +235,6 @@ class IssuedProofApplicationServiceTest {
                 .thenReturn(Optional.of(device(35L, "new-device")));
         when(collateralRepository.findActiveByUserIdAndAssetCode(35L, "KORI"))
                 .thenReturn(List.of(collateral("expired-lock", 35L, "new-device", "10", OffsetDateTime.now().minusDays(1))));
-        when(collateralRepository.findActiveByUserIdAndDeviceIdAndAssetCode(35L, "new-device", "KORI"))
-                .thenReturn(List.of(collateral("expired-lock", 35L, "new-device", "10", OffsetDateTime.now().minusDays(1))));
         when(settlementRepository.existsOpenByCollateralId("expired-lock")).thenReturn(false);
 
         assertThatThrownBy(() -> service.issue(
@@ -284,11 +270,6 @@ class IssuedProofApplicationServiceTest {
         when(deviceRepository.findByUserIdAndDeviceId(35L, "new-device"))
                 .thenReturn(Optional.of(device(35L, "new-device")));
         when(collateralRepository.findActiveByUserIdAndAssetCode(35L, "KORI"))
-                .thenReturn(List.of(
-                        collateral("expired-lock", 35L, "new-device", "10", OffsetDateTime.now().minusDays(1)),
-                        collateral("valid-lock", 35L, "new-device", "25", OffsetDateTime.now().plusHours(1))
-                ));
-        when(collateralRepository.findActiveByUserIdAndDeviceIdAndAssetCode(35L, "new-device", "KORI"))
                 .thenReturn(List.of(
                         collateral("expired-lock", 35L, "new-device", "10", OffsetDateTime.now().minusDays(1)),
                         collateral("valid-lock", 35L, "new-device", "25", OffsetDateTime.now().plusHours(1))
@@ -351,8 +332,6 @@ class IssuedProofApplicationServiceTest {
         CollateralLock expired = collateral("expired-lock", 35L, "new-device", "10", OffsetDateTime.now().minusHours(1));
         CollateralLock renewed = collateral("expired-lock", 35L, "new-device", "10", OffsetDateTime.now().plusHours(24));
         when(collateralRepository.findActiveByUserIdAndAssetCode(35L, "KORI"))
-                .thenReturn(List.of(expired));
-        when(collateralRepository.findActiveByUserIdAndDeviceIdAndAssetCode(35L, "new-device", "KORI"))
                 .thenReturn(List.of(expired))
                 .thenReturn(List.of(renewed));
         when(settlementRepository.existsOpenByCollateralId("expired-lock")).thenReturn(false);
@@ -402,21 +381,19 @@ class IssuedProofApplicationServiceTest {
     }
 
     @Test
-    void blocksDeviceRebindWhenCollateralHasOpenSettlement() {
+    void blocksProofIssueWhenExpiredCollateralRenewalHasOpenSettlement() {
         when(properties.assetCode()).thenReturn("KORI");
         when(deviceRepository.findByUserIdAndDeviceId(35L, "new-device"))
                 .thenReturn(Optional.of(device(35L, "new-device")));
         when(collateralRepository.findActiveByUserIdAndAssetCode(35L, "KORI"))
-                .thenReturn(List.of(collateral("settlement-lock", 35L, "old-device", "90")));
-        when(collateralRepository.findActiveByUserIdAndDeviceIdAndAssetCode(35L, "new-device", "KORI"))
-                .thenReturn(List.of());
+                .thenReturn(List.of(collateral("settlement-lock", 35L, "old-device", "90", OffsetDateTime.now().minusHours(1))));
         when(settlementRepository.existsOpenByCollateralId("settlement-lock")).thenReturn(true);
 
         assertThatThrownBy(() -> service.issue(
                 new IssuedProofApplicationService.IssueCommand(35L, "new-device", "KORI")
         ))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("collateral device sync blocked");
+                .hasMessageContaining("collateral renewal blocked");
     }
 
     private static Device device(long userId, String deviceId) {

@@ -5,7 +5,6 @@ import io.korion.offlinepay.application.port.DeviceRepository;
 import io.korion.offlinepay.application.port.IssuedOfflineProofRepository;
 import io.korion.offlinepay.application.port.SettlementRepository;
 import io.korion.offlinepay.config.AppProperties;
-import io.korion.offlinepay.domain.model.CollateralDeviceRebindCandidate;
 import io.korion.offlinepay.domain.model.CollateralLock;
 import io.korion.offlinepay.domain.model.Device;
 import io.korion.offlinepay.domain.model.IssuedOfflineProof;
@@ -141,68 +140,19 @@ public class IssuedProofApplicationService {
     }
 
     private List<CollateralLock> resolveIssuableCollaterals(long userId, String deviceId, String assetCode, OffsetDateTime issuedAt) {
-        syncUserAssetCollateralsToDevice(userId, deviceId, assetCode, "ON_DEMAND_PROOF_ISSUE");
-        renewExpiredCollateralsForCurrentSecurityDevice(userId, deviceId, assetCode, issuedAt);
-        return collateralRepository.findActiveByUserIdAndDeviceIdAndAssetCode(userId, deviceId, assetCode);
+        renewExpiredCollateralsForSecurityDevice(userId, deviceId, assetCode, issuedAt);
+        return collateralRepository.findActiveByUserIdAndAssetCode(userId, assetCode);
     }
 
     @Scheduled(fixedDelayString = "${offline-pay.worker.collateral-device-sync-delay-ms:60000}")
     @Transactional
     public void syncSingleActiveDeviceCollateralBindings() {
-        if (properties.worker() == null || !properties.worker().enabled()) {
-            return;
-        }
-        int batchSize = Math.max(1, properties.settlementStreamBatchSize());
-        List<CollateralDeviceRebindCandidate> candidates = collateralRepository.findSingleActiveDeviceRebindCandidates(
-                properties.assetCode(),
-                batchSize
-        );
-        for (CollateralDeviceRebindCandidate candidate : candidates) {
-            if (hasOpenSettlement(candidate.collateral())) {
-                continue;
-            }
-            collateralRepository.rebindDevice(
-                    candidate.collateral().id(),
-                    candidate.collateral().deviceId(),
-                    candidate.targetDeviceId(),
-                    buildDeviceSyncMetadata(candidate.collateral().deviceId(), candidate.targetDeviceId(), "SINGLE_ACTIVE_DEVICE_WORKER")
-            );
-        }
+        // Collateral ownership is user + active security-device authorization, not lock.device_id.
+        // Keep the legacy scheduler inert so it cannot migrate collateral locks between devices.
     }
 
-    private void syncUserAssetCollateralsToDevice(long userId, String targetDeviceId, String assetCode, String reason) {
+    private void renewExpiredCollateralsForSecurityDevice(long userId, String deviceId, String assetCode, OffsetDateTime issuedAt) {
         List<CollateralLock> collaterals = collateralRepository.findActiveByUserIdAndAssetCode(userId, assetCode);
-        boolean foundMovableCollateral = false;
-        boolean blockedBySettlement = false;
-        for (CollateralLock collateral : collaterals) {
-            if (hasOpenSettlement(collateral)) {
-                blockedBySettlement = true;
-                continue;
-            }
-            foundMovableCollateral = true;
-            if (!collateral.deviceId().equals(targetDeviceId)) {
-                rebindCollateralToCurrentDevice(collateral, targetDeviceId, reason);
-            }
-        }
-        if (!foundMovableCollateral && blockedBySettlement) {
-            throw new IllegalArgumentException("collateral device sync blocked: pending settlement exists");
-        }
-    }
-
-    private void rebindCollateralToCurrentDevice(CollateralLock collateral, String targetDeviceId, String reason) {
-        boolean updated = collateralRepository.rebindDevice(
-                collateral.id(),
-                collateral.deviceId(),
-                targetDeviceId,
-                buildDeviceSyncMetadata(collateral.deviceId(), targetDeviceId, reason)
-        );
-        if (!updated) {
-            throw new IllegalArgumentException("collateral device sync failed: stale collateral device binding");
-        }
-    }
-
-    private void renewExpiredCollateralsForCurrentSecurityDevice(long userId, String deviceId, String assetCode, OffsetDateTime issuedAt) {
-        List<CollateralLock> collaterals = collateralRepository.findActiveByUserIdAndDeviceIdAndAssetCode(userId, deviceId, assetCode);
         boolean foundRenewableCollateral = false;
         boolean blockedBySettlement = false;
         OffsetDateTime renewedExpiresAt = issuedAt.plusHours(properties.defaultCollateralExpiryHours());
@@ -237,17 +187,6 @@ public class IssuedProofApplicationService {
 
     private boolean hasOpenSettlement(CollateralLock collateral) {
         return settlementRepository.existsOpenByCollateralId(collateral.id());
-    }
-
-    private String buildDeviceSyncMetadata(String previousDeviceId, String targetDeviceId, String reason) {
-        return jsonService.write(Map.of(
-                "deviceSync", Map.of(
-                        "reason", reason,
-                        "previousDeviceId", previousDeviceId,
-                        "targetDeviceId", targetDeviceId,
-                        "syncedAt", OffsetDateTime.now().toString()
-                )
-        ));
     }
 
     private String buildCollateralRenewalMetadata(String deviceId, String reason) {

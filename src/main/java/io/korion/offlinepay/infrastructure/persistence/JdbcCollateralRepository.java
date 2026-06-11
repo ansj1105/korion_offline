@@ -1,7 +1,6 @@
 package io.korion.offlinepay.infrastructure.persistence;
 
 import io.korion.offlinepay.application.port.CollateralRepository;
-import io.korion.offlinepay.domain.model.CollateralDeviceRebindCandidate;
 import io.korion.offlinepay.domain.model.CollateralLock;
 import io.korion.offlinepay.domain.status.CollateralStatus;
 import io.korion.offlinepay.infrastructure.persistence.mapper.CollateralLockRowMapper;
@@ -92,59 +91,6 @@ public class JdbcCollateralRepository implements CollateralRepository {
     }
 
     @Override
-    public Optional<CollateralLock> findLatestByUserIdAndDeviceIdAndAssetCode(long userId, String deviceId, String assetCode) {
-        String sql = QueryBuilder.select("collateral_locks")
-                .where("user_id", QueryBuilder.Op.EQ, ":userId")
-                .where("device_id", QueryBuilder.Op.EQ, ":deviceId")
-                .where("asset_code", QueryBuilder.Op.EQ, ":assetCode")
-                .orderBy("updated_at DESC")
-                .limit(1)
-                .build();
-        return jdbcClient.sql(sql)
-                .param("userId", userId)
-                .param("deviceId", deviceId)
-                .param("assetCode", assetCode)
-                .query(collateralLockRowMapper)
-                .optional();
-    }
-
-    @Override
-    public Optional<CollateralLock> findAggregateByUserIdAndDeviceIdAndAssetCode(long userId, String deviceId, String assetCode) {
-        String sql = """
-                SELECT
-                    MIN(id::text) AS id,
-                    user_id,
-                    device_id,
-                    asset_code,
-                    COALESCE(SUM(locked_amount), 0) AS locked_amount,
-                    COALESCE(SUM(remaining_amount), 0) AS remaining_amount,
-                    'AGGREGATED' AS initial_state_root,
-                    COALESCE(MAX(policy_version), 1) AS policy_version,
-                    CASE
-                        WHEN BOOL_OR(status = 'LOCKED') THEN 'LOCKED'
-                        ELSE COALESCE(MAX(status), 'RELEASED')
-                    END AS status,
-                    STRING_AGG(external_lock_id, ',' ORDER BY created_at) AS external_lock_id,
-                    MAX(expires_at) AS expires_at,
-                    '{}'::text AS metadata,
-                    MIN(created_at) AS created_at,
-                    MAX(updated_at) AS updated_at
-                FROM collateral_locks
-                WHERE user_id = :userId
-                  AND device_id = :deviceId
-                  AND asset_code = :assetCode
-                  AND status IN ('LOCKED', 'PARTIALLY_SETTLED')
-                GROUP BY user_id, device_id, asset_code
-                """;
-        return jdbcClient.sql(sql)
-                .param("userId", userId)
-                .param("deviceId", deviceId)
-                .param("assetCode", assetCode)
-                .query(collateralLockRowMapper)
-                .optional();
-    }
-
-    @Override
     public Optional<CollateralLock> findAggregateByUserIdAndAssetCode(long userId, String assetCode) {
         String sql = """
                 SELECT
@@ -177,24 +123,6 @@ public class JdbcCollateralRepository implements CollateralRepository {
                 .param("snapshotDeviceId", "AGGREGATED")
                 .query(collateralLockRowMapper)
                 .optional();
-    }
-
-    @Override
-    public List<CollateralLock> findActiveByUserIdAndDeviceIdAndAssetCode(long userId, String deviceId, String assetCode) {
-        String sql = QueryBuilder.select("collateral_locks")
-                .where("user_id", QueryBuilder.Op.EQ, ":userId")
-                .where("device_id", QueryBuilder.Op.EQ, ":deviceId")
-                .where("asset_code", QueryBuilder.Op.EQ, ":assetCode")
-                .where("remaining_amount", QueryBuilder.Op.GT, ":zero")
-                .orderBy("created_at ASC")
-                .build();
-        return jdbcClient.sql(sql)
-                .param("userId", userId)
-                .param("deviceId", deviceId)
-                .param("assetCode", assetCode)
-                .param("zero", BigDecimal.ZERO)
-                .query(collateralLockRowMapper)
-                .list();
     }
 
     @Override
@@ -238,51 +166,6 @@ public class JdbcCollateralRepository implements CollateralRepository {
                         rs.getBigDecimal("remaining_amount")
                 ))
                 .list();
-    }
-
-    @Override
-    public List<CollateralDeviceRebindCandidate> findSingleActiveDeviceRebindCandidates(String assetCode, int size) {
-        String sql = """
-                SELECT c.*, active_devices.target_device_id
-                FROM collateral_locks c
-                JOIN (
-                    SELECT user_id, MIN(device_id) AS target_device_id
-                    FROM devices
-                    WHERE status = 'ACTIVE'
-                    GROUP BY user_id
-                    HAVING COUNT(*) = 1
-                ) active_devices ON active_devices.user_id = c.user_id
-                WHERE c.asset_code = :assetCode
-                  AND c.remaining_amount > 0
-                  AND c.device_id <> active_devices.target_device_id
-                ORDER BY c.updated_at ASC
-                LIMIT :size
-                """;
-        return jdbcClient.sql(sql)
-                .param("assetCode", assetCode)
-                .param("size", size)
-                .query((rs, rowNum) -> new CollateralDeviceRebindCandidate(
-                        collateralLockRowMapper.mapRow(rs, rowNum),
-                        rs.getString("target_device_id")
-                ))
-                .list();
-    }
-
-    @Override
-    public boolean rebindDevice(String collateralId, String previousDeviceId, String targetDeviceId, String metadataJson) {
-        String sql = QueryBuilder.update("collateral_locks")
-                .set("device_id", ":targetDeviceId")
-                .set("metadata", "COALESCE(metadata, '{}'::jsonb) || CAST(:metadata AS jsonb)")
-                .touchUpdatedAt()
-                .where("id", QueryBuilder.Op.EQ, "CAST(:id AS uuid)")
-                .where("device_id", QueryBuilder.Op.EQ, ":previousDeviceId")
-                .build();
-        return jdbcClient.sql(sql)
-                .param("id", collateralId)
-                .param("previousDeviceId", previousDeviceId)
-                .param("targetDeviceId", targetDeviceId)
-                .param("metadata", metadataJson)
-                .update() > 0;
     }
 
     @Override

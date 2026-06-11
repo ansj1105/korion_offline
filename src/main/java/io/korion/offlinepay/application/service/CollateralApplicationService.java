@@ -10,7 +10,7 @@ import io.korion.offlinepay.domain.status.OfflineSagaType;
 import io.korion.offlinepay.domain.status.CollateralOperationType;
 import io.korion.offlinepay.config.AppProperties;
 import io.korion.offlinepay.domain.model.CollateralLock;
-import io.korion.offlinepay.domain.status.CollateralStatus;
+import io.korion.offlinepay.domain.status.DeviceStatus;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -57,8 +57,7 @@ public class CollateralApplicationService {
 
     @Transactional
     public CollateralOperation createCollateral(CreateCollateralCommand command) {
-        deviceRepository.findByDeviceId(command.deviceId())
-                .orElseThrow(() -> new IllegalArgumentException("device not registered: " + command.deviceId()));
+        assertActiveSecurityDevice(command.userId(), command.deviceId());
 
         String assetCode = command.assetCode() == null || command.assetCode().isBlank()
                 ? properties.assetCode()
@@ -151,40 +150,52 @@ public class CollateralApplicationService {
 
     @Transactional
     public CollateralOperation releaseCollateral(String collateralId, ReleaseCollateralCommand command) {
-        CollateralLock collateral = collateralRepository.findById(collateralId)
+        assertActiveSecurityDevice(command.userId(), command.deviceId());
+
+        CollateralLock requestedCollateral = collateralRepository.findById(collateralId)
                 .orElseThrow(() -> new IllegalArgumentException("collateral not found: " + collateralId));
         CollateralLock aggregate = collateralRepository.findAggregateByUserIdAndAssetCode(
-                        collateral.userId(),
-                        collateral.assetCode()
+                        requestedCollateral.userId(),
+                        requestedCollateral.assetCode()
                 )
                 .orElseThrow(() -> new IllegalArgumentException("collateral remaining amount is empty: " + collateralId));
 
-        if (collateral.userId() != command.userId()) {
+        if (requestedCollateral.userId() != command.userId()) {
             throw new IllegalArgumentException("collateral user mismatch: " + collateralId);
-        }
-        if (collateral.status() == CollateralStatus.RELEASED) {
-            throw new IllegalArgumentException("collateral already released: " + collateralId);
         }
         if (command.amount() == null || command.amount().signum() <= 0) {
             throw new IllegalArgumentException("release amount is required");
         }
-        if (command.amount().compareTo(aggregate.lockedAmount()) > 0) {
-            throw new IllegalArgumentException("release amount exceeds locked collateral");
+        if (command.amount().compareTo(aggregate.remainingAmount()) > 0) {
+            throw new IllegalArgumentException("release amount exceeds remaining collateral");
         }
 
-        String referenceId = buildReleaseReferenceId(collateralId, command);
+        List<CollateralLock> activeLocks = collateralRepository.findActiveByUserIdAndAssetCode(
+                command.userId(),
+                requestedCollateral.assetCode()
+        );
+        CollateralLock releaseAnchor = activeLocks.stream()
+                .filter(item -> item.id().equals(requestedCollateral.id()))
+                .findFirst()
+                .orElseGet(() -> activeLocks.stream()
+                        .findFirst()
+                        .orElseThrow(() -> new IllegalArgumentException("no releasable collateral found")));
+
+        String referenceId = buildReleaseReferenceId(releaseAnchor.id(), command);
         CollateralOperation operation = collateralOperationRepository.saveRequested(
-                collateral.id(),
-                collateral.userId(),
-                collateral.deviceId(),
-                collateral.assetCode(),
+                releaseAnchor.id(),
+                requestedCollateral.userId(),
+                command.deviceId(),
+                requestedCollateral.assetCode(),
                 CollateralOperationType.RELEASE,
                 command.amount(),
                 referenceId,
                 jsonService.write(Map.of(
                         "amount", command.amount(),
                         "reason", command.reason() == null ? "manual_release" : command.reason(),
-                        "metadata", command.metadata() == null ? Map.of() : command.metadata()
+                        "metadata", command.metadata() == null ? Map.of() : command.metadata(),
+                        "requestedCollateralId", requestedCollateral.id(),
+                        "releaseAnchorCollateralId", releaseAnchor.id()
                 ))
         );
         settlementBatchEventBus.publishCollateralOperationRequested(
@@ -206,6 +217,12 @@ public class CollateralApplicationService {
                 )
         );
         return operation;
+    }
+
+    private void assertActiveSecurityDevice(long userId, String deviceId) {
+        deviceRepository.findByUserIdAndDeviceId(userId, deviceId)
+                .filter(device -> device.status() == DeviceStatus.ACTIVE)
+                .orElseThrow(() -> new IllegalArgumentException("active security device not registered: " + deviceId));
     }
 
     private String buildTopupReferenceId(CreateCollateralCommand command) {
