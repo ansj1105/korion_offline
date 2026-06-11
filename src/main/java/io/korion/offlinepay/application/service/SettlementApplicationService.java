@@ -798,9 +798,8 @@ public class SettlementApplicationService {
     }
 
     private CollateralLock resolveSettlementCollateralScope(CollateralLock primaryCollateral, OfflinePaymentProof proof) {
-        return collateralRepository.findAggregateByUserIdAndDeviceIdAndAssetCode(
+        return collateralRepository.findAggregateByUserIdAndAssetCode(
                         primaryCollateral.userId(),
-                        proof.senderDeviceId(),
                         primaryCollateral.assetCode()
                 )
                 .orElse(primaryCollateral);
@@ -812,9 +811,8 @@ public class SettlementApplicationService {
             SettlementRequest request
     ) {
         BigDecimal remainingToDeduct = feeCalculator.calculateTotal(primaryCollateral.assetCode(), proof.amount());
-        List<CollateralLock> collateralScope = collateralRepository.findActiveByUserIdAndDeviceIdAndAssetCode(
+        List<CollateralLock> collateralScope = collateralRepository.findActiveByUserIdAndAssetCode(
                 primaryCollateral.userId(),
-                proof.senderDeviceId(),
                 primaryCollateral.assetCode()
         );
         if (collateralScope == null || collateralScope.isEmpty()) {
