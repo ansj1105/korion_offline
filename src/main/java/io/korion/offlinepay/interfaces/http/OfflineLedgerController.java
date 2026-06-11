@@ -20,8 +20,9 @@ public class OfflineLedgerController {
     public OfflineLedgerService.LedgerHistoryResponse history(
             @RequestParam long userId,
             @RequestParam(required = false) String assetCode,
-            @RequestParam(required = false) Integer size
+            @RequestParam(required = false) Integer size,
+            @RequestParam(required = false) Integer page
     ) {
-        return offlineLedgerService.getLedgerHistory(userId, assetCode, size);
+        return offlineLedgerService.getLedgerHistory(userId, assetCode, size, page);
     }
 }

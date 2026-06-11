@@ -26,6 +26,10 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class OfflineLedgerService {
 
+    private static final int LEDGER_HISTORY_DEFAULT_SIZE = 30;
+    private static final int LEDGER_HISTORY_MAX_SIZE = 30;
+    private static final int LEDGER_HISTORY_MAX_FETCH_SIZE = 300;
+
     private static final Set<String> RECEIVER_SETTLEMENT_PENDING_REASONS = Set.of(
             OfflinePayReasonCode.COUNTER_GAP,
             OfflinePayReasonCode.SEND_INTERRUPTED,
@@ -67,15 +71,31 @@ public class OfflineLedgerService {
 
     @Transactional(readOnly = true)
     public LedgerHistoryResponse getLedgerHistory(long userId, String assetCode, Integer size) {
+        return getLedgerHistory(userId, assetCode, size, 0);
+    }
+
+    @Transactional(readOnly = true)
+    public LedgerHistoryResponse getLedgerHistory(long userId, String assetCode, Integer size, Integer page) {
         String normalizedAssetCode = assetCode == null || assetCode.isBlank()
                 ? properties.assetCode()
                 : assetCode.trim().toUpperCase();
-        int normalizedSize = size == null || size <= 0 ? 200 : Math.min(size, 500);
+        int normalizedSize = size == null || size <= 0
+                ? LEDGER_HISTORY_DEFAULT_SIZE
+                : Math.min(size, LEDGER_HISTORY_MAX_SIZE);
+        int normalizedPage = page == null || page <= 0 ? 0 : page;
+        long requestedOffset = (long) normalizedPage * normalizedSize;
+        int offset = requestedOffset > LEDGER_HISTORY_MAX_FETCH_SIZE
+                ? LEDGER_HISTORY_MAX_FETCH_SIZE
+                : (int) requestedOffset;
+        int fetchSize = Math.min(
+                LEDGER_HISTORY_MAX_FETCH_SIZE,
+                Math.max(normalizedSize + 1, offset + normalizedSize + 1)
+        );
         Set<String> activeDeviceIds = loadActiveDeviceIds(userId);
         List<CollateralOperation> operations = collateralOperationRepository
-                .findRecentByUserIdAndAssetCode(userId, normalizedAssetCode, normalizedSize);
+                .findRecentByUserIdAndAssetCode(userId, normalizedAssetCode, fetchSize);
         List<OfflinePaymentProof> proofs = offlinePaymentProofRepository
-                .findRecentByUserIdAndAssetCode(userId, normalizedAssetCode, normalizedSize);
+                .findRecentByUserIdAndAssetCode(userId, normalizedAssetCode, fetchSize);
         BigDecimal currentRemainingAmount = collateralRepository
                 .findAggregateByUserIdAndAssetCode(userId, normalizedAssetCode)
                 .map(CollateralLock::remainingAmount)
@@ -108,16 +128,33 @@ public class OfflineLedgerService {
         sentEvents.sort(Comparator.comparing(LedgerEvent::time).reversed());
         receivedEvents.sort(Comparator.comparing(LedgerEvent::time).reversed());
 
-        List<LedgerHistoryItem> sentItems = buildSentItems(sentEvents, currentRemainingAmount);
-        List<LedgerHistoryItem> receivedItems = buildReceivedItems(receivedEvents);
+        List<LedgerHistoryItem> allSentItems = buildSentItems(sentEvents, currentRemainingAmount);
+        List<LedgerHistoryItem> allReceivedItems = buildReceivedItems(receivedEvents);
+        List<LedgerHistoryItem> sentItems = sliceLedgerPage(allSentItems, offset, normalizedSize);
+        List<LedgerHistoryItem> receivedItems = sliceLedgerPage(allReceivedItems, offset, normalizedSize);
 
         return new LedgerHistoryResponse(
                 normalizedAssetCode,
                 sentItems,
                 receivedItems,
                 calculateReceivedTotal(receivedItems).toPlainString(),
-                OffsetDateTime.now().toString()
+                OffsetDateTime.now().toString(),
+                normalizedPage,
+                normalizedSize,
+                hasNextLedgerPage(allSentItems, offset, normalizedSize),
+                hasNextLedgerPage(allReceivedItems, offset, normalizedSize)
         );
+    }
+
+    private List<LedgerHistoryItem> sliceLedgerPage(List<LedgerHistoryItem> items, int offset, int size) {
+        if (offset >= items.size()) {
+            return List.of();
+        }
+        return items.subList(offset, Math.min(items.size(), offset + size));
+    }
+
+    private boolean hasNextLedgerPage(List<LedgerHistoryItem> items, int offset, int size) {
+        return items.size() > offset + size;
     }
 
     private BigDecimal calculateReceivedTotal(List<LedgerHistoryItem> receivedItems) {
@@ -502,7 +539,11 @@ public class OfflineLedgerService {
             List<LedgerHistoryItem> sentItems,
             List<LedgerHistoryItem> receivedItems,
             String totalReceivedAmount,
-            String refreshedAt
+            String refreshedAt,
+            int page,
+            int size,
+            boolean sentHasNext,
+            boolean receivedHasNext
     ) {}
 
     public record LedgerHistoryItem(

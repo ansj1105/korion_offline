@@ -315,8 +315,15 @@ paths:
           schema:
             type: integer
             minimum: 1
-            maximum: 500
-            default: 200
+            maximum: 30
+            default: 30
+        - in: query
+          name: page
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
       responses:
         '200':
           description: 오프라인페이 ledger history
@@ -568,6 +575,17 @@ components:
         refreshedAt:
           type: string
           format: date-time
+        page:
+          type: integer
+          minimum: 0
+        size:
+          type: integer
+          minimum: 1
+          maximum: 30
+        sentHasNext:
+          type: boolean
+        receivedHasNext:
+          type: boolean
 
     LedgerHistoryItem:
       type: object

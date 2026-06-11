@@ -46,8 +46,8 @@ class OfflineLedgerServiceTest {
         when(deviceRepository.findByDeviceId("47ba2d8b-5b95-4510-8b23-007957e4fe46")).thenReturn(Optional.empty());
         when(deviceRepository.findByDeviceId("app-suffix:e7eaeaa7")).thenReturn(Optional.empty());
         when(deviceRepository.findUniqueActiveByDeviceIdSuffix("e7eaeaa7")).thenReturn(Optional.of(receiverDevice));
-        when(proofRepository.findRecentByUserIdAndAssetCode(39L, "KORI", 200)).thenReturn(List.of(proof));
-        when(collateralOperationRepository.findRecentByUserIdAndAssetCode(39L, "KORI", 200)).thenReturn(List.of());
+        when(proofRepository.findRecentByUserIdAndAssetCode(39L, "KORI", 31)).thenReturn(List.of(proof));
+        when(collateralOperationRepository.findRecentByUserIdAndAssetCode(39L, "KORI", 31)).thenReturn(List.of());
         when(collateralRepository.findAggregateByUserIdAndAssetCode(39L, "KORI")).thenReturn(Optional.empty());
 
         OfflineLedgerService.LedgerHistoryResponse response = service.getLedgerHistory(39L, "KORI", 200);
@@ -68,8 +68,8 @@ class OfflineLedgerServiceTest {
         when(deviceRepository.findByDeviceId("47ba2d8b-5b95-4510-8b23-007957e4fe46")).thenReturn(Optional.empty());
         when(deviceRepository.findByDeviceId("app-suffix:e7eaeaa7")).thenReturn(Optional.empty());
         when(deviceRepository.findUniqueActiveByDeviceIdSuffix("e7eaeaa7")).thenReturn(Optional.of(receiverDevice));
-        when(proofRepository.findRecentByUserIdAndAssetCode(39L, "KORI", 200)).thenReturn(List.of(proof));
-        when(collateralOperationRepository.findRecentByUserIdAndAssetCode(39L, "KORI", 200)).thenReturn(List.of());
+        when(proofRepository.findRecentByUserIdAndAssetCode(39L, "KORI", 31)).thenReturn(List.of(proof));
+        when(collateralOperationRepository.findRecentByUserIdAndAssetCode(39L, "KORI", 31)).thenReturn(List.of());
         when(collateralRepository.findAggregateByUserIdAndAssetCode(39L, "KORI")).thenReturn(Optional.empty());
 
         OfflineLedgerService.LedgerHistoryResponse response = service.getLedgerHistory(39L, "KORI", 200);
@@ -94,8 +94,8 @@ class OfflineLedgerServiceTest {
         when(deviceRepository.findByDeviceId("47ba2d8b-5b95-4510-8b23-007957e4fe46")).thenReturn(Optional.empty());
         when(deviceRepository.findByDeviceId("app-suffix:e7eaeaa7")).thenReturn(Optional.empty());
         when(deviceRepository.findUniqueActiveByDeviceIdSuffix("e7eaeaa7")).thenReturn(Optional.of(receiverDevice));
-        when(proofRepository.findRecentByUserIdAndAssetCode(39L, "KORI", 200)).thenReturn(List.of(proof));
-        when(collateralOperationRepository.findRecentByUserIdAndAssetCode(39L, "KORI", 200)).thenReturn(List.of());
+        when(proofRepository.findRecentByUserIdAndAssetCode(39L, "KORI", 31)).thenReturn(List.of(proof));
+        when(collateralOperationRepository.findRecentByUserIdAndAssetCode(39L, "KORI", 31)).thenReturn(List.of());
         when(collateralRepository.findAggregateByUserIdAndAssetCode(39L, "KORI")).thenReturn(Optional.empty());
 
         OfflineLedgerService.LedgerHistoryResponse response = service.getLedgerHistory(39L, "KORI", 200);
@@ -117,8 +117,8 @@ class OfflineLedgerServiceTest {
         when(deviceRepository.findByDeviceId("47ba2d8b-5b95-4510-8b23-007957e4fe46")).thenReturn(Optional.empty());
         when(deviceRepository.findByDeviceId("app-suffix:e7eaeaa7")).thenReturn(Optional.empty());
         when(deviceRepository.findUniqueActiveByDeviceIdSuffix("e7eaeaa7")).thenReturn(Optional.of(receiverDevice));
-        when(proofRepository.findRecentByUserIdAndAssetCode(39L, "KORI", 200)).thenReturn(List.of(proof));
-        when(collateralOperationRepository.findRecentByUserIdAndAssetCode(39L, "KORI", 200)).thenReturn(List.of());
+        when(proofRepository.findRecentByUserIdAndAssetCode(39L, "KORI", 31)).thenReturn(List.of(proof));
+        when(collateralOperationRepository.findRecentByUserIdAndAssetCode(39L, "KORI", 31)).thenReturn(List.of());
         when(collateralRepository.findAggregateByUserIdAndAssetCode(39L, "KORI")).thenReturn(Optional.empty());
 
         OfflineLedgerService.LedgerHistoryResponse response = service.getLedgerHistory(39L, "KORI", 200);
@@ -139,8 +139,8 @@ class OfflineLedgerServiceTest {
         when(deviceRepository.findByDeviceId("47ba2d8b-5b95-4510-8b23-007957e4fe46")).thenReturn(Optional.empty());
         when(deviceRepository.findByDeviceId("app-suffix:e7eaeaa7")).thenReturn(Optional.empty());
         when(deviceRepository.findUniqueActiveByDeviceIdSuffix("e7eaeaa7")).thenReturn(Optional.of(receiverDevice));
-        when(proofRepository.findRecentByUserIdAndAssetCode(39L, "KORI", 200)).thenReturn(List.of(proof));
-        when(collateralOperationRepository.findRecentByUserIdAndAssetCode(39L, "KORI", 200)).thenReturn(List.of());
+        when(proofRepository.findRecentByUserIdAndAssetCode(39L, "KORI", 31)).thenReturn(List.of(proof));
+        when(collateralOperationRepository.findRecentByUserIdAndAssetCode(39L, "KORI", 31)).thenReturn(List.of());
         when(collateralRepository.findAggregateByUserIdAndAssetCode(39L, "KORI")).thenReturn(Optional.empty());
 
         OfflineLedgerService.LedgerHistoryResponse response = service.getLedgerHistory(39L, "KORI", 200);
