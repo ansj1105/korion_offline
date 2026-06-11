@@ -345,7 +345,9 @@ public class OfflineLedgerService {
         if (direction == LedgerDirection.RECEIVE && failed && shouldKeepReceivedProofPending(proof)) {
             failed = false;
         }
-        String statusCode = failed ? "FAILED" : completed ? "COMPLETED" : "PENDING";
+        boolean receiverSettled = direction == LedgerDirection.RECEIVE
+                && normalizeAmount(proof.receivedSettledAmount()).compareTo(BigDecimal.ZERO) > 0;
+        String statusCode = failed ? "FAILED" : receiverSettled ? "SETTLED" : completed ? "COMPLETED" : "PENDING";
         BigDecimal receivedUnsettledAmount = senderOwned
                 ? BigDecimal.ZERO
                 : resolveReceivedUnsettledAmount(proof, statusCode);
@@ -395,8 +397,8 @@ public class OfflineLedgerService {
                 "수취 정산",
                 "미정산 결제금 KORION wallet 반영",
                 settledAmount.abs(),
-                "COMPLETED",
-                statusLabel("COMPLETED"),
+                "SETTLED",
+                statusLabel("SETTLED"),
                 receiveEvent.network(),
                 receiveEvent.assetCode(),
                 receiveEvent.walletAddress(),
@@ -545,6 +547,7 @@ public class OfflineLedgerService {
 
     private String statusLabel(String statusCode) {
         return switch (statusCode) {
+            case "SETTLED" -> "정산완료";
             case "COMPLETED" -> "완료";
             case "FAILED" -> "실패";
             default -> "대기";

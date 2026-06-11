@@ -610,6 +610,8 @@ components:
           type: string
         statusCode:
           type: string
+          enum: [PENDING, COMPLETED, SETTLED, FAILED]
+          description: PENDING=server validation pending, COMPLETED=local payment protocol completed, SETTLED=receiver wallet/history settlement completed, FAILED=failed.
         network:
           type: string
         token:
