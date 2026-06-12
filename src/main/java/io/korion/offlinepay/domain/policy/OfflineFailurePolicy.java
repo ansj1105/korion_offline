@@ -38,6 +38,18 @@ public final class OfflineFailurePolicy {
 
         if (containsAny(
                 normalizedReason,
+                OfflinePayReasonCode.PROOF_EXPIRED,
+                OfflinePayReasonCode.COLLATERAL_EXPIRED,
+                OfflinePayReasonCode.ISSUED_PROOF_EXPIRED,
+                OfflinePayReasonCode.RECEIVER_CONFIRMATION_EXPIRED,
+                OfflinePayReasonCode.RECEIVER_EVIDENCE_REQUIRED,
+                OfflinePayReasonCode.OFFLINE_ESTIMATED_TIME_STALE
+        ) || containsAny(normalizedError, "WAITING_SENDER_PROOF_TIMEOUT")) {
+            return OfflineFailureClass.TEMPORAL;
+        }
+
+        if (containsAny(
+                normalizedReason,
                 OfflinePayReasonCode.INVALID_PROOF_SCHEMA,
                 OfflinePayReasonCode.DEVICE_NOT_FOUND,
                 OfflinePayReasonCode.INVALID_DEVICE_BINDING,
@@ -59,13 +71,10 @@ public final class OfflineFailurePolicy {
                 OfflinePayReasonCode.LOCAL_AVAILABLE_AMOUNT_REQUIRED,
                 OfflinePayReasonCode.LOCAL_AVAILABLE_AMOUNT_EXCEEDED,
                 OfflinePayReasonCode.SERVER_AVAILABLE_AMOUNT_EXCEEDED,
-                OfflinePayReasonCode.PROOF_EXPIRED,
-                OfflinePayReasonCode.COLLATERAL_EXPIRED,
                 OfflinePayReasonCode.PROOF_NOT_FOUND,
                 OfflinePayReasonCode.PROOF_TAMPERED,
                 OfflinePayReasonCode.ISSUED_PROOF_REQUIRED,
                 OfflinePayReasonCode.ISSUED_PROOF_NOT_FOUND,
-                OfflinePayReasonCode.ISSUED_PROOF_EXPIRED,
                 OfflinePayReasonCode.ISSUED_PROOF_STATUS_INVALID,
                 OfflinePayReasonCode.ISSUED_PROOF_PAYLOAD_MISMATCH,
                 OfflinePayReasonCode.ISSUED_PROOF_SIGNATURE_INVALID,
@@ -123,6 +132,7 @@ public final class OfflineFailurePolicy {
 
     public static boolean isRetryable(OfflineFailureClass failureClass) {
         return failureClass == OfflineFailureClass.TRANSPORT
+                || failureClass == OfflineFailureClass.TEMPORAL
                 || failureClass == OfflineFailureClass.PARTIAL
                 || failureClass == OfflineFailureClass.SYSTEM;
     }
@@ -130,6 +140,7 @@ public final class OfflineFailurePolicy {
     public static int maxAutoRetryAttempts(OfflineFailureClass failureClass) {
         return switch (failureClass) {
             case TRANSPORT -> 10;
+            case TEMPORAL -> 20;
             case PARTIAL -> 6;
             case SYSTEM -> 3;
             case AUTH -> 2;
@@ -140,6 +151,7 @@ public final class OfflineFailurePolicy {
     public static Duration nextRetryDelay(OfflineFailureClass failureClass, int retryCount) {
         int[] minutes = switch (failureClass) {
             case TRANSPORT -> new int[] {1, 5, 15, 60, 360};
+            case TEMPORAL -> new int[] {1, 5, 15, 60, 360, 720};
             case PARTIAL -> new int[] {5, 15, 60, 360};
             case SYSTEM -> new int[] {5, 15, 60};
             case AUTH -> new int[] {1, 5};
@@ -152,6 +164,7 @@ public final class OfflineFailurePolicy {
     public static String adminAction(OfflineFailureClass failureClass) {
         return switch (failureClass) {
             case TRANSPORT -> "BULK_RETRY_ALLOWED";
+            case TEMPORAL -> "KEEP_PENDING_AND_RETRY";
             case PARTIAL -> "RECONCILIATION_RETRY_PRIORITY";
             case SYSTEM -> "OPERATOR_REVIEW_REQUIRED";
             case AUTH -> "SECRET_OR_BINDING_REVIEW";

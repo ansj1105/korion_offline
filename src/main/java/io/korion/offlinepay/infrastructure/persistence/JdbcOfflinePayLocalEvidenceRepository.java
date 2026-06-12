@@ -4,6 +4,7 @@ import io.korion.offlinepay.application.port.OfflinePayLocalEvidenceRepository;
 import io.korion.offlinepay.application.service.JsonService;
 import io.korion.offlinepay.domain.model.OfflinePayLocalEvidence;
 import io.korion.offlinepay.domain.model.OfflinePaymentProof;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -163,6 +164,55 @@ public class JdbcOfflinePayLocalEvidenceRepository implements OfflinePayLocalEvi
     }
 
     @Override
+    public void markMatchingEvidence(OfflinePaymentProof proof) {
+        String sql = """
+                UPDATE offline_pay_local_evidence
+                SET proof_id = COALESCE(proof_id, :proofId),
+                    matched_proof_id = :proofId,
+                    matched_at = COALESCE(matched_at, NOW()),
+                    updated_at = NOW()
+                WHERE verification_status = 'VERIFIED'
+                  AND voucher_id = :voucherId
+                  AND sender_device_id = :senderDeviceId
+                  AND receiver_device_id = :receiverDeviceId
+                  AND amount = :amount
+                  AND (
+                      (
+                          direction = 'SEND'
+                          AND hash_chain_head = :hashChainHead
+                          AND COALESCE(previous_hash, '') = COALESCE(:previousHash, '')
+                          AND nonce = :nonce
+                          AND signature = :signature
+                          AND counter::text = :counterText
+                      )
+                      OR (
+                          direction = 'RECEIVE'
+                          AND (
+                              matched_proof_id = :proofId
+                              OR proof_id = :proofId
+                              OR raw_payload ->> 'proofId' = :proofIdText
+                              OR (
+                                  raw_payload ->> 'receiverEvidenceBlockSenderProofNewHash' = :hashChainHead
+                                  AND raw_payload ->> 'receiverEvidenceBlockSenderProofPrevHash' = :previousHash
+                                  AND raw_payload ->> 'receiverEvidenceBlockSenderProofNonce' = :nonce
+                                  AND raw_payload ->> 'receiverEvidenceBlockSenderProofSignature' = :signature
+                                  AND raw_payload ->> 'receiverEvidenceBlockSenderProofCounter' = :counterText
+                              )
+                              OR (
+                                  raw_payload ->> 'receiverLocalBlockNewHash' = :hashChainHead
+                                  AND raw_payload ->> 'receiverLocalBlockPrevHash' = :previousHash
+                                  AND raw_payload ->> 'receiverLocalBlockNonce' = :nonce
+                                  AND raw_payload ->> 'receiverLocalBlockSignature' = :signature
+                                  AND raw_payload ->> 'receiverLocalBlockCounter' = :counterText
+                              )
+                          )
+                      )
+                  )
+                """;
+        bindMatchingReceiverEvidenceParams(jdbcClient.sql(sql), proof).update();
+    }
+
+    @Override
     public List<OfflinePayLocalEvidence> findVerifiedSenderEvidenceWithMatchingReceiverEvidence(int limit) {
         String sql = """
                 SELECT s.*
@@ -202,7 +252,7 @@ public class JdbcOfflinePayLocalEvidenceRepository implements OfflinePayLocalEvi
     }
 
     @Override
-    public LocalEvidenceStatus summarizeStatus(String voucherId, String sessionId) {
+    public LocalEvidenceStatus summarizeStatus(String voucherId, String sessionId, OffsetDateTime staleCutoff) {
         String sql = """
                 SELECT
                     COALESCE(MAX(voucher_id), :voucherId) AS voucher_id,
@@ -218,6 +268,15 @@ public class JdbcOfflinePayLocalEvidenceRepository implements OfflinePayLocalEvi
                     COALESCE(SUM(CASE WHEN direction = 'RECEIVE' AND verification_status = 'VERIFIED' AND matched_proof_id IS NOT NULL THEN 1 ELSE 0 END), 0)::int AS receiver_matched,
                     COALESCE(SUM(CASE WHEN direction = 'SEND' AND verification_status <> 'VERIFIED' THEN 1 ELSE 0 END), 0)::int AS sender_failed,
                     COALESCE(SUM(CASE WHEN direction = 'RECEIVE' AND verification_status <> 'VERIFIED' THEN 1 ELSE 0 END), 0)::int AS receiver_failed,
+                    COALESCE(SUM(CASE
+                        WHEN verification_status = 'VERIFIED'
+                         AND matched_proof_id IS NULL
+                         AND updated_at < :staleCutoff
+                        THEN 1 ELSE 0 END), 0)::int AS stale_awaiting_carrier,
+                    MIN(CASE
+                        WHEN verification_status = 'VERIFIED'
+                         AND matched_proof_id IS NULL
+                        THEN updated_at ELSE NULL END)::text AS oldest_awaiting_carrier_at,
                     MAX(updated_at)::text AS latest_updated_at
                 FROM offline_pay_local_evidence
                 WHERE (:voucherId IS NULL OR voucher_id = :voucherId)
@@ -226,6 +285,7 @@ public class JdbcOfflinePayLocalEvidenceRepository implements OfflinePayLocalEvi
         return jdbcClient.sql(sql)
                 .param("voucherId", blankToNull(voucherId))
                 .param("sessionId", blankToNull(sessionId))
+                .param("staleCutoff", staleCutoff == null ? OffsetDateTime.now().minusHours(24) : staleCutoff)
                 .query((rs, rowNum) -> new LocalEvidenceStatus(
                         rs.getString("voucher_id"),
                         rs.getString("session_id"),
@@ -240,6 +300,8 @@ public class JdbcOfflinePayLocalEvidenceRepository implements OfflinePayLocalEvi
                         rs.getInt("receiver_matched"),
                         rs.getInt("sender_failed"),
                         rs.getInt("receiver_failed"),
+                        rs.getInt("stale_awaiting_carrier"),
+                        rs.getString("oldest_awaiting_carrier_at"),
                         rs.getString("latest_updated_at")
                 ))
                 .single();

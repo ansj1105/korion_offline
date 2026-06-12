@@ -39,13 +39,24 @@ public class SettlementPolicyEvaluator {
         Boolean senderAuthRequired = readBoolean(payload, "senderAuthRequired");
         Boolean dualAmountEntered = readBoolean(payload, "dualAmountEntered");
         String deviceTrustLevel = readText(payload, "deviceTrustLevel");
-        boolean trustContractMet = DeviceTrustContract.MINIMUM_ATTESTATION_VERDICT.equals(deviceTrustLevel);
+        String deviceAttestationId = readText(payload, "deviceAttestationId");
+        String deviceAttestationVerdict = readText(payload, "deviceAttestationVerdict");
+        String serverVerifiedTrustLevel = readText(payload, "serverVerifiedTrustLevel");
+        String serverAttestationVerifiedAt = readText(payload, "serverAttestationVerifiedAt");
+        boolean trustContractMet = DeviceTrustContract.MINIMUM_ATTESTATION_VERDICT.equals(deviceTrustLevel)
+                || DeviceTrustContract.MINIMUM_ATTESTATION_VERDICT.equals(deviceAttestationVerdict);
+        boolean serverTrustVerified = DeviceTrustContract.SERVER_VERIFIED.equals(serverVerifiedTrustLevel)
+                && deviceAttestationId != null
+                && serverAttestationVerifiedAt != null;
 
         if (device.status() != DeviceStatus.ACTIVE) {
             return rejected(OfflinePayReasonCode.DEVICE_NOT_ACTIVE);
         }
         if (proof.keyVersion() != device.keyVersion()) {
             return rejected(OfflinePayReasonCode.KEY_VERSION_MISMATCH);
+        }
+        if (!trustContractMet || !serverTrustVerified) {
+            return rejected(OfflinePayReasonCode.TRUST_CONTRACT_NOT_MET);
         }
         if (uiMode == null) {
             return rejected(OfflinePayReasonCode.PAYMENT_MODE_REQUIRED);
@@ -101,7 +112,12 @@ public class SettlementPolicyEvaluator {
         resultJson.put("settlementTotal", settlementTotal);
         resultJson.put("voucherId", proof.voucherId());
         resultJson.put("deviceTrustLevel", deviceTrustLevel);
+        resultJson.put("deviceAttestationId", deviceAttestationId);
+        resultJson.put("deviceAttestationVerdict", deviceAttestationVerdict);
+        resultJson.put("serverVerifiedTrustLevel", serverVerifiedTrustLevel);
+        resultJson.put("serverAttestationVerifiedAt", serverAttestationVerifiedAt);
         resultJson.put("trustContractMet", trustContractMet);
+        resultJson.put("serverTrustVerified", serverTrustVerified);
         resultJson.put("contractRequirements", DeviceTrustContract.MINIMUM_ATTESTATION_VERDICT);
         return new SettlementEvaluation(
                 SettlementStatus.SETTLED,
@@ -141,6 +157,10 @@ public class SettlementPolicyEvaluator {
         payload.put("senderAuthRequired", firstText(rawNode, canonicalNode, "senderAuthRequired"));
         payload.put("dualAmountEntered", firstText(rawNode, canonicalNode, "dualAmountEntered"));
         payload.put("deviceTrustLevel", firstText(rawNode, canonicalNode, "deviceTrustLevel"));
+        payload.put("deviceAttestationId", firstText(rawNode, canonicalNode, "deviceAttestationId"));
+        payload.put("deviceAttestationVerdict", firstText(rawNode, canonicalNode, "deviceAttestationVerdict"));
+        payload.put("serverVerifiedTrustLevel", firstText(rawNode, canonicalNode, "serverVerifiedTrustLevel"));
+        payload.put("serverAttestationVerifiedAt", firstText(rawNode, canonicalNode, "serverAttestationVerifiedAt"));
         return payload;
     }
 

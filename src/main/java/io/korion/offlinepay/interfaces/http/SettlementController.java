@@ -62,9 +62,10 @@ public class SettlementController {
     @GetMapping("/local-evidence/status")
     public Object getLocalEvidenceStatus(
             @RequestParam(required = false) String voucherId,
-            @RequestParam(required = false) String sessionId
+            @RequestParam(required = false) String sessionId,
+            @RequestParam(defaultValue = "24") int staleAfterHours
     ) {
-        return settlementApplicationService.getLocalEvidenceStatus(voucherId, sessionId);
+        return settlementApplicationService.getLocalEvidenceStatus(voucherId, sessionId, staleAfterHours);
     }
 
     @GetMapping("/{batchId}")

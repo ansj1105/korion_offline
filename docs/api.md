@@ -337,7 +337,8 @@ paths:
       summary: 로컬 evidence 매칭 상태 조회
       description: |
         `voucherId` 또는 `sessionId` 기준으로 direct local evidence 저장/매칭 상태를 조회한다.
-        운영 화면은 이 응답의 `matched`, `awaitingCarrier`, `failed`를 이용해 carrier 대기 또는 매칭 완료 상태를 표시한다.
+        두 값을 모두 생략하면 운영 화면용 전역 aggregate를 반환한다.
+        운영 화면은 이 응답의 `matched`, `awaitingCarrier`, `staleAwaitingCarrier`, `failed`를 이용해 carrier 대기 또는 매칭 완료 상태를 표시한다.
       operationId: getLocalEvidenceStatus
       parameters:
         - in: query
@@ -352,6 +353,14 @@ paths:
           schema:
             type: string
             maxLength: 160
+        - in: query
+          name: staleAfterHours
+          required: false
+          schema:
+            type: integer
+            default: 24
+            minimum: 1
+          description: awaitingCarrier 중 stale로 표시할 기준 시간. 시간만으로 실패 처리하지 않고 운영 추적 지표로만 사용한다.
       responses:
         '200':
           description: local evidence status summary
@@ -1307,6 +1316,8 @@ components:
         - senderFailed
         - receiverFailed
         - state
+        - staleAwaitingCarrier
+        - staleAfterHours
       properties:
         voucherId:
           type: string
@@ -1347,6 +1358,16 @@ components:
           type: string
           enum: [NOT_FOUND, AWAITING_CARRIER, MATCHED, FAILED, PARTIAL]
           description: 운영 화면 표시용 local evidence aggregate state.
+        staleAwaitingCarrier:
+          type: integer
+          description: staleAfterHours보다 오래 carrier/proof 매칭을 기다린 VERIFIED evidence 수. 실패 처리 기준이 아니라 운영 추적 지표다.
+        staleAfterHours:
+          type: integer
+          description: staleAwaitingCarrier 계산에 사용된 기준 시간.
+        oldestAwaitingCarrierAt:
+          type: string
+          nullable: true
+          description: 아직 carrier와 매칭되지 않은 VERIFIED evidence 중 가장 오래된 updated_at.
         latestUpdatedAt:
           type: string
           nullable: true
@@ -1423,7 +1444,11 @@ components:
           type: string
         status:
           type: string
-          enum: [SETTLED, REJECTED, CONFLICTED, EXPIRED, REFUNDED]
+          enum: [PENDING, SETTLED, FAILED]
+          description: |
+            Public settlement status projection. PENDING means server validation/finalization is still in progress,
+            SETTLED means final settlement completed, and FAILED covers rejected, conflicted, or expired internal states.
+            Internal saga statuses such as COMPLETED must not be returned through this response.
 
     ConflictListResponse:
       type: object

@@ -9,6 +9,7 @@ import io.korion.offlinepay.application.service.SettlementApplicationService.Set
 import io.korion.offlinepay.application.service.SettlementApplicationService.SettlementDetailView;
 import io.korion.offlinepay.domain.policy.OfflineFailurePolicy;
 import io.korion.offlinepay.domain.status.OfflineSagaStatus;
+import io.korion.offlinepay.domain.status.SettlementStatus;
 import io.korion.offlinepay.interfaces.http.dto.FinalizeSettlementResponse;
 import io.korion.offlinepay.interfaces.http.dto.ReconciliationCaseAdminResponse;
 import io.korion.offlinepay.interfaces.http.dto.SettlementBatchDetailResponse;
@@ -180,7 +181,7 @@ public class SettlementResponseFactory {
     }
 
     public FinalizeSettlementResponse toFinalizeResponse(SettlementRequest settlementRequest) {
-        return new FinalizeSettlementResponse(settlementRequest.id(), settlementRequest.status().name());
+        return new FinalizeSettlementResponse(settlementRequest.id(), normalizePublicSettlementStatus(settlementRequest.status()));
     }
 
     public SettlementRequestDetailResponse toDetailResponse(SettlementDetailView detailView) {
@@ -196,11 +197,11 @@ public class SettlementResponseFactory {
         return new SettlementRequestDetailResponse(
                 settlementRequest.id(),
                 settlementRequest.batchId(),
-                settlementRequest.status().name(),
+                normalizePublicSettlementStatus(settlementRequest.status()),
                 settlementRequest.reasonCode(),
                 settlementRequest.conflictDetected(),
                 settlementRequest.updatedAt() == null ? null : settlementRequest.updatedAt().toString(),
-                settlementSaga == null || settlementSaga.status() == null ? null : settlementSaga.status().name(),
+                settlementSaga == null || settlementSaga.status() == null ? null : normalizePublicSagaStatus(settlementSaga.status()),
                 settlementSaga == null ? null : settlementSaga.currentStep(),
                 settlementSaga == null ? null : settlementSaga.recoveryMode(),
                 settlementSaga == null ? null : settlementSaga.lastReasonCode(),
@@ -228,6 +229,28 @@ public class SettlementResponseFactory {
                 senderHistoryStatus,
                 receiverHistoryStatus
         );
+    }
+
+    private String normalizePublicSettlementStatus(SettlementStatus status) {
+        if (status == null) {
+            return "PENDING";
+        }
+        return switch (status) {
+            case PENDING, VALIDATING -> "PENDING";
+            case SETTLED -> "SETTLED";
+            case CONFLICT, REJECTED, EXPIRED -> "FAILED";
+        };
+    }
+
+    private String normalizePublicSagaStatus(OfflineSagaStatus status) {
+        if (status == null) {
+            return null;
+        }
+        return switch (status) {
+            case COMPLETED -> "SETTLED";
+            case COMPENSATED, FAILED, DEAD_LETTERED -> "FAILED";
+            case QUEUED, ACCEPTED, PROCESSING, PARTIALLY_APPLIED, COMPENSATION_REQUIRED, COMPENSATING -> "PENDING";
+        };
     }
 
     public ReconciliationCaseAdminResponse toReconciliationCaseAdminResponse(

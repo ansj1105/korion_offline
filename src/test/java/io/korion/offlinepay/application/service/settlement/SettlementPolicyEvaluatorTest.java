@@ -45,7 +45,12 @@ class SettlementPolicyEvaluatorTest {
                   "availableAmount": "94.000000",
                   "ledgerExecutionMode": "INTERNAL_LEDGER_ONLY",
                   "senderAuthRequired": true,
-                  "dualAmountEntered": false
+                  "dualAmountEntered": false,
+                  "deviceTrustLevel": "HARDWARE_BACKED_VERIFIED",
+                  "deviceAttestationId": "attestation-001",
+                  "deviceAttestationVerdict": "HARDWARE_BACKED_VERIFIED",
+                  "serverVerifiedTrustLevel": "SERVER_VERIFIED",
+                  "serverAttestationVerifiedAt": "2026-06-11T23:58:00.000Z"
                 }
                 """;
 
@@ -74,7 +79,12 @@ class SettlementPolicyEvaluatorTest {
                   "availableAmount": "94.000000",
                   "ledgerExecutionMode": "INTERNAL_LEDGER_ONLY",
                   "senderAuthRequired": true,
-                  "dualAmountEntered": false
+                  "dualAmountEntered": false,
+                  "deviceTrustLevel": "HARDWARE_BACKED_VERIFIED",
+                  "deviceAttestationId": "attestation-001",
+                  "deviceAttestationVerdict": "HARDWARE_BACKED_VERIFIED",
+                  "serverVerifiedTrustLevel": "SERVER_VERIFIED",
+                  "serverAttestationVerifiedAt": "2026-06-11T23:58:00.000Z"
                 }
                 """;
         long expiredTransportDeadline = 1_700_000_180_000L;
@@ -91,14 +101,55 @@ class SettlementPolicyEvaluatorTest {
 
     @Test
     void rejectsWhenPolicyFieldsAreMissingFromRawAndCanonicalPayloads() {
+        String canonicalPayload = """
+                {
+                  "deviceTrustLevel": "HARDWARE_BACKED_VERIFIED",
+                  "deviceAttestationId": "attestation-001",
+                  "deviceAttestationVerdict": "HARDWARE_BACKED_VERIFIED",
+                  "serverVerifiedTrustLevel": "SERVER_VERIFIED",
+                  "serverAttestationVerifiedAt": "2026-06-11T23:58:00.000Z"
+                }
+                """;
+
         SettlementEvaluation result = evaluator.evaluate(
-                proof("{\"network\":\"TRC-20\",\"token\":\"KORI\"}", "{}"),
+                proof("{\"network\":\"TRC-20\",\"token\":\"KORI\"}", canonicalPayload),
                 collateral(),
                 device()
         );
 
         assertEquals(SettlementStatus.REJECTED, result.status());
         assertEquals(OfflinePayReasonCode.PAYMENT_MODE_REQUIRED, result.reasonCode());
+    }
+
+    @Test
+    void rejectsWhenTrustCenterAttestationIsNotServerVerified() {
+        String payload = """
+                {
+                  "network": "TRC-20",
+                  "token": "KORI",
+                  "uiMode": "SEND",
+                  "paymentFlow": "MANUAL_PAYMENT",
+                  "connectionType": "QR_SCAN",
+                  "availableAmount": "94.000000",
+                  "ledgerExecutionMode": "INTERNAL_LEDGER_ONLY",
+                  "senderAuthRequired": true,
+                  "dualAmountEntered": false,
+                  "deviceTrustLevel": "MIRROR_ONLY",
+                  "deviceAttestationId": "attestation-001",
+                  "deviceAttestationVerdict": "MIRROR_ONLY",
+                  "serverVerifiedTrustLevel": "LOCAL_ONLY",
+                  "serverAttestationVerifiedAt": "2026-06-11T23:58:00.000Z"
+                }
+                """;
+
+        SettlementEvaluation result = evaluator.evaluate(
+                proof(payload, payload),
+                collateral(),
+                device()
+        );
+
+        assertEquals(SettlementStatus.REJECTED, result.status());
+        assertEquals(OfflinePayReasonCode.TRUST_CONTRACT_NOT_MET, result.reasonCode());
     }
 
     private OfflinePaymentProof proof(String rawPayload, String canonicalPayload) {

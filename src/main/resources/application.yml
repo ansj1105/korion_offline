@@ -53,3 +53,5 @@ offline-pay:
     poll-delay-ms: ${SETTLEMENT_WORKER_POLL_DELAY_MS:5000}
     receiver-history-pending-timeout-ms: ${RECEIVER_HISTORY_PENDING_TIMEOUT_MS:86400000}
     receiver-history-pending-scan-limit: ${RECEIVER_HISTORY_PENDING_SCAN_LIMIT:20}
+    local-evidence-reconciliation-delay-ms: ${LOCAL_EVIDENCE_RECONCILIATION_DELAY_MS:15000}
+    local-evidence-reconciliation-limit: ${LOCAL_EVIDENCE_RECONCILIATION_LIMIT:20}

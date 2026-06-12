@@ -1,6 +1,7 @@
 package io.korion.offlinepay.application.service.settlement;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -142,6 +143,21 @@ class ProofPayloadConsistencyValidatorTest {
     }
 
     @Test
+    void flagsStaleHybridOfflineTimeAsRiskWithoutRejectingPayload() {
+        OffsetDateTime lastSync = OffsetDateTime.now().minusDays(9);
+        OfflinePaymentProof proof = proofWithHybridTime(
+                lastSync.plusMinutes(2).toString(),
+                lastSync.toString(),
+                120_000L
+        );
+
+        assertTrue(validator.validate(proof).passed());
+        ProofPayloadConsistencyValidator.RiskAssessment risk = validator.assessHybridTimeRisk(proof);
+        assertTrue(risk.riskDetected());
+        assertEquals("OFFLINE_ESTIMATED_TIME_STALE", risk.reasonCode());
+    }
+
+    @Test
     void rejectsHybridOfflineTimeWhenEstimatedTimeDoesNotMatchElapsedTime() {
         OfflinePaymentProof proof = proofWithHybridTime("2026-06-11T04:02:03Z");
 
@@ -212,6 +228,57 @@ class ProofPayloadConsistencyValidatorTest {
                 12,
                 12
         );
+    }
+
+    private OfflinePaymentProof proofWithHybridTime(
+            String estimatedServerTime,
+            String lastServerSyncTime,
+            long elapsedTimeMs
+    ) {
+        long timestampMs = 1_781_184_120_000L;
+        long expiresAtMs = timestampMs + 60_000L;
+        String rawPayload = """
+                {
+                  "requestId": "req-hybrid-stale",
+                  "txId": "req-hybrid-stale",
+                  "offlineTxSequence": 12,
+                  "deviceTime": "2026-06-11T12:02:03Z",
+                  "lastServerSyncTime": "%s",
+                  "estimatedServerTime": "%s",
+                  "elapsedTimeMs": %d,
+                  "voucherId": "voucher-hybrid",
+                  "deviceId": "device-1",
+                  "counterpartyDeviceId": "device-2",
+                  "amount": "1.00",
+                  "expiresAt": %d,
+                  "spendingProof": {
+                    "deviceId": "device-1",
+                    "amount": "1.00",
+                    "monotonicCounter": 18,
+                    "nonce": "nonce-hybrid",
+                    "newStateHash": "hash-new",
+                    "prevStateHash": "hash-prev",
+                    "signature": "signature",
+                    "timestamp": %d
+                  }
+                }
+                """.formatted(lastServerSyncTime, estimatedServerTime, elapsedTimeMs, expiresAtMs, timestampMs);
+        String canonicalPayload = """
+                {
+                  "requestId": "req-hybrid-stale",
+                  "txId": "req-hybrid-stale",
+                  "offlineTxSequence": 12,
+                  "deviceTime": "2026-06-11T12:02:03Z",
+                  "lastServerSyncTime": "%s",
+                  "estimatedServerTime": "%s",
+                  "elapsedTimeMs": %d,
+                  "voucherId": "voucher-hybrid",
+                  "deviceId": "device-1",
+                  "counterpartyDeviceId": "device-2"
+                }
+                """.formatted(lastServerSyncTime, estimatedServerTime, elapsedTimeMs);
+
+        return proofWithPayloads(rawPayload, canonicalPayload);
     }
 
     private OfflinePaymentProof proofWithHybridTime(

@@ -46,4 +46,9 @@ public final class SettlementPolicyConstants {
     // --- Snapshot staleness hint (ms) exposed in CurrentSnapshot.staleAfterMs ---
     public static final long COLLATERAL_SNAPSHOT_STALE_AFTER_MS = 60_000L;
     public static final long TRUST_CENTER_SNAPSHOT_STALE_AFTER_MS = 300_000L;
+
+    // --- Hybrid offline time risk policy ---
+    public static final long HYBRID_TIME_MAX_FUTURE_SKEW_MS = 10 * 60 * 1000L;
+    public static final long HYBRID_TIME_STALE_ESTIMATED_AFTER_MS = 7L * 24L * 60L * 60L * 1000L;
+    public static final long HYBRID_TIME_STALE_SERVER_ANCHOR_AFTER_MS = 7L * 24L * 60L * 60L * 1000L;
 }

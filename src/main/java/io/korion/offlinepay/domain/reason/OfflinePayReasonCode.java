@@ -70,6 +70,7 @@ public final class OfflinePayReasonCode {
     public static final String PAYLOAD_TIMESTAMP_MISMATCH = "PAYLOAD_TIMESTAMP_MISMATCH";
     public static final String PAYLOAD_EXPIRY_MISMATCH = "PAYLOAD_EXPIRY_MISMATCH";
     public static final String PAYLOAD_HYBRID_TIME_INVALID = "PAYLOAD_HYBRID_TIME_INVALID";
+    public static final String OFFLINE_ESTIMATED_TIME_STALE = "OFFLINE_ESTIMATED_TIME_STALE";
     public static final String PAYLOAD_REQUIRED_FIELD_MISSING = "PAYLOAD_REQUIRED_FIELD_MISSING";
     public static final String PAYLOAD_BUILD_FAIL = "PAYLOAD_BUILD_FAIL";
     public static final String SEND_TIMEOUT = "SEND_TIMEOUT";

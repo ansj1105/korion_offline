@@ -2,6 +2,7 @@ package io.korion.offlinepay.application.port;
 
 import io.korion.offlinepay.domain.model.OfflinePayLocalEvidence;
 import io.korion.offlinepay.domain.model.OfflinePaymentProof;
+import java.time.OffsetDateTime;
 import java.util.List;
 
 public interface OfflinePayLocalEvidenceRepository {
@@ -12,9 +13,11 @@ public interface OfflinePayLocalEvidenceRepository {
 
     void markMatchingReceiverEvidence(OfflinePaymentProof proof);
 
+    void markMatchingEvidence(OfflinePaymentProof proof);
+
     List<OfflinePayLocalEvidence> findVerifiedSenderEvidenceWithMatchingReceiverEvidence(int limit);
 
-    LocalEvidenceStatus summarizeStatus(String voucherId, String sessionId);
+    LocalEvidenceStatus summarizeStatus(String voucherId, String sessionId, OffsetDateTime staleCutoff);
 
     record LocalEvidenceStatus(
             String voucherId,
@@ -30,6 +33,8 @@ public interface OfflinePayLocalEvidenceRepository {
             int receiverMatched,
             int senderFailed,
             int receiverFailed,
+            int staleAwaitingCarrier,
+            String oldestAwaitingCarrierAt,
             String latestUpdatedAt
     ) {}
 }

@@ -1207,6 +1207,95 @@ class SettlementApplicationServiceTest {
     }
 
     @Test
+    void ingestLocalEvidenceRejectsNativeTransportHashWithoutTranscript() throws Exception {
+        KeyPairGenerator generator = KeyPairGenerator.getInstance("EC");
+        generator.initialize(256);
+        KeyPair receiverKeyPair = generator.generateKeyPair();
+        String transportSessionHash = "b".repeat(64);
+        String canonicalPayload = """
+                {"voucherId":"voucher-local-evidence-no-transcript","direction":"RECEIVE","deviceId":"receiver-device","senderDeviceId":"sender-device","receiverDeviceId":"receiver-device","prevHash":"prev-local-evidence-no-transcript","nonce":"nonce-local-evidence-no-transcript","deviceAttestationId":"%s","deviceAttestationVerdict":"%s","serverVerifiedTrustLevel":"%s","serverAttestationVerifiedAt":"%s","transportSessionHash":"%s","transportTranscriptHash":"%s","transportTranscriptSource":"%s","counter":17,"amount":"2.10000000"}
+                """.formatted(DEVICE_ATTESTATION_ID, DEVICE_ATTESTATION_VERDICT, SERVER_VERIFIED_TRUST_LEVEL, SERVER_ATTESTATION_VERIFIED_AT, transportSessionHash, transportSessionHash, TRANSPORT_TRANSCRIPT_SOURCE).trim();
+        Signature signer = Signature.getInstance("SHA256withECDSA");
+        signer.initSign(receiverKeyPair.getPrivate());
+        signer.update(canonicalPayload.getBytes(StandardCharsets.UTF_8));
+        String signature = Base64.getEncoder().encodeToString(signer.sign());
+        String receiverPublicKey = Base64.getEncoder().encodeToString(receiverKeyPair.getPublic().getEncoded());
+        Device receiverDevice = new Device(
+                "receiver-row-no-transcript",
+                "receiver-device",
+                1L,
+                receiverPublicKey,
+                1,
+                DeviceStatus.ACTIVE,
+                VERIFIED_DEVICE_METADATA,
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        when(deviceRepository.findByDeviceId("receiver-device")).thenReturn(Optional.of(receiverDevice));
+
+        SettlementApplicationService.LocalEvidenceIngestResult result = service.ingestLocalEvidence(
+                new SettlementApplicationService.LocalEvidenceIngestCommand(
+                        SettlementApplicationService.UploaderType.RECEIVER,
+                        "receiver-device",
+                        "idempotency-local-evidence-no-transcript",
+                        java.util.List.of(new SettlementApplicationService.LocalEvidenceSubmission(
+                                "voucher-local-evidence-no-transcript",
+                                "req-local-evidence-no-transcript",
+                                "RECEIVE",
+                                "sender-device",
+                                "receiver-device",
+                                new BigDecimal("2.10000000"),
+                                17L,
+                                "prev-local-evidence-no-transcript",
+                                sha256Hex(canonicalPayload),
+                                "nonce-local-evidence-no-transcript",
+                                signature,
+                                canonicalPayload,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                "1",
+                                "1",
+                                "SHA-256",
+                                "SHA256withECDSA",
+                                "device:receiver-device:v1",
+                                sha256Hex(receiverPublicKey),
+                                null,
+                                DEVICE_ATTESTATION_ID,
+                                DEVICE_ATTESTATION_VERDICT,
+                                SERVER_VERIFIED_TRUST_LEVEL,
+                                SERVER_ATTESTATION_VERIFIED_AT,
+                                transportSessionHash,
+                                TRANSPORT_TRANSCRIPT_SOURCE,
+                                null,
+                                null,
+                                java.util.Map.of("receiverEvidenceBlock", true)
+                        ))
+                )
+        );
+
+        assertEquals(1, result.requested());
+        assertEquals(0, result.stored());
+        assertEquals(1, result.skipped());
+        assertEquals(0, result.matched());
+        assertEquals(0, result.awaitingCarrier());
+        verify(localEvidenceRepository).save(argThat(evidence ->
+                "FAILED".equals(evidence.verificationStatus())
+                        && evidence.verificationDetail().contains("native transport transcript missing")
+        ));
+        verifyNoInteractions(batchRepository, settlementRepository);
+    }
+
+    @Test
     void ingestLocalEvidenceRejectsAppGeneratedTransportCorrelationHash() throws Exception {
         KeyPairGenerator generator = KeyPairGenerator.getInstance("EC");
         generator.initialize(256);
@@ -1301,7 +1390,8 @@ class SettlementApplicationServiceTest {
         KeyPairGenerator generator = KeyPairGenerator.getInstance("EC");
         generator.initialize(256);
         KeyPair receiverKeyPair = generator.generateKeyPair();
-        String transportSessionHash = "c".repeat(64);
+        String transportTranscript = "BLE:req-local-evidence-fingerprint:sender-device:receiver-device:2.10000000";
+        String transportSessionHash = sha256Hex(transportTranscript);
         String canonicalPayload = """
                 {"voucherId":"voucher-local-evidence-fingerprint","direction":"RECEIVE","deviceId":"receiver-device","senderDeviceId":"sender-device","receiverDeviceId":"receiver-device","prevHash":"prev-local-evidence-fingerprint","nonce":"nonce-local-evidence-fingerprint","deviceAttestationId":"%s","deviceAttestationVerdict":"%s","serverVerifiedTrustLevel":"%s","serverAttestationVerifiedAt":"%s","transportSessionHash":"%s","transportTranscriptSource":"%s","counter":15,"amount":"2.10000000"}
                 """.formatted(DEVICE_ATTESTATION_ID, DEVICE_ATTESTATION_VERDICT, SERVER_VERIFIED_TRUST_LEVEL, SERVER_ATTESTATION_VERIFIED_AT, transportSessionHash, TRANSPORT_TRANSCRIPT_SOURCE).trim();
@@ -1365,8 +1455,8 @@ class SettlementApplicationServiceTest {
                                 SERVER_ATTESTATION_VERIFIED_AT,
                                 transportSessionHash,
                                 TRANSPORT_TRANSCRIPT_SOURCE,
-                                null,
-                                null,
+                                transportTranscript,
+                                "UTF-8",
                                 java.util.Map.of("receiverEvidenceBlock", true)
                         ))
                 )
@@ -1388,7 +1478,8 @@ class SettlementApplicationServiceTest {
         KeyPairGenerator generator = KeyPairGenerator.getInstance("EC");
         generator.initialize(256);
         KeyPair receiverKeyPair = generator.generateKeyPair();
-        String transportSessionHash = "d".repeat(64);
+        String transportTranscript = "BLE:req-local-evidence-wake:sender-device:receiver-device:2.10000000";
+        String transportSessionHash = sha256Hex(transportTranscript);
         String canonicalPayload = """
                 {"voucherId":"voucher-local-evidence-wake","direction":"RECEIVE","deviceId":"receiver-device","senderDeviceId":"sender-device","receiverDeviceId":"receiver-device","prevHash":"prev-local-evidence-wake","nonce":"nonce-local-evidence-wake","deviceAttestationId":"%s","deviceAttestationVerdict":"%s","serverVerifiedTrustLevel":"%s","serverAttestationVerifiedAt":"%s","transportSessionHash":"%s","transportTranscriptSource":"%s","counter":14,"amount":"2.10000000"}
                 """.formatted(DEVICE_ATTESTATION_ID, DEVICE_ATTESTATION_VERDICT, SERVER_VERIFIED_TRUST_LEVEL, SERVER_ATTESTATION_VERIFIED_AT, transportSessionHash, TRANSPORT_TRANSCRIPT_SOURCE).trim();
@@ -1508,8 +1599,8 @@ class SettlementApplicationServiceTest {
                                 SERVER_ATTESTATION_VERIFIED_AT,
                                 transportSessionHash,
                                 TRANSPORT_TRANSCRIPT_SOURCE,
-                                null,
-                                null,
+                                transportTranscript,
+                                "UTF-8",
                                 java.util.Map.of("receiverEvidenceBlock", true)
                         ))
                 )
@@ -1803,7 +1894,8 @@ class SettlementApplicationServiceTest {
                 anyString()
         )).thenReturn(batch);
         when(batchRepository.findById(batch.id())).thenReturn(Optional.of(uploadedBatch));
-        when(proofRepository.findByVoucherId("voucher-direct-reconcile")).thenReturn(Optional.empty());
+        when(proofRepository.findByVoucherId("voucher-direct-reconcile"))
+                .thenReturn(Optional.empty(), Optional.empty(), Optional.of(proof));
         when(proofRepository.findBySenderNonce("sender-device", "nonce-direct-reconcile")).thenReturn(Optional.empty());
         when(collateralRepository.findById(collateral.id())).thenReturn(Optional.of(collateral));
         when(proofRepository.save(
@@ -1836,14 +1928,20 @@ class SettlementApplicationServiceTest {
                 eq(false),
                 anyString()
         )).thenReturn(request);
+        when(proofRepository.findById(proof.id())).thenReturn(Optional.of(proof));
+        when(settlementRepository.findLatestByProofId(proof.id())).thenReturn(Optional.of(request));
 
         SettlementApplicationService.DirectLocalEvidenceReconcileResult result =
                 service.reconcileDirectLocalEvidence(25);
 
         assertEquals(1, result.candidates());
         assertEquals(1, result.created());
+        assertEquals(0, result.finalized());
+        assertEquals(1, result.rejected());
         assertEquals(0, result.skipped());
         assertEquals(java.util.List.of(batch.id()), result.batchIds());
+        assertEquals(java.util.List.of(request.id()), result.settlementIds());
+        verify(localEvidenceRepository).markMatchingEvidence(proof);
         verify(settlementRepository).save(
                 eq(batch.id()),
                 eq(collateral.id()),
@@ -1857,7 +1955,7 @@ class SettlementApplicationServiceTest {
 
     @Test
     void getLocalEvidenceStatusReturnsAwaitingCarrierSummaryByVoucherId() {
-        when(localEvidenceRepository.summarizeStatus("voucher-status", null))
+        when(localEvidenceRepository.summarizeStatus(eq("voucher-status"), isNull(), any()))
                 .thenReturn(new OfflinePayLocalEvidenceRepository.LocalEvidenceStatus(
                         "voucher-status",
                         "req-status",
@@ -1872,6 +1970,8 @@ class SettlementApplicationServiceTest {
                         0,
                         0,
                         0,
+                        1,
+                        "2026-06-12 02:00:00+00",
                         "2026-06-12 03:00:00+00"
                 ));
 
@@ -1885,12 +1985,41 @@ class SettlementApplicationServiceTest {
         assertEquals(1, result.awaitingCarrier());
         assertEquals(0, result.failed());
         assertEquals("AWAITING_CARRIER", result.state());
+        assertEquals(1, result.staleAwaitingCarrier());
+        assertEquals(24, result.staleAfterHours());
+        assertEquals("2026-06-12 02:00:00+00", result.oldestAwaitingCarrierAt());
     }
 
     @Test
-    void getLocalEvidenceStatusRequiresVoucherIdOrSessionId() {
-        assertThrows(IllegalArgumentException.class, () -> service.getLocalEvidenceStatus(" ", null));
-        verify(localEvidenceRepository, never()).summarizeStatus(any(), any());
+    void getLocalEvidenceStatusReturnsGlobalOperationalSummaryWithoutIdentityFilter() {
+        when(localEvidenceRepository.summarizeStatus(isNull(), isNull(), any()))
+                .thenReturn(new OfflinePayLocalEvidenceRepository.LocalEvidenceStatus(
+                        null,
+                        null,
+                        3,
+                        3,
+                        1,
+                        2,
+                        0,
+                        2,
+                        1,
+                        1,
+                        0,
+                        0,
+                        0,
+                        2,
+                        "2026-06-12 01:00:00+00",
+                        "2026-06-12 03:00:00+00"
+                ));
+
+        SettlementApplicationService.LocalEvidenceStatusResult result =
+                service.getLocalEvidenceStatus(" ", null, 6);
+
+        assertEquals(3, result.total());
+        assertEquals(2, result.awaitingCarrier());
+        assertEquals(2, result.staleAwaitingCarrier());
+        assertEquals(6, result.staleAfterHours());
+        assertEquals("AWAITING_CARRIER", result.state());
     }
 
     @Test
@@ -2047,7 +2176,7 @@ class SettlementApplicationServiceTest {
                 "SENDER",
                 "{\"voucherId\":\"voucher-1\",\"deviceId\":\"device-1\",\"counterpartyDeviceId\":\"app-suffix:e7eaeaa7\",\"amount\":\"100\",\"expiresAt\":\""
                         + proofExpiresAt
-                        + "\",\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"100\",\"uiMode\":\"SEND\",\"connectionType\":\"FAST_CONTACT\",\"paymentFlow\":\"FAST_PAYMENT\",\"senderAuthRequired\":true,\"ledgerExecutionMode\":\"INTERNAL_LEDGER_ONLY\",\"dualAmountEntered\":false,\"spendingProof\":{\"deviceId\":\"device-1\",\"amount\":\"100\",\"monotonicCounter\":\"1\",\"nonce\":\"nonce-1\",\"newStateHash\":\""
+                        + "\",\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"100\",\"uiMode\":\"SEND\",\"connectionType\":\"FAST_CONTACT\",\"paymentFlow\":\"FAST_PAYMENT\",\"senderAuthRequired\":true,\"ledgerExecutionMode\":\"INTERNAL_LEDGER_ONLY\",\"dualAmountEntered\":false,\"deviceTrustLevel\":\"HARDWARE_BACKED_VERIFIED\",\"deviceAttestationId\":\"attestation-001\",\"deviceAttestationVerdict\":\"HARDWARE_BACKED_VERIFIED\",\"serverVerifiedTrustLevel\":\"SERVER_VERIFIED\",\"serverAttestationVerifiedAt\":\"2026-06-11T23:58:00.000Z\",\"spendingProof\":{\"deviceId\":\"device-1\",\"amount\":\"100\",\"monotonicCounter\":\"1\",\"nonce\":\"nonce-1\",\"newStateHash\":\""
                         + proofHash
                         + "\",\"prevStateHash\":\"GENESIS\",\"signature\":\"local_sig_settled\",\"timestamp\":\""
                         + proofTimestamp
@@ -2211,7 +2340,7 @@ class SettlementApplicationServiceTest {
                 "SENDER",
                 "{\"voucherId\":\"voucher-aggregate\",\"deviceId\":\"device-1\",\"counterpartyDeviceId\":\"device-2\",\"amount\":\"120\",\"expiresAt\":\""
                         + proofExpiresAt
-                        + "\",\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"130\",\"uiMode\":\"SEND\",\"connectionType\":\"FAST_CONTACT\",\"paymentFlow\":\"FAST_PAYMENT\",\"senderAuthRequired\":true,\"ledgerExecutionMode\":\"INTERNAL_LEDGER_ONLY\",\"dualAmountEntered\":false,\"spendingProof\":{\"deviceId\":\"device-1\",\"amount\":\"120\",\"monotonicCounter\":\"1\",\"nonce\":\"nonce-aggregate\",\"newStateHash\":\""
+                        + "\",\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"130\",\"uiMode\":\"SEND\",\"connectionType\":\"FAST_CONTACT\",\"paymentFlow\":\"FAST_PAYMENT\",\"senderAuthRequired\":true,\"ledgerExecutionMode\":\"INTERNAL_LEDGER_ONLY\",\"dualAmountEntered\":false,\"deviceTrustLevel\":\"HARDWARE_BACKED_VERIFIED\",\"deviceAttestationId\":\"attestation-001\",\"deviceAttestationVerdict\":\"HARDWARE_BACKED_VERIFIED\",\"serverVerifiedTrustLevel\":\"SERVER_VERIFIED\",\"serverAttestationVerifiedAt\":\"2026-06-11T23:58:00.000Z\",\"spendingProof\":{\"deviceId\":\"device-1\",\"amount\":\"120\",\"monotonicCounter\":\"1\",\"nonce\":\"nonce-aggregate\",\"newStateHash\":\""
                         + proofHash
                         + "\",\"prevStateHash\":\"GENESIS\",\"signature\":\"local_sig_aggregate\",\"timestamp\":\""
                         + proofTimestamp
@@ -2366,7 +2495,7 @@ class SettlementApplicationServiceTest {
                 "SENDER",
                 "{\"voucherId\":\"voucher-rebound-device\",\"deviceId\":\"current-device\",\"counterpartyDeviceId\":\"receiver-device\",\"amount\":\"5\",\"expiresAt\":\""
                         + proofExpiresAt
-                        + "\",\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"11.7\",\"uiMode\":\"SEND\",\"connectionType\":\"FAST_CONTACT\",\"paymentFlow\":\"FAST_PAYMENT\",\"senderAuthRequired\":true,\"ledgerExecutionMode\":\"INTERNAL_LEDGER_ONLY\",\"dualAmountEntered\":false,\"spendingProof\":{\"deviceId\":\"current-device\",\"amount\":\"5\",\"monotonicCounter\":\"1\",\"nonce\":\"nonce-rebound-device\",\"newStateHash\":\""
+                        + "\",\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"11.7\",\"uiMode\":\"SEND\",\"connectionType\":\"FAST_CONTACT\",\"paymentFlow\":\"FAST_PAYMENT\",\"senderAuthRequired\":true,\"ledgerExecutionMode\":\"INTERNAL_LEDGER_ONLY\",\"dualAmountEntered\":false,\"deviceTrustLevel\":\"HARDWARE_BACKED_VERIFIED\",\"deviceAttestationId\":\"attestation-001\",\"deviceAttestationVerdict\":\"HARDWARE_BACKED_VERIFIED\",\"serverVerifiedTrustLevel\":\"SERVER_VERIFIED\",\"serverAttestationVerifiedAt\":\"2026-06-11T23:58:00.000Z\",\"spendingProof\":{\"deviceId\":\"current-device\",\"amount\":\"5\",\"monotonicCounter\":\"1\",\"nonce\":\"nonce-rebound-device\",\"newStateHash\":\""
                         + proofHash
                         + "\",\"prevStateHash\":\"GENESIS\",\"signature\":\"local_sig_rebound\",\"timestamp\":\""
                         + proofTimestamp
@@ -2534,7 +2663,7 @@ class SettlementApplicationServiceTest {
                 "SENDER",
                 "{\"voucherId\":\"voucher-cross-chain\",\"deviceId\":\"device-1\",\"counterpartyDeviceId\":\"device-2\",\"amount\":\"1\",\"expiresAt\":\""
                         + proofExpiresAt
-                        + "\",\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"6\",\"uiMode\":\"SEND\",\"connectionType\":\"FAST_CONTACT\",\"paymentFlow\":\"FAST_PAYMENT\",\"senderAuthRequired\":true,\"ledgerExecutionMode\":\"INTERNAL_LEDGER_ONLY\",\"dualAmountEntered\":false,\"spendingProof\":{\"deviceId\":\"device-1\",\"amount\":\"1\",\"monotonicCounter\":\"21\",\"nonce\":\"nonce-current\",\"newStateHash\":\""
+                        + "\",\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"6\",\"uiMode\":\"SEND\",\"connectionType\":\"FAST_CONTACT\",\"paymentFlow\":\"FAST_PAYMENT\",\"senderAuthRequired\":true,\"ledgerExecutionMode\":\"INTERNAL_LEDGER_ONLY\",\"dualAmountEntered\":false,\"deviceTrustLevel\":\"HARDWARE_BACKED_VERIFIED\",\"deviceAttestationId\":\"attestation-001\",\"deviceAttestationVerdict\":\"HARDWARE_BACKED_VERIFIED\",\"serverVerifiedTrustLevel\":\"SERVER_VERIFIED\",\"serverAttestationVerifiedAt\":\"2026-06-11T23:58:00.000Z\",\"spendingProof\":{\"deviceId\":\"device-1\",\"amount\":\"1\",\"monotonicCounter\":\"21\",\"nonce\":\"nonce-current\",\"newStateHash\":\""
                         + incomingHash
                         + "\",\"prevStateHash\":\""
                         + previousHash
@@ -2705,7 +2834,7 @@ class SettlementApplicationServiceTest {
                 "SENDER",
                 "{\"voucherId\":\"voucher-1\",\"deviceId\":\"device-1\",\"counterpartyDeviceId\":\"device-2\",\"amount\":\"10\",\"expiresAt\":\""
                         + failedProofExpiresAt
-                        + "\",\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"100\",\"uiMode\":\"SEND\",\"connectionType\":\"FAST_CONTACT\",\"paymentFlow\":\"FAST_PAYMENT\",\"senderAuthRequired\":true,\"ledgerExecutionMode\":\"INTERNAL_LEDGER_ONLY\",\"dualAmountEntered\":false,\"spendingProof\":{\"deviceId\":\"device-1\",\"amount\":\"10\",\"monotonicCounter\":\"1\",\"nonce\":\"nonce-1\",\"newStateHash\":\""
+                        + "\",\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"100\",\"uiMode\":\"SEND\",\"connectionType\":\"FAST_CONTACT\",\"paymentFlow\":\"FAST_PAYMENT\",\"senderAuthRequired\":true,\"ledgerExecutionMode\":\"INTERNAL_LEDGER_ONLY\",\"dualAmountEntered\":false,\"deviceTrustLevel\":\"HARDWARE_BACKED_VERIFIED\",\"deviceAttestationId\":\"attestation-001\",\"deviceAttestationVerdict\":\"HARDWARE_BACKED_VERIFIED\",\"serverVerifiedTrustLevel\":\"SERVER_VERIFIED\",\"serverAttestationVerifiedAt\":\"2026-06-11T23:58:00.000Z\",\"spendingProof\":{\"deviceId\":\"device-1\",\"amount\":\"10\",\"monotonicCounter\":\"1\",\"nonce\":\"nonce-1\",\"newStateHash\":\""
                         + failedProofHash
                         + "\",\"prevStateHash\":\"GENESIS\",\"signature\":\"local_sig_failed\",\"timestamp\":\""
                         + failedProofTimestamp
@@ -2840,7 +2969,7 @@ class SettlementApplicationServiceTest {
                         + hash
                         + "\",\"prevStateHash\":\"GENESIS\",\"signature\":\"local_sig_fake\",\"timestamp\":\""
                         + now
-                        + "\"},\"deviceRegistrationId\":\"other-row\",\"signedUserId\":77,\"authMethod\":\"PIN\",\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"100\",\"uiMode\":\"SEND\",\"connectionType\":\"FAST_CONTACT\",\"paymentFlow\":\"FAST_PAYMENT\",\"senderAuthRequired\":true,\"ledgerExecutionMode\":\"INTERNAL_LEDGER_ONLY\",\"dualAmountEntered\":false}",
+                        + "\"},\"deviceRegistrationId\":\"other-row\",\"signedUserId\":77,\"authMethod\":\"PIN\",\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"100\",\"uiMode\":\"SEND\",\"connectionType\":\"FAST_CONTACT\",\"paymentFlow\":\"FAST_PAYMENT\",\"senderAuthRequired\":true,\"ledgerExecutionMode\":\"INTERNAL_LEDGER_ONLY\",\"dualAmountEntered\":false,\"deviceTrustLevel\":\"HARDWARE_BACKED_VERIFIED\",\"deviceAttestationId\":\"attestation-001\",\"deviceAttestationVerdict\":\"HARDWARE_BACKED_VERIFIED\",\"serverVerifiedTrustLevel\":\"SERVER_VERIFIED\",\"serverAttestationVerifiedAt\":\"2026-06-11T23:58:00.000Z\"}",
                 OffsetDateTime.now()
         );
         Device device = new Device(
@@ -2945,7 +3074,7 @@ class SettlementApplicationServiceTest {
                 + hash
                 + "\",\"prevStateHash\":\"GENESIS\",\"signature\":\"local_sig_fake\",\"timestamp\":\""
                 + now
-                + "\"},\"deviceRegistrationId\":\"row-1\",\"signedUserId\":77,\"authMethod\":\"PIN\",\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"50\",\"uiMode\":\"SEND\",\"connectionType\":\"FAST_CONTACT\",\"paymentFlow\":\"FAST_PAYMENT\",\"senderAuthRequired\":true,\"ledgerExecutionMode\":\"INTERNAL_LEDGER_ONLY\",\"dualAmountEntered\":false}";
+                + "\"},\"deviceRegistrationId\":\"row-1\",\"signedUserId\":77,\"authMethod\":\"PIN\",\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"50\",\"uiMode\":\"SEND\",\"connectionType\":\"FAST_CONTACT\",\"paymentFlow\":\"FAST_PAYMENT\",\"senderAuthRequired\":true,\"ledgerExecutionMode\":\"INTERNAL_LEDGER_ONLY\",\"dualAmountEntered\":false,\"deviceTrustLevel\":\"HARDWARE_BACKED_VERIFIED\",\"deviceAttestationId\":\"attestation-001\",\"deviceAttestationVerdict\":\"HARDWARE_BACKED_VERIFIED\",\"serverVerifiedTrustLevel\":\"SERVER_VERIFIED\",\"serverAttestationVerifiedAt\":\"2026-06-11T23:58:00.000Z\"}";
         OfflinePaymentProof proof = new OfflinePaymentProof(
                 "proof-overspend",
                 "batch-overspend",
@@ -3063,7 +3192,7 @@ class SettlementApplicationServiceTest {
                 System.currentTimeMillis() + 60_000,
                 "{}",
                 "SENDER",
-                "{\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"100\",\"deviceRegistrationId\":\"row-1\",\"signedUserId\":77,\"authMethod\":\"PIN\",\"senderAuthRequired\":true,\"ledgerExecutionMode\":\"INTERNAL_LEDGER_ONLY\",\"dualAmountEntered\":true}",
+                "{\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"100\",\"deviceRegistrationId\":\"row-1\",\"signedUserId\":77,\"authMethod\":\"PIN\",\"senderAuthRequired\":true,\"ledgerExecutionMode\":\"INTERNAL_LEDGER_ONLY\",\"dualAmountEntered\":true,\"deviceTrustLevel\":\"HARDWARE_BACKED_VERIFIED\",\"deviceAttestationId\":\"attestation-001\",\"deviceAttestationVerdict\":\"HARDWARE_BACKED_VERIFIED\",\"serverVerifiedTrustLevel\":\"SERVER_VERIFIED\",\"serverAttestationVerifiedAt\":\"2026-06-11T23:58:00.000Z\"}",
                 OffsetDateTime.now()
         );
         Device device = new Device(
@@ -3168,7 +3297,7 @@ class SettlementApplicationServiceTest {
                         + hash
                         + "\",\"prevStateHash\":\"GENESIS\",\"signature\":\"local_sig_fake\",\"timestamp\":\""
                         + now
-                        + "\"},\"deviceRegistrationId\":\"row-1\",\"signedUserId\":77,\"authMethod\":\"PIN\",\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"100\",\"uiMode\":\"SEND\",\"connectionType\":\"FAST_CONTACT\",\"paymentFlow\":\"FAST_PAYMENT\",\"senderAuthRequired\":true,\"ledgerExecutionMode\":\"INTERNAL_LEDGER_ONLY\",\"dualAmountEntered\":false}",
+                        + "\"},\"deviceRegistrationId\":\"row-1\",\"signedUserId\":77,\"authMethod\":\"PIN\",\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"100\",\"uiMode\":\"SEND\",\"connectionType\":\"FAST_CONTACT\",\"paymentFlow\":\"FAST_PAYMENT\",\"senderAuthRequired\":true,\"ledgerExecutionMode\":\"INTERNAL_LEDGER_ONLY\",\"dualAmountEntered\":false,\"deviceTrustLevel\":\"HARDWARE_BACKED_VERIFIED\",\"deviceAttestationId\":\"attestation-001\",\"deviceAttestationVerdict\":\"HARDWARE_BACKED_VERIFIED\",\"serverVerifiedTrustLevel\":\"SERVER_VERIFIED\",\"serverAttestationVerifiedAt\":\"2026-06-11T23:58:00.000Z\"}",
                 OffsetDateTime.now()
         );
         OfflinePaymentProof existingProof = new OfflinePaymentProof(
@@ -3279,7 +3408,7 @@ class SettlementApplicationServiceTest {
                 System.currentTimeMillis() + 60_000,
                 "{}",
                 "SENDER",
-                "{\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"100\",\"deviceRegistrationId\":\"row-1\",\"signedUserId\":77,\"authMethod\":\"PIN\",\"senderAuthRequired\":true,\"ledgerExecutionMode\":\"AUTO_WITHDRAW\",\"dualAmountEntered\":false}",
+                "{\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"100\",\"deviceRegistrationId\":\"row-1\",\"signedUserId\":77,\"authMethod\":\"PIN\",\"senderAuthRequired\":true,\"ledgerExecutionMode\":\"AUTO_WITHDRAW\",\"dualAmountEntered\":false,\"deviceTrustLevel\":\"HARDWARE_BACKED_VERIFIED\",\"deviceAttestationId\":\"attestation-001\",\"deviceAttestationVerdict\":\"HARDWARE_BACKED_VERIFIED\",\"serverVerifiedTrustLevel\":\"SERVER_VERIFIED\",\"serverAttestationVerifiedAt\":\"2026-06-11T23:58:00.000Z\"}",
                 OffsetDateTime.now()
         );
         Device device = new Device(
@@ -3368,7 +3497,7 @@ class SettlementApplicationServiceTest {
                 System.currentTimeMillis() + 60_000,
                 "{}",
                 "SENDER",
-                "{\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"100\",\"connectionType\":\"FAST_CONTACT\",\"paymentFlow\":\"FAST_PAYMENT\",\"deviceRegistrationId\":\"row-1\",\"signedUserId\":77,\"authMethod\":\"PIN\",\"senderAuthRequired\":true,\"ledgerExecutionMode\":\"INTERNAL_LEDGER_ONLY\",\"dualAmountEntered\":false}",
+                "{\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"100\",\"connectionType\":\"FAST_CONTACT\",\"paymentFlow\":\"FAST_PAYMENT\",\"deviceRegistrationId\":\"row-1\",\"signedUserId\":77,\"authMethod\":\"PIN\",\"senderAuthRequired\":true,\"ledgerExecutionMode\":\"INTERNAL_LEDGER_ONLY\",\"dualAmountEntered\":false,\"deviceTrustLevel\":\"HARDWARE_BACKED_VERIFIED\",\"deviceAttestationId\":\"attestation-001\",\"deviceAttestationVerdict\":\"HARDWARE_BACKED_VERIFIED\",\"serverVerifiedTrustLevel\":\"SERVER_VERIFIED\",\"serverAttestationVerifiedAt\":\"2026-06-11T23:58:00.000Z\"}",
                 OffsetDateTime.now()
         );
         Device device = new Device(
@@ -3687,7 +3816,7 @@ class SettlementApplicationServiceTest {
                 "SENDER",
                 "{\"voucherId\":\"voucher-ledger-fail\",\"deviceId\":\"device-1\",\"counterpartyDeviceId\":\"device-2\",\"amount\":\"100\",\"expiresAt\":\""
                         + ledgerFailExpiresAt
-                        + "\",\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"100\",\"uiMode\":\"SEND\",\"connectionType\":\"FAST_CONTACT\",\"paymentFlow\":\"FAST_PAYMENT\",\"senderAuthRequired\":true,\"ledgerExecutionMode\":\"INTERNAL_LEDGER_ONLY\",\"dualAmountEntered\":false,\"spendingProof\":{\"deviceId\":\"device-1\",\"amount\":\"100\",\"monotonicCounter\":\"1\",\"nonce\":\"nonce-ledger-fail\",\"newStateHash\":\""
+                        + "\",\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"100\",\"uiMode\":\"SEND\",\"connectionType\":\"FAST_CONTACT\",\"paymentFlow\":\"FAST_PAYMENT\",\"senderAuthRequired\":true,\"ledgerExecutionMode\":\"INTERNAL_LEDGER_ONLY\",\"dualAmountEntered\":false,\"deviceTrustLevel\":\"HARDWARE_BACKED_VERIFIED\",\"deviceAttestationId\":\"attestation-001\",\"deviceAttestationVerdict\":\"HARDWARE_BACKED_VERIFIED\",\"serverVerifiedTrustLevel\":\"SERVER_VERIFIED\",\"serverAttestationVerifiedAt\":\"2026-06-11T23:58:00.000Z\",\"spendingProof\":{\"deviceId\":\"device-1\",\"amount\":\"100\",\"monotonicCounter\":\"1\",\"nonce\":\"nonce-ledger-fail\",\"newStateHash\":\""
                         + proofHash
                         + "\",\"prevStateHash\":\"GENESIS\",\"signature\":\"local_sig_ledger_fail\",\"timestamp\":\""
                         + ledgerFailTimestamp
@@ -3798,7 +3927,7 @@ class SettlementApplicationServiceTest {
                 "SENDER",
                 "{\"voucherId\":\"voucher-history-fail\",\"deviceId\":\"device-1\",\"counterpartyDeviceId\":\"device-2\",\"amount\":\"100\",\"expiresAt\":\""
                         + historyFailExpiresAt
-                        + "\",\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"100\",\"uiMode\":\"SEND\",\"connectionType\":\"FAST_CONTACT\",\"paymentFlow\":\"FAST_PAYMENT\",\"senderAuthRequired\":true,\"ledgerExecutionMode\":\"INTERNAL_LEDGER_ONLY\",\"dualAmountEntered\":false,\"spendingProof\":{\"deviceId\":\"device-1\",\"amount\":\"100\",\"monotonicCounter\":\"1\",\"nonce\":\"nonce-history-fail\",\"newStateHash\":\""
+                        + "\",\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"100\",\"uiMode\":\"SEND\",\"connectionType\":\"FAST_CONTACT\",\"paymentFlow\":\"FAST_PAYMENT\",\"senderAuthRequired\":true,\"ledgerExecutionMode\":\"INTERNAL_LEDGER_ONLY\",\"dualAmountEntered\":false,\"deviceTrustLevel\":\"HARDWARE_BACKED_VERIFIED\",\"deviceAttestationId\":\"attestation-001\",\"deviceAttestationVerdict\":\"HARDWARE_BACKED_VERIFIED\",\"serverVerifiedTrustLevel\":\"SERVER_VERIFIED\",\"serverAttestationVerifiedAt\":\"2026-06-11T23:58:00.000Z\",\"spendingProof\":{\"deviceId\":\"device-1\",\"amount\":\"100\",\"monotonicCounter\":\"1\",\"nonce\":\"nonce-history-fail\",\"newStateHash\":\""
                         + proofHash
                         + "\",\"prevStateHash\":\"GENESIS\",\"signature\":\"local_sig_history_fail\",\"timestamp\":\""
                         + historyFailTimestamp
@@ -3909,7 +4038,7 @@ class SettlementApplicationServiceTest {
                 "SENDER",
                 "{\"voucherId\":\"voucher-ledger-open\",\"deviceId\":\"device-1\",\"counterpartyDeviceId\":\"device-2\",\"amount\":\"100\",\"expiresAt\":\""
                         + ledgerOpenExpiresAt
-                        + "\",\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"100\",\"uiMode\":\"SEND\",\"connectionType\":\"FAST_CONTACT\",\"paymentFlow\":\"FAST_PAYMENT\",\"senderAuthRequired\":true,\"ledgerExecutionMode\":\"INTERNAL_LEDGER_ONLY\",\"dualAmountEntered\":false,\"spendingProof\":{\"deviceId\":\"device-1\",\"amount\":\"100\",\"monotonicCounter\":\"1\",\"nonce\":\"nonce-ledger-open\",\"newStateHash\":\""
+                        + "\",\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"100\",\"uiMode\":\"SEND\",\"connectionType\":\"FAST_CONTACT\",\"paymentFlow\":\"FAST_PAYMENT\",\"senderAuthRequired\":true,\"ledgerExecutionMode\":\"INTERNAL_LEDGER_ONLY\",\"dualAmountEntered\":false,\"deviceTrustLevel\":\"HARDWARE_BACKED_VERIFIED\",\"deviceAttestationId\":\"attestation-001\",\"deviceAttestationVerdict\":\"HARDWARE_BACKED_VERIFIED\",\"serverVerifiedTrustLevel\":\"SERVER_VERIFIED\",\"serverAttestationVerifiedAt\":\"2026-06-11T23:58:00.000Z\",\"spendingProof\":{\"deviceId\":\"device-1\",\"amount\":\"100\",\"monotonicCounter\":\"1\",\"nonce\":\"nonce-ledger-open\",\"newStateHash\":\""
                         + proofHash
                         + "\",\"prevStateHash\":\"GENESIS\",\"signature\":\"local_sig_ledger_open\",\"timestamp\":\""
                         + ledgerOpenTimestamp
@@ -4019,7 +4148,7 @@ class SettlementApplicationServiceTest {
                 "SENDER",
                 "{\"voucherId\":\"voucher-history-open\",\"deviceId\":\"device-1\",\"counterpartyDeviceId\":\"device-2\",\"amount\":\"100\",\"expiresAt\":\""
                         + historyOpenExpiresAt
-                        + "\",\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"100\",\"uiMode\":\"SEND\",\"connectionType\":\"FAST_CONTACT\",\"paymentFlow\":\"FAST_PAYMENT\",\"senderAuthRequired\":true,\"ledgerExecutionMode\":\"INTERNAL_LEDGER_ONLY\",\"dualAmountEntered\":false,\"spendingProof\":{\"deviceId\":\"device-1\",\"amount\":\"100\",\"monotonicCounter\":\"1\",\"nonce\":\"nonce-history-open\",\"newStateHash\":\""
+                        + "\",\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"100\",\"uiMode\":\"SEND\",\"connectionType\":\"FAST_CONTACT\",\"paymentFlow\":\"FAST_PAYMENT\",\"senderAuthRequired\":true,\"ledgerExecutionMode\":\"INTERNAL_LEDGER_ONLY\",\"dualAmountEntered\":false,\"deviceTrustLevel\":\"HARDWARE_BACKED_VERIFIED\",\"deviceAttestationId\":\"attestation-001\",\"deviceAttestationVerdict\":\"HARDWARE_BACKED_VERIFIED\",\"serverVerifiedTrustLevel\":\"SERVER_VERIFIED\",\"serverAttestationVerifiedAt\":\"2026-06-11T23:58:00.000Z\",\"spendingProof\":{\"deviceId\":\"device-1\",\"amount\":\"100\",\"monotonicCounter\":\"1\",\"nonce\":\"nonce-history-open\",\"newStateHash\":\""
                         + proofHash
                         + "\",\"prevStateHash\":\"GENESIS\",\"signature\":\"local_sig_history_open\",\"timestamp\":\""
                         + historyOpenTimestamp

@@ -2,9 +2,6 @@ package io.korion.offlinepay.domain.policy;
 
 /**
  * Defines the minimum trust requirements a device must satisfy for offline payment settlement.
- * <p>
- * These constants are non-blocking in the current policy — they are recorded informally in the
- * settlement result JSON for observability and future enforcement.
  */
 public final class DeviceTrustContract {
 

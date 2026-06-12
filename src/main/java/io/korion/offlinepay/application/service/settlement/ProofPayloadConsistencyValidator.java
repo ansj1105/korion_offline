@@ -3,6 +3,7 @@ package io.korion.offlinepay.application.service.settlement;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.korion.offlinepay.application.service.JsonService;
 import io.korion.offlinepay.domain.model.OfflinePaymentProof;
+import io.korion.offlinepay.domain.policy.SettlementPolicyConstants;
 import io.korion.offlinepay.domain.reason.OfflinePayReasonCode;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
@@ -166,10 +167,67 @@ public class ProofPayloadConsistencyValidator {
         if (Math.abs(expectedEstimatedMs - actualEstimatedMs) > 1_000L) {
             return invalid(OfflinePayReasonCode.PAYLOAD_HYBRID_TIME_INVALID, proof, "estimatedServerTime elapsed mismatch");
         }
-        if (estimated.isAfter(OffsetDateTime.now().plusMinutes(10))) {
+        if (estimated.isAfter(OffsetDateTime.now().plusNanos(SettlementPolicyConstants.HYBRID_TIME_MAX_FUTURE_SKEW_MS * 1_000_000L))) {
             return invalid(OfflinePayReasonCode.PAYLOAD_HYBRID_TIME_INVALID, proof, "estimatedServerTime is too far in the future");
         }
         return ValidationResult.success();
+    }
+
+    public RiskAssessment assessHybridTimeRisk(OfflinePaymentProof proof) {
+        JsonNode rawPayload = jsonService.readTree(proof.rawPayloadJson());
+        JsonNode canonicalPayload = jsonService.readTree(proof.canonicalPayload());
+        boolean present = longValue(rawPayload, "offlineTxSequence") != null
+                || longValue(canonicalPayload, "offlineTxSequence") != null
+                || text(rawPayload, "estimatedServerTime") != null
+                || text(canonicalPayload, "estimatedServerTime") != null;
+        if (!present) {
+            return RiskAssessment.none();
+        }
+
+        Long elapsedMs = longValue(rawPayload, "elapsedTimeMs");
+        String lastServerSyncTime = text(rawPayload, "lastServerSyncTime");
+        String estimatedServerTime = text(rawPayload, "estimatedServerTime");
+        OffsetDateTime lastSync = parseOffsetTime(lastServerSyncTime);
+        OffsetDateTime estimated = parseOffsetTime(estimatedServerTime);
+        if (lastSync == null || estimated == null || elapsedMs == null) {
+            return RiskAssessment.none();
+        }
+
+        OffsetDateTime now = OffsetDateTime.now();
+        long estimatedAgeMs = now.toInstant().toEpochMilli() - estimated.toInstant().toEpochMilli();
+        long lastSyncAgeMs = now.toInstant().toEpochMilli() - lastSync.toInstant().toEpochMilli();
+        if (estimatedAgeMs > SettlementPolicyConstants.HYBRID_TIME_STALE_ESTIMATED_AFTER_MS) {
+            return staleRisk(proof, "estimatedServerTime stale", estimatedAgeMs, lastSyncAgeMs, elapsedMs);
+        }
+        if (lastSyncAgeMs > SettlementPolicyConstants.HYBRID_TIME_STALE_SERVER_ANCHOR_AFTER_MS) {
+            return staleRisk(proof, "lastServerSyncTime stale", estimatedAgeMs, lastSyncAgeMs, elapsedMs);
+        }
+        if (elapsedMs > SettlementPolicyConstants.HYBRID_TIME_STALE_SERVER_ANCHOR_AFTER_MS) {
+            return staleRisk(proof, "elapsedTimeMs stale", estimatedAgeMs, lastSyncAgeMs, elapsedMs);
+        }
+        return RiskAssessment.none();
+    }
+
+    private RiskAssessment staleRisk(
+            OfflinePaymentProof proof,
+            String detail,
+            long estimatedAgeMs,
+            long lastSyncAgeMs,
+            long elapsedMs
+    ) {
+        return new RiskAssessment(
+                true,
+                OfflinePayReasonCode.OFFLINE_ESTIMATED_TIME_STALE,
+                jsonService.write(Map.of(
+                        "voucherId", proof.voucherId(),
+                        "reasonCode", OfflinePayReasonCode.OFFLINE_ESTIMATED_TIME_STALE,
+                        "detail", detail,
+                        "estimatedAgeMs", estimatedAgeMs,
+                        "lastSyncAgeMs", lastSyncAgeMs,
+                        "elapsedTimeMs", elapsedMs,
+                        "policy", "LOCK_FOR_REVIEW"
+                ))
+        );
     }
 
     private ValidationResult invalid(String reasonCode, OfflinePaymentProof proof, String detail) {
@@ -276,6 +334,16 @@ public class ProofPayloadConsistencyValidator {
     ) {
         public static ValidationResult success() {
             return new ValidationResult(true, null, "{}");
+        }
+    }
+
+    public record RiskAssessment(
+            boolean riskDetected,
+            String reasonCode,
+            String detailJson
+    ) {
+        public static RiskAssessment none() {
+            return new RiskAssessment(false, null, "{}");
         }
     }
 }

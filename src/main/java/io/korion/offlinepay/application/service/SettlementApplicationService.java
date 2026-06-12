@@ -261,8 +261,11 @@ public class SettlementApplicationService {
         List<OfflinePayLocalEvidence> candidates =
                 localEvidenceRepository.findVerifiedSenderEvidenceWithMatchingReceiverEvidence(Math.max(1, limit));
         int created = 0;
+        int finalized = 0;
+        int rejected = 0;
         int skipped = 0;
         List<String> batchIds = new ArrayList<>();
+        List<String> settlementIds = new ArrayList<>();
         for (OfflinePayLocalEvidence evidence : candidates) {
             Optional<ProofSubmission> proofSubmission = toDirectEvidenceProofSubmission(evidence);
             if (proofSubmission.isEmpty()) {
@@ -279,20 +282,44 @@ public class SettlementApplicationService {
             ));
             batchIds.add(batch.id());
             created++;
+            Optional<OfflinePaymentProof> proof = proofRepository.findByVoucherId(evidence.voucherId());
+            if (proof.isEmpty()) {
+                skipped++;
+                continue;
+            }
+            Optional<SettlementRequest> request = settlementRepository.findLatestByProofId(proof.get().id());
+            if (request.isEmpty()) {
+                skipped++;
+                continue;
+            }
+            localEvidenceRepository.markMatchingEvidence(proof.get());
+            SettlementEvaluation evaluation = processSettlementRequest(request.get(), true);
+            settlementIds.add(request.get().id());
+            if (evaluation.status() == SettlementStatus.SETTLED) {
+                finalized++;
+            } else if (evaluation.status() == SettlementStatus.REJECTED
+                    || evaluation.status() == SettlementStatus.EXPIRED
+                    || evaluation.status() == SettlementStatus.CONFLICT) {
+                rejected++;
+            }
         }
-        return new DirectLocalEvidenceReconcileResult(candidates.size(), created, skipped, batchIds);
+        return new DirectLocalEvidenceReconcileResult(candidates.size(), created, finalized, rejected, skipped, batchIds, settlementIds);
     }
 
     @Transactional(readOnly = true)
     public LocalEvidenceStatusResult getLocalEvidenceStatus(String voucherId, String sessionId) {
+        return getLocalEvidenceStatus(voucherId, sessionId, 24);
+    }
+
+    @Transactional(readOnly = true)
+    public LocalEvidenceStatusResult getLocalEvidenceStatus(String voucherId, String sessionId, int staleAfterHours) {
         String normalizedVoucherId = voucherId == null ? "" : voucherId.trim();
         String normalizedSessionId = sessionId == null ? "" : sessionId.trim();
-        if (normalizedVoucherId.isBlank() && normalizedSessionId.isBlank()) {
-            throw new IllegalArgumentException("voucherId or sessionId is required");
-        }
+        int normalizedStaleAfterHours = Math.max(1, staleAfterHours);
         var status = localEvidenceRepository.summarizeStatus(
                 normalizedVoucherId.isBlank() ? null : normalizedVoucherId,
-                normalizedSessionId.isBlank() ? null : normalizedSessionId
+                normalizedSessionId.isBlank() ? null : normalizedSessionId,
+                OffsetDateTime.now().minusHours(normalizedStaleAfterHours)
         );
         return new LocalEvidenceStatusResult(
                 status.voucherId(),
@@ -309,6 +336,9 @@ public class SettlementApplicationService {
                 status.senderFailed(),
                 status.receiverFailed(),
                 resolveLocalEvidenceState(status),
+                status.staleAwaitingCarrier(),
+                normalizedStaleAfterHours,
+                status.oldestAwaitingCarrierAt(),
                 status.latestUpdatedAt()
         );
     }
@@ -525,6 +555,12 @@ public class SettlementApplicationService {
 
     private String verifyTransportTranscript(LocalEvidenceSubmission evidence, JsonNode canonical) {
         String transcript = evidence.transportTranscript() == null ? "" : evidence.transportTranscript().trim();
+        String source = evidence.transportTranscriptSource() == null
+                ? ""
+                : evidence.transportTranscriptSource().trim().toUpperCase();
+        if (source.startsWith("NATIVE_") && transcript.isBlank()) {
+            return "local evidence native transport transcript missing";
+        }
         if (transcript.isBlank()) {
             return null;
         }
@@ -1645,6 +1681,10 @@ public class SettlementApplicationService {
         if (!signatureVerification.verified() && !signatureVerification.unsupported()) {
             return rejected(OfflinePayReasonCode.INVALID_DEVICE_SIGNATURE, proof, signatureVerification.detail());
         }
+        ProofPayloadConsistencyValidator.RiskAssessment hybridTimeRisk = proofPayloadConsistencyValidator.assessHybridTimeRisk(proof);
+        if (hybridTimeRisk.riskDetected()) {
+            return conflicted(hybridTimeRisk.reasonCode(), proof, hybridTimeRisk.detailJson());
+        }
         if (settlementResultRepository.existsByVoucherId(proof.voucherId())) {
             return conflicted(
                     OfflinePayReasonCode.DUPLICATE_SETTLEMENT,
@@ -2361,8 +2401,11 @@ public class SettlementApplicationService {
     public record DirectLocalEvidenceReconcileResult(
             int candidates,
             int created,
+            int finalized,
+            int rejected,
             int skipped,
-            List<String> batchIds
+            List<String> batchIds,
+            List<String> settlementIds
     ) {}
 
     public record LocalEvidenceStatusResult(
@@ -2380,6 +2423,9 @@ public class SettlementApplicationService {
             int senderFailed,
             int receiverFailed,
             String state,
+            int staleAwaitingCarrier,
+            int staleAfterHours,
+            String oldestAwaitingCarrierAt,
             String latestUpdatedAt
     ) {}
 

@@ -316,6 +316,88 @@ class SettlementResponseFactoryTest {
     }
 
     @Test
+    void requestDetailDoesNotExposeInternalCompletedSagaStatus() throws Exception {
+        SettlementRequest request = new SettlementRequest(
+                "settlement-1",
+                "batch-1",
+                "collateral-1",
+                "proof-1",
+                SettlementStatus.SETTLED,
+                "SETTLED",
+                false,
+                "{}",
+                OffsetDateTime.parse("2026-06-08T00:00:00Z"),
+                OffsetDateTime.parse("2026-06-08T00:10:00Z")
+        );
+        OfflineSaga saga = new OfflineSaga(
+                "saga-1",
+                OfflineSagaType.SETTLEMENT,
+                "settlement-1",
+                OfflineSagaStatus.COMPLETED,
+                "RECEIVER_HISTORY_SYNCED",
+                null,
+                "{}",
+                OffsetDateTime.parse("2026-06-08T00:00:00Z"),
+                OffsetDateTime.parse("2026-06-08T00:10:00Z")
+        );
+
+        var response = factory.toDetailResponse(new SettlementApplicationService.SettlementDetailView(
+                request,
+                saga,
+                null,
+                null,
+                null
+        ));
+        String json = new ObjectMapper().writeValueAsString(response);
+
+        assertEquals("SETTLED", response.status());
+        assertEquals("SETTLED", response.sagaStatus());
+        assertFalse(json.contains("COMPLETED"));
+    }
+
+    @Test
+    void settlementPublicResponsesNormalizeRejectedExpiredAndConflictAsFailed() {
+        assertEquals("FAILED", factory.toFinalizeResponse(new SettlementRequest(
+                "settlement-rejected",
+                "batch-1",
+                "collateral-1",
+                "proof-1",
+                SettlementStatus.REJECTED,
+                "INVALID_DEVICE_SIGNATURE",
+                false,
+                "{}",
+                OffsetDateTime.parse("2026-06-08T00:00:00Z"),
+                OffsetDateTime.parse("2026-06-08T00:10:00Z")
+        )).status());
+
+        assertEquals("FAILED", factory.toFinalizeResponse(new SettlementRequest(
+                "settlement-expired",
+                "batch-1",
+                "collateral-1",
+                "proof-1",
+                SettlementStatus.EXPIRED,
+                "PROOF_EXPIRED",
+                false,
+                "{}",
+                OffsetDateTime.parse("2026-06-08T00:00:00Z"),
+                OffsetDateTime.parse("2026-06-08T00:10:00Z")
+        )).status());
+
+        assertEquals("FAILED", factory.toFinalizeResponse(new SettlementRequest(
+                "settlement-conflict",
+                "batch-1",
+                "collateral-1",
+                "proof-1",
+                SettlementStatus.CONFLICT,
+                "EVIDENCE_MISMATCH",
+                true,
+                "{}",
+                OffsetDateTime.parse("2026-06-08T00:00:00Z"),
+                OffsetDateTime.parse("2026-06-08T00:10:00Z")
+        )).status());
+    }
+
+    @Test
     void reconciliationAdminResponseIncludesSagaLedgerAndRetryContext() {
         ReconciliationCase reconciliationCase = new ReconciliationCase(
                 "case-1",
