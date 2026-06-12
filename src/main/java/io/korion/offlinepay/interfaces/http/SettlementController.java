@@ -4,6 +4,7 @@ import io.korion.offlinepay.application.service.SettlementApplicationService;
 import io.korion.offlinepay.interfaces.http.factory.SettlementResponseFactory;
 import io.korion.offlinepay.interfaces.http.dto.ConfirmReceivedSettlementsRequest;
 import io.korion.offlinepay.interfaces.http.dto.SubmitSettlementBatchRequest;
+import io.korion.offlinepay.interfaces.http.dto.SubmitLocalEvidenceRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -38,6 +39,15 @@ public class SettlementController {
     ) {
         var batch = settlementApplicationService.submitBatch(request.toCommand(idempotencyKey));
         return settlementResponseFactory.toBatchDetail(batch);
+    }
+
+    @PostMapping("/local-evidence")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public Object submitLocalEvidence(
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @Valid @RequestBody SubmitLocalEvidenceRequest request
+    ) {
+        return settlementApplicationService.ingestLocalEvidence(request.toCommand(idempotencyKey));
     }
 
     @GetMapping("/{batchId}")

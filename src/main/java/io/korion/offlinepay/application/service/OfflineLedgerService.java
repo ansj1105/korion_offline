@@ -10,7 +10,6 @@ import io.korion.offlinepay.domain.model.CollateralLock;
 import io.korion.offlinepay.domain.model.CollateralOperation;
 import io.korion.offlinepay.domain.model.Device;
 import io.korion.offlinepay.domain.model.OfflinePaymentProof;
-import io.korion.offlinepay.domain.reason.OfflinePayReasonCode;
 import io.korion.offlinepay.domain.status.CollateralOperationStatus;
 import io.korion.offlinepay.domain.status.OfflineProofStatus;
 import io.korion.offlinepay.application.service.settlement.OfflinePaySettlementFeeCalculator;
@@ -30,19 +29,6 @@ public class OfflineLedgerService {
     private static final int LEDGER_HISTORY_DEFAULT_SIZE = 30;
     private static final int LEDGER_HISTORY_MAX_SIZE = 30;
     private static final int LEDGER_HISTORY_MAX_FETCH_SIZE = 300;
-
-    private static final Set<String> RECEIVER_SETTLEMENT_PENDING_REASONS = Set.of(
-            OfflinePayReasonCode.COUNTER_GAP,
-            OfflinePayReasonCode.SEND_INTERRUPTED,
-            OfflinePayReasonCode.SEND_TIMEOUT,
-            OfflinePayReasonCode.BATCH_SYNC_FAIL,
-            OfflinePayReasonCode.HISTORY_SYNC_FAIL,
-            OfflinePayReasonCode.HISTORY_CIRCUIT_OPEN,
-            "BLE_ACK_TIMEOUT",
-            "BLE_SEND_TIMEOUT",
-            "BLE_SEND_STOPPED",
-            "SESSION_CLEANUP"
-    );
 
     private final DeviceRepository deviceRepository;
     private final CollateralRepository collateralRepository;
@@ -167,7 +153,7 @@ public class OfflineLedgerService {
 
     private BigDecimal calculateReceivedTotal(List<LedgerHistoryItem> receivedItems) {
         return receivedItems.stream()
-                .filter(item -> !"FAILED".equals(item.statusCode()))
+                .filter(item -> !PublicLedgerStatus.FAILED.name().equals(item.statusCode()))
                 .map(item -> parseAmount(item.unsettledAmount()).add(parseAmount(item.settledAmount())))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
@@ -197,7 +183,7 @@ public class OfflineLedgerService {
                     null,
                     balanceAfterEvent.toPlainString(),
                     event.statusLabel(),
-                    event.statusCode(),
+                    event.statusCode().name(),
                     event.network(),
                     event.assetCode(),
                     event.walletAddress(),
@@ -261,7 +247,7 @@ public class OfflineLedgerService {
                     cumulativeAmount.toPlainString(),
                     cumulativeAmount.toPlainString(),
                     event.statusLabel(),
-                    event.statusCode(),
+                    event.statusCode().name(),
                     event.network(),
                     event.assetCode(),
                     event.walletAddress(),
@@ -293,7 +279,9 @@ public class OfflineLedgerService {
     private LedgerEvent toCollateralEvent(CollateralOperation operation) {
         boolean completed = operation.status() == CollateralOperationStatus.COMPLETED;
         boolean failed = operation.status() == CollateralOperationStatus.FAILED;
-        String statusCode = failed ? "FAILED" : completed ? "COMPLETED" : "PENDING";
+        PublicLedgerStatus statusCode = failed
+                ? PublicLedgerStatus.FAILED
+                : completed ? PublicLedgerStatus.CONFIRMED : PublicLedgerStatus.PENDING;
         String title = operation.operationType().name().equals("RELEASE") ? "담보해제" : "담보충전";
         String memo = readMetadataText(operation.metadataJson(), "description");
         if (memo.isBlank()) {
@@ -354,17 +342,9 @@ public class OfflineLedgerService {
         String network = firstNonBlank(payload.path("network").asText(""), "mainnet");
         long offlineTxSequence = Math.max(0L, payload.path("offlineTxSequence").asLong(0L));
         LedgerDirection direction = senderOwned ? LedgerDirection.SEND : LedgerDirection.RECEIVE;
-        boolean completed = proof.status() == OfflineProofStatus.SETTLED;
-        boolean failed = switch (proof.status()) {
-            case FAILED, CONFLICTED, REJECTED, EXPIRED -> true;
-            default -> false;
-        };
-        if (direction == LedgerDirection.RECEIVE && failed && shouldKeepReceivedProofPending(proof)) {
-            failed = false;
-        }
         boolean receiverSettled = direction == LedgerDirection.RECEIVE
                 && normalizeAmount(proof.receivedSettledAmount()).compareTo(BigDecimal.ZERO) > 0;
-        String statusCode = failed ? "FAILED" : receiverSettled ? "SETTLED" : completed ? "COMPLETED" : "PENDING";
+        PublicLedgerStatus statusCode = toPublicLedgerStatus(proof, receiverSettled);
         BigDecimal receivedUnsettledAmount = senderOwned
                 ? BigDecimal.ZERO
                 : resolveReceivedUnsettledAmount(proof, statusCode);
@@ -391,7 +371,7 @@ public class OfflineLedgerService {
                 normalizeDecimalText(payload.path("fee").asText("0.000000")),
                 category,
                 paymentMethod,
-                completed,
+                statusCode == PublicLedgerStatus.CONFIRMED || statusCode == PublicLedgerStatus.SETTLED,
                 !senderOwned,
                 receivedUnsettledAmount,
                 senderOwned ? BigDecimal.ZERO : resolveReceivedSettledAmount(proof, payload),
@@ -417,8 +397,8 @@ public class OfflineLedgerService {
                 "수취 정산",
                 "미정산 결제금 KORION wallet 반영",
                 settledAmount.abs(),
-                "SETTLED",
-                statusLabel("SETTLED"),
+                PublicLedgerStatus.SETTLED,
+                statusLabel(PublicLedgerStatus.SETTLED),
                 receiveEvent.network(),
                 receiveEvent.assetCode(),
                 receiveEvent.walletAddress(),
@@ -440,14 +420,28 @@ public class OfflineLedgerService {
         );
     }
 
-    private boolean shouldKeepReceivedProofPending(OfflinePaymentProof proof) {
-        String reasonCode = proof.reasonCode() == null ? "" : proof.reasonCode().trim().toUpperCase();
-        return RECEIVER_SETTLEMENT_PENDING_REASONS.contains(reasonCode);
+    private PublicLedgerStatus toPublicLedgerStatus(OfflinePaymentProof proof, boolean receiverSettled) {
+        return switch (proof.status()) {
+            case FAILED -> PublicLedgerStatus.FAILED;
+            case REJECTED -> toRejectedPublicLedgerStatus(proof.reasonCode());
+            case EXPIRED -> PublicLedgerStatus.EXPIRED;
+            case CONFLICTED -> PublicLedgerStatus.LOCKED;
+            case SETTLED -> receiverSettled ? PublicLedgerStatus.SETTLED : PublicLedgerStatus.CONFIRMED;
+            case ISSUED, UPLOADED, VALIDATING, VERIFIED_OFFLINE, CONSUMED_PENDING_SETTLEMENT -> PublicLedgerStatus.PENDING;
+        };
     }
 
-    private BigDecimal resolveReceivedUnsettledAmount(OfflinePaymentProof proof, String statusCode) {
+    private PublicLedgerStatus toRejectedPublicLedgerStatus(String reasonCode) {
+        String normalized = reasonCode == null ? "" : reasonCode.trim().toUpperCase();
+        return switch (normalized) {
+            case "POLICY_REJECTED", "POLICY_VIOLATION", "USER_REJECTED", "RECEIVER_REJECTED" -> PublicLedgerStatus.REJECTED;
+            default -> PublicLedgerStatus.FAILED;
+        };
+    }
+
+    private BigDecimal resolveReceivedUnsettledAmount(OfflinePaymentProof proof, PublicLedgerStatus statusCode) {
         BigDecimal unsettledAmount = normalizeAmount(proof.receivedUnsettledAmount());
-        if (!"PENDING".equals(statusCode) || unsettledAmount.compareTo(BigDecimal.ZERO) > 0) {
+        if (statusCode != PublicLedgerStatus.PENDING || unsettledAmount.compareTo(BigDecimal.ZERO) > 0) {
             return normalizeReceivedAmount(proof, unsettledAmount);
         }
         if (proof.status() == OfflineProofStatus.REJECTED) {
@@ -468,9 +462,9 @@ public class OfflineLedgerService {
             OfflinePaymentProof proof,
             JsonNode payload,
             BigDecimal receivedUnsettledAmount,
-            String statusCode
+            PublicLedgerStatus statusCode
     ) {
-        if ("SETTLED".equals(statusCode)) {
+        if (statusCode == PublicLedgerStatus.SETTLED) {
             BigDecimal settledAmount = resolveReceivedSettledAmount(proof, payload);
             if (settledAmount.compareTo(BigDecimal.ZERO) > 0) {
                 return settledAmount;
@@ -601,12 +595,15 @@ public class OfflineLedgerService {
         return "";
     }
 
-    private String statusLabel(String statusCode) {
+    private String statusLabel(PublicLedgerStatus statusCode) {
         return switch (statusCode) {
-            case "SETTLED" -> "정산완료";
-            case "COMPLETED" -> "완료";
-            case "FAILED" -> "실패";
-            default -> "대기";
+            case SETTLED -> "정산완료";
+            case CONFIRMED -> "검증완료";
+            case FAILED -> "실패";
+            case EXPIRED -> "만료";
+            case REJECTED -> "거절";
+            case LOCKED -> "잠금";
+            case PENDING -> "대기";
         };
     }
 
@@ -658,7 +655,7 @@ public class OfflineLedgerService {
             String title,
             String memo,
             BigDecimal amount,
-            String statusCode,
+            PublicLedgerStatus statusCode,
             String statusLabel,
             String network,
             String assetCode,
@@ -687,5 +684,15 @@ public class OfflineLedgerService {
     private enum LedgerDirection {
         SEND,
         RECEIVE
+    }
+
+    private enum PublicLedgerStatus {
+        PENDING,
+        CONFIRMED,
+        SETTLED,
+        FAILED,
+        EXPIRED,
+        REJECTED,
+        LOCKED
     }
 }

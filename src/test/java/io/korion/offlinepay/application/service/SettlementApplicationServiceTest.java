@@ -14,6 +14,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -79,6 +80,14 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 class SettlementApplicationServiceTest {
+
+    private static final String DEVICE_ATTESTATION_ID = "attestation-001";
+    private static final String DEVICE_ATTESTATION_VERDICT = "HARDWARE_BACKED_VERIFIED";
+    private static final String SERVER_VERIFIED_TRUST_LEVEL = "SERVER_VERIFIED";
+    private static final String SERVER_ATTESTATION_VERIFIED_AT = "2026-06-11T23:58:00.000Z";
+    private static final String VERIFIED_DEVICE_METADATA = """
+            {"deviceAttestationId":"attestation-001","attestationVerdict":"HARDWARE_BACKED_VERIFIED","serverVerifiedTrustLevel":"SERVER_VERIFIED","serverAttestationVerifiedAt":"2026-06-11T23:58:00.000Z"}
+            """;
 
     private final SpendingProofHashService spendingProofHashService = new SpendingProofHashService();
 
@@ -1005,6 +1014,442 @@ class SettlementApplicationServiceTest {
                 anyString(),
                 anyString()
         );
+    }
+
+    @Test
+    void ingestLocalEvidenceStoresReceiverEvidenceWithoutCreatingSettlement() {
+        String transportSessionHash = "a".repeat(64);
+        SettlementApplicationService.LocalEvidenceIngestResult result = service.ingestLocalEvidence(
+                new SettlementApplicationService.LocalEvidenceIngestCommand(
+                        SettlementApplicationService.UploaderType.RECEIVER,
+                        "receiver-device",
+                        "idempotency-local-evidence-receiver",
+                        java.util.List.of(new SettlementApplicationService.LocalEvidenceSubmission(
+                                "voucher-local-evidence",
+                                "req-local-evidence",
+                                "RECEIVE",
+                                "sender-device",
+                                "receiver-device",
+                                new BigDecimal("2.10000000"),
+                                11L,
+                                "prev-local-evidence",
+                                "hash-local-evidence",
+                                "nonce-local-evidence",
+                                "signature-local-evidence",
+                                "{\"voucherId\":\"voucher-local-evidence\"}",
+                                "merchant-001",
+                                "partner-kr-01",
+                                "leader-kr",
+                                "kr",
+                                "store-seoul-001",
+                                "order-123",
+                                "pi-123",
+                                "inv-123",
+                                "12500",
+                                "krw",
+                                "2500",
+                                "2026-06-11T23:59:30.000Z",
+                                "1",
+                                "1",
+                                "SHA-256",
+                                "SHA256withECDSA",
+                                "device-key-001",
+                                "pubkey-fingerprint-001",
+                                "1.8.1",
+                                DEVICE_ATTESTATION_ID,
+                                DEVICE_ATTESTATION_VERDICT,
+                                SERVER_VERIFIED_TRUST_LEVEL,
+                                SERVER_ATTESTATION_VERIFIED_AT,
+                                transportSessionHash,
+                                java.util.Map.of("receiverEvidenceBlock", true)
+                        ))
+                )
+        );
+
+        assertEquals(1, result.requested());
+        assertEquals(0, result.stored());
+        assertEquals(1, result.skipped());
+        verify(localEvidenceRepository).save(argThat(evidence ->
+                evidence.proofId() == null
+                        && "voucher-local-evidence".equals(evidence.voucherId())
+                        && "RECEIVE".equals(evidence.direction())
+                        && "RECEIVER".equals(evidence.uploaderType())
+                        && "receiver-device".equals(evidence.uploaderDeviceId())
+                        && "FAILED".equals(evidence.verificationStatus())
+                        && evidence.verificationDetail().contains("hash mismatch")
+                        && "merchant-001".equals(evidence.rawPayload().get("merchantId"))
+                        && "partner-kr-01".equals(evidence.rawPayload().get("partnerId"))
+                        && "leader-kr".equals(evidence.rawPayload().get("leaderId"))
+                        && "KR".equals(evidence.rawPayload().get("countryCode"))
+                        && "store-seoul-001".equals(evidence.rawPayload().get("storeId"))
+                        && "order-123".equals(evidence.rawPayload().get("orderId"))
+                        && "pi-123".equals(evidence.rawPayload().get("paymentIntentId"))
+                        && "inv-123".equals(evidence.rawPayload().get("invoiceId"))
+                        && "12500".equals(evidence.rawPayload().get("fiatAmount"))
+                        && "KRW".equals(evidence.rawPayload().get("fiatCurrency"))
+                        && "2500".equals(evidence.rawPayload().get("exchangeRate"))
+                        && "2026-06-11T23:59:30.000Z".equals(evidence.rawPayload().get("rateTimestamp"))
+                        && "1".equals(evidence.rawPayload().get("schemaVersion"))
+                        && "1".equals(evidence.rawPayload().get("protocolVersion"))
+                        && "SHA-256".equals(evidence.rawPayload().get("hashAlgorithm"))
+                        && "SHA256withECDSA".equals(evidence.rawPayload().get("signatureAlgorithm"))
+                        && "device-key-001".equals(evidence.rawPayload().get("keyId"))
+                        && "pubkey-fingerprint-001".equals(evidence.rawPayload().get("publicKeyFingerprint"))
+                        && "1.8.1".equals(evidence.rawPayload().get("appVersion"))
+                        && "attestation-001".equals(evidence.rawPayload().get("deviceAttestationId"))
+                        && transportSessionHash.equals(evidence.rawPayload().get("transportSessionHash"))
+                        && evidence.matchedProofId() == null
+        ));
+        verifyNoInteractions(batchRepository, settlementRepository);
+    }
+
+    @Test
+    void ingestLocalEvidenceStoresVerifiedReceiverEvidenceWithoutCreatingSettlementByItself() throws Exception {
+        KeyPairGenerator generator = KeyPairGenerator.getInstance("EC");
+        generator.initialize(256);
+        KeyPair receiverKeyPair = generator.generateKeyPair();
+        String transportSessionHash = "b".repeat(64);
+        String canonicalPayload = """
+                {"voucherId":"voucher-local-evidence-verified","direction":"RECEIVE","deviceId":"receiver-device","senderDeviceId":"sender-device","receiverDeviceId":"receiver-device","prevHash":"prev-local-evidence-verified","nonce":"nonce-local-evidence-verified","deviceAttestationId":"%s","deviceAttestationVerdict":"%s","serverVerifiedTrustLevel":"%s","serverAttestationVerifiedAt":"%s","transportSessionHash":"%s","counter":13,"amount":"2.10000000"}
+                """.formatted(DEVICE_ATTESTATION_ID, DEVICE_ATTESTATION_VERDICT, SERVER_VERIFIED_TRUST_LEVEL, SERVER_ATTESTATION_VERIFIED_AT, transportSessionHash).trim();
+        Signature signer = Signature.getInstance("SHA256withECDSA");
+        signer.initSign(receiverKeyPair.getPrivate());
+        signer.update(canonicalPayload.getBytes(StandardCharsets.UTF_8));
+        String signature = Base64.getEncoder().encodeToString(signer.sign());
+        String receiverPublicKey = Base64.getEncoder().encodeToString(receiverKeyPair.getPublic().getEncoded());
+        Device receiverDevice = new Device(
+                "receiver-row-verified",
+                "receiver-device",
+                1L,
+                receiverPublicKey,
+                1,
+                DeviceStatus.ACTIVE,
+                VERIFIED_DEVICE_METADATA,
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        when(deviceRepository.findByDeviceId("receiver-device")).thenReturn(Optional.of(receiverDevice));
+
+        SettlementApplicationService.LocalEvidenceIngestResult result = service.ingestLocalEvidence(
+                new SettlementApplicationService.LocalEvidenceIngestCommand(
+                        SettlementApplicationService.UploaderType.RECEIVER,
+                        "receiver-device",
+                        "idempotency-local-evidence-receiver-verified",
+                        java.util.List.of(new SettlementApplicationService.LocalEvidenceSubmission(
+                                "voucher-local-evidence-verified",
+                                "req-local-evidence-verified",
+                                "RECEIVE",
+                                "sender-device",
+                                "receiver-device",
+                                new BigDecimal("2.10000000"),
+                                13L,
+                                "prev-local-evidence-verified",
+                                sha256Hex(canonicalPayload),
+                                "nonce-local-evidence-verified",
+                                signature,
+                                canonicalPayload,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                "1",
+                                "1",
+                                "SHA-256",
+                                "SHA256withECDSA",
+                                "device:receiver-device:v1",
+                                sha256Hex(receiverPublicKey),
+                                null,
+                                DEVICE_ATTESTATION_ID,
+                                DEVICE_ATTESTATION_VERDICT,
+                                SERVER_VERIFIED_TRUST_LEVEL,
+                                SERVER_ATTESTATION_VERIFIED_AT,
+                                transportSessionHash,
+                                java.util.Map.of("receiverEvidenceBlock", true)
+                        ))
+                )
+        );
+
+        assertEquals(1, result.requested());
+        assertEquals(1, result.stored());
+        assertEquals(0, result.skipped());
+        verify(localEvidenceRepository).save(argThat(evidence ->
+                evidence.proofId() == null
+                        && "voucher-local-evidence-verified".equals(evidence.voucherId())
+                        && "RECEIVE".equals(evidence.direction())
+                        && "VERIFIED".equals(evidence.verificationStatus())
+                        && evidence.matchedProofId() == null
+        ));
+        verify(proofRepository).findByVoucherId("voucher-local-evidence-verified");
+        verifyNoInteractions(batchRepository, settlementRepository);
+    }
+
+    @Test
+    void ingestLocalEvidenceRejectsMismatchedRegisteredPublicKeyFingerprint() throws Exception {
+        KeyPairGenerator generator = KeyPairGenerator.getInstance("EC");
+        generator.initialize(256);
+        KeyPair receiverKeyPair = generator.generateKeyPair();
+        String transportSessionHash = "c".repeat(64);
+        String canonicalPayload = """
+                {"voucherId":"voucher-local-evidence-fingerprint","direction":"RECEIVE","deviceId":"receiver-device","senderDeviceId":"sender-device","receiverDeviceId":"receiver-device","prevHash":"prev-local-evidence-fingerprint","nonce":"nonce-local-evidence-fingerprint","deviceAttestationId":"%s","deviceAttestationVerdict":"%s","serverVerifiedTrustLevel":"%s","serverAttestationVerifiedAt":"%s","transportSessionHash":"%s","counter":15,"amount":"2.10000000"}
+                """.formatted(DEVICE_ATTESTATION_ID, DEVICE_ATTESTATION_VERDICT, SERVER_VERIFIED_TRUST_LEVEL, SERVER_ATTESTATION_VERIFIED_AT, transportSessionHash).trim();
+        Signature signer = Signature.getInstance("SHA256withECDSA");
+        signer.initSign(receiverKeyPair.getPrivate());
+        signer.update(canonicalPayload.getBytes(StandardCharsets.UTF_8));
+        String signature = Base64.getEncoder().encodeToString(signer.sign());
+        Device receiverDevice = new Device(
+                "receiver-row-fingerprint",
+                "receiver-device",
+                1L,
+                Base64.getEncoder().encodeToString(receiverKeyPair.getPublic().getEncoded()),
+                1,
+                DeviceStatus.ACTIVE,
+                VERIFIED_DEVICE_METADATA,
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        when(deviceRepository.findByDeviceId("receiver-device")).thenReturn(Optional.of(receiverDevice));
+
+        SettlementApplicationService.LocalEvidenceIngestResult result = service.ingestLocalEvidence(
+                new SettlementApplicationService.LocalEvidenceIngestCommand(
+                        SettlementApplicationService.UploaderType.RECEIVER,
+                        "receiver-device",
+                        "idempotency-local-evidence-fingerprint",
+                        java.util.List.of(new SettlementApplicationService.LocalEvidenceSubmission(
+                                "voucher-local-evidence-fingerprint",
+                                "req-local-evidence-fingerprint",
+                                "RECEIVE",
+                                "sender-device",
+                                "receiver-device",
+                                new BigDecimal("2.10000000"),
+                                15L,
+                                "prev-local-evidence-fingerprint",
+                                sha256Hex(canonicalPayload),
+                                "nonce-local-evidence-fingerprint",
+                                signature,
+                                canonicalPayload,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                "1",
+                                "1",
+                                "SHA-256",
+                                "SHA256withECDSA",
+                                "device:receiver-device:v1",
+                                "wrong-fingerprint",
+                                null,
+                                DEVICE_ATTESTATION_ID,
+                                DEVICE_ATTESTATION_VERDICT,
+                                SERVER_VERIFIED_TRUST_LEVEL,
+                                SERVER_ATTESTATION_VERIFIED_AT,
+                                transportSessionHash,
+                                java.util.Map.of("receiverEvidenceBlock", true)
+                        ))
+                )
+        );
+
+        assertEquals(1, result.requested());
+        assertEquals(0, result.stored());
+        assertEquals(1, result.skipped());
+        verify(localEvidenceRepository).save(argThat(evidence ->
+                "FAILED".equals(evidence.verificationStatus())
+                        && evidence.verificationDetail().contains("public key fingerprint mismatch")
+        ));
+    }
+
+    @Test
+    void verifiedReceiverLocalEvidenceWakesPendingSenderSettlementThroughEvidenceGate() throws Exception {
+        KeyPairGenerator generator = KeyPairGenerator.getInstance("EC");
+        generator.initialize(256);
+        KeyPair receiverKeyPair = generator.generateKeyPair();
+        String transportSessionHash = "d".repeat(64);
+        String canonicalPayload = """
+                {"voucherId":"voucher-local-evidence-wake","direction":"RECEIVE","deviceId":"receiver-device","senderDeviceId":"sender-device","receiverDeviceId":"receiver-device","prevHash":"prev-local-evidence-wake","nonce":"nonce-local-evidence-wake","deviceAttestationId":"%s","deviceAttestationVerdict":"%s","serverVerifiedTrustLevel":"%s","serverAttestationVerifiedAt":"%s","transportSessionHash":"%s","counter":14,"amount":"2.10000000"}
+                """.formatted(DEVICE_ATTESTATION_ID, DEVICE_ATTESTATION_VERDICT, SERVER_VERIFIED_TRUST_LEVEL, SERVER_ATTESTATION_VERIFIED_AT, transportSessionHash).trim();
+        Signature signer = Signature.getInstance("SHA256withECDSA");
+        signer.initSign(receiverKeyPair.getPrivate());
+        signer.update(canonicalPayload.getBytes(StandardCharsets.UTF_8));
+        String signature = Base64.getEncoder().encodeToString(signer.sign());
+        String receiverPublicKey = Base64.getEncoder().encodeToString(receiverKeyPair.getPublic().getEncoded());
+        Device receiverDevice = new Device(
+                "receiver-row-wake",
+                "receiver-device",
+                1L,
+                receiverPublicKey,
+                1,
+                DeviceStatus.ACTIVE,
+                VERIFIED_DEVICE_METADATA,
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        OfflinePaymentProof proof = new OfflinePaymentProof(
+                "proof-local-evidence-wake",
+                "batch-local-evidence-wake",
+                "voucher-local-evidence-wake",
+                "collateral-local-evidence-wake",
+                "sender-device",
+                "receiver-device",
+                1,
+                1,
+                14L,
+                "nonce-sender-proof-wake",
+                "hash-sender-proof-wake",
+                "prev-sender-proof-wake",
+                "signature-sender-proof-wake",
+                new BigDecimal("2.10000000"),
+                System.currentTimeMillis(),
+                System.currentTimeMillis() + 60_000,
+                "{}",
+                "SENDER",
+                "{\"senderLocalBlock\":true}",
+                OffsetDateTime.now()
+        );
+        SettlementRequest request = new SettlementRequest(
+                "settlement-local-evidence-wake",
+                "batch-local-evidence-wake",
+                "collateral-local-evidence-wake",
+                "proof-local-evidence-wake",
+                SettlementStatus.PENDING,
+                null,
+                false,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        CollateralLock collateral = new CollateralLock(
+                "collateral-local-evidence-wake",
+                77L,
+                "sender-device",
+                "USDT",
+                new BigDecimal("150"),
+                new BigDecimal("100"),
+                "GENESIS",
+                1,
+                CollateralStatus.LOCKED,
+                "lock-local-evidence-wake",
+                OffsetDateTime.now().plusDays(1),
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        when(deviceRepository.findByDeviceId("receiver-device")).thenReturn(Optional.of(receiverDevice));
+        when(proofRepository.findByVoucherId("voucher-local-evidence-wake")).thenReturn(Optional.of(proof));
+        when(settlementRepository.findLatestByProofId("proof-local-evidence-wake")).thenReturn(Optional.of(request));
+        when(localEvidenceRepository.existsMatchingReceiverEvidence(proof)).thenReturn(true);
+        when(proofRepository.findById("proof-local-evidence-wake")).thenReturn(Optional.of(proof));
+        when(collateralRepository.findById("collateral-local-evidence-wake")).thenReturn(Optional.of(collateral));
+
+        SettlementApplicationService.LocalEvidenceIngestResult result = service.ingestLocalEvidence(
+                new SettlementApplicationService.LocalEvidenceIngestCommand(
+                        SettlementApplicationService.UploaderType.RECEIVER,
+                        "receiver-device",
+                        "idempotency-local-evidence-receiver-wake",
+                        java.util.List.of(new SettlementApplicationService.LocalEvidenceSubmission(
+                                "voucher-local-evidence-wake",
+                                "req-local-evidence-wake",
+                                "RECEIVE",
+                                "sender-device",
+                                "receiver-device",
+                                new BigDecimal("2.10000000"),
+                                14L,
+                                "prev-local-evidence-wake",
+                                sha256Hex(canonicalPayload),
+                                "nonce-local-evidence-wake",
+                                signature,
+                                canonicalPayload,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                "1",
+                                "1",
+                                "SHA-256",
+                                "SHA256withECDSA",
+                                "device:receiver-device:v1",
+                                sha256Hex(receiverPublicKey),
+                                null,
+                                DEVICE_ATTESTATION_ID,
+                                DEVICE_ATTESTATION_VERDICT,
+                                SERVER_VERIFIED_TRUST_LEVEL,
+                                SERVER_ATTESTATION_VERIFIED_AT,
+                                transportSessionHash,
+                                java.util.Map.of("receiverEvidenceBlock", true)
+                        ))
+                )
+        );
+
+        assertEquals(1, result.stored());
+        verify(localEvidenceRepository).existsMatchingReceiverEvidence(proof);
+        verify(proofRepository).updateLifecycle(
+                eq("proof-local-evidence-wake"),
+                eq(OfflineProofStatus.CONSUMED_PENDING_SETTLEMENT),
+                isNull(),
+                eq(true),
+                eq(false),
+                eq(false)
+        );
+        verify(settlementRepository).update(
+                eq("settlement-local-evidence-wake"),
+                eq(SettlementStatus.REJECTED),
+                anyString(),
+                eq(false),
+                anyString()
+        );
+    }
+
+    @Test
+    void ingestLocalEvidenceSkipsMismatchedUploaderDevice() {
+        SettlementApplicationService.LocalEvidenceIngestResult result = service.ingestLocalEvidence(
+                new SettlementApplicationService.LocalEvidenceIngestCommand(
+                        SettlementApplicationService.UploaderType.RECEIVER,
+                        "another-device",
+                        "idempotency-local-evidence-skip",
+                        java.util.List.of(new SettlementApplicationService.LocalEvidenceSubmission(
+                                "voucher-local-evidence-skip",
+                                "req-local-evidence-skip",
+                                "RECEIVE",
+                                "sender-device",
+                                "receiver-device",
+                                new BigDecimal("2.10000000"),
+                                12L,
+                                "prev-local-evidence",
+                                "hash-local-evidence",
+                                "nonce-local-evidence",
+                                "signature-local-evidence",
+                                "{\"voucherId\":\"voucher-local-evidence-skip\"}",
+                                java.util.Map.of("receiverEvidenceBlock", true)
+                        ))
+                )
+        );
+
+        assertEquals(1, result.requested());
+        assertEquals(0, result.stored());
+        assertEquals(1, result.skipped());
+        verifyNoInteractions(localEvidenceRepository, batchRepository, settlementRepository);
     }
 
     @Test
@@ -2098,6 +2543,16 @@ class SettlementApplicationServiceTest {
         verify(settlementRepository).update(anyString(), any(SettlementStatus.class), any(), anyBoolean(), anyString());
         assertEquals(SettlementStatus.REJECTED, result.status());
         assertTrue(result.settlementResultJson().contains("INVALID_DEVICE_BINDING"));
+        verify(proofRepository, never()).ensureReceivedUnsettledAmount(anyString(), any());
+        verify(collateralRepository, never()).deductLockedAndRemainingAmount(anyString(), any());
+        verify(eventBus, never()).publishExternalSyncRequested(
+                eq("LEDGER_SYNC_REQUESTED"),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString()
+        );
         verify(reconciliationCaseRepository).save(
                 eq("settlement-2"),
                 eq("batch-2"),

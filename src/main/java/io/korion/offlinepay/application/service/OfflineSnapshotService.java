@@ -12,6 +12,8 @@ import io.korion.offlinepay.domain.policy.SettlementPolicyConstants;
 import com.fasterxml.jackson.databind.JsonNode;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
+import java.time.ZoneId;
+import java.time.zone.ZoneRulesException;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -50,9 +52,24 @@ public class OfflineSnapshotService {
 
     @Transactional(readOnly = true)
     public CurrentSnapshot getCurrentSnapshot(long userId, String deviceId, String assetCode) {
+        return getCurrentSnapshot(userId, deviceId, assetCode, null, null);
+    }
+
+    @Transactional(readOnly = true)
+    public CurrentSnapshot getCurrentSnapshot(
+            long userId,
+            String deviceId,
+            String assetCode,
+            String clientTimeZone,
+            Integer clientTimeZoneOffsetMinutes
+    ) {
         String normalizedAssetCode = assetCode == null || assetCode.isBlank()
                 ? properties.assetCode()
                 : assetCode.trim().toUpperCase();
+        String normalizedClientTimeZone = normalizeClientTimeZone(clientTimeZone);
+        Integer normalizedClientTimeZoneOffsetMinutes = clientTimeZoneOffsetMinutes == null
+                ? 0
+                : clientTimeZoneOffsetMinutes;
         Device device = deviceRepository.findByUserIdAndDeviceId(userId, deviceId)
                 .orElse(null);
         CollateralLock collateral = collateralRepository
@@ -110,8 +127,22 @@ public class OfflineSnapshotService {
                 walletSnapshot,
                 true,
                 OffsetDateTime.now().toString(),
-                SettlementPolicyConstants.COLLATERAL_SNAPSHOT_STALE_AFTER_MS
+                SettlementPolicyConstants.COLLATERAL_SNAPSHOT_STALE_AFTER_MS,
+                "UTC",
+                normalizedClientTimeZone,
+                normalizedClientTimeZoneOffsetMinutes
         );
+    }
+
+    private String normalizeClientTimeZone(String clientTimeZone) {
+        if (clientTimeZone == null || clientTimeZone.isBlank()) {
+            return "UTC";
+        }
+        try {
+            return ZoneId.of(clientTimeZone.trim()).getId();
+        } catch (ZoneRulesException | IllegalArgumentException exception) {
+            return "UTC";
+        }
     }
 
     private boolean hasValidIssuerSignature(IssuedOfflineProof issuedProof) {
@@ -191,7 +222,10 @@ public class OfflineSnapshotService {
             WalletSnapshot wallet,
             boolean walletRefreshRequired,
             String refreshedAt,
-            long staleAfterMs
+            long staleAfterMs,
+            String serverTimeZone,
+            String clientTimeZone,
+            int clientTimeZoneOffsetMinutes
     ) {}
 
     public record DeviceRegistrationSnapshot(

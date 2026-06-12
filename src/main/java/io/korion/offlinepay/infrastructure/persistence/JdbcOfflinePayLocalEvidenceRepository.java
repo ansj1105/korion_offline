@@ -3,6 +3,7 @@ package io.korion.offlinepay.infrastructure.persistence;
 import io.korion.offlinepay.application.port.OfflinePayLocalEvidenceRepository;
 import io.korion.offlinepay.application.service.JsonService;
 import io.korion.offlinepay.domain.model.OfflinePayLocalEvidence;
+import io.korion.offlinepay.domain.model.OfflinePaymentProof;
 import java.util.UUID;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
@@ -108,6 +109,54 @@ public class JdbcOfflinePayLocalEvidenceRepository implements OfflinePayLocalEvi
                 .param("verificationDetail", blankToNull(evidence.verificationDetail()))
                 .param("matchedProofId", parseUuid(evidence.matchedProofId()))
                 .update();
+    }
+
+    @Override
+    public boolean existsMatchingReceiverEvidence(OfflinePaymentProof proof) {
+        String sql = """
+                SELECT COUNT(*)
+                FROM offline_pay_local_evidence
+                WHERE direction = 'RECEIVE'
+                  AND verification_status = 'VERIFIED'
+                  AND voucher_id = :voucherId
+                  AND sender_device_id = :senderDeviceId
+                  AND receiver_device_id = :receiverDeviceId
+                  AND amount = :amount
+                  AND (
+                      matched_proof_id = :proofId
+                      OR proof_id = :proofId
+                      OR raw_payload ->> 'proofId' = :proofIdText
+                      OR (
+                          raw_payload ->> 'receiverEvidenceBlockSenderProofNewHash' = :hashChainHead
+                          AND raw_payload ->> 'receiverEvidenceBlockSenderProofPrevHash' = :previousHash
+                          AND raw_payload ->> 'receiverEvidenceBlockSenderProofNonce' = :nonce
+                          AND raw_payload ->> 'receiverEvidenceBlockSenderProofSignature' = :signature
+                          AND raw_payload ->> 'receiverEvidenceBlockSenderProofCounter' = :counterText
+                      )
+                      OR (
+                          raw_payload ->> 'receiverLocalBlockNewHash' = :hashChainHead
+                          AND raw_payload ->> 'receiverLocalBlockPrevHash' = :previousHash
+                          AND raw_payload ->> 'receiverLocalBlockNonce' = :nonce
+                          AND raw_payload ->> 'receiverLocalBlockSignature' = :signature
+                          AND raw_payload ->> 'receiverLocalBlockCounter' = :counterText
+                      )
+                  )
+                """;
+        Integer count = jdbcClient.sql(sql)
+                .param("voucherId", proof.voucherId())
+                .param("senderDeviceId", proof.senderDeviceId())
+                .param("receiverDeviceId", proof.receiverDeviceId())
+                .param("amount", proof.amount())
+                .param("proofId", parseUuid(proof.id()))
+                .param("proofIdText", proof.id())
+                .param("hashChainHead", proof.hashChainHead())
+                .param("previousHash", proof.previousHash())
+                .param("nonce", proof.nonce())
+                .param("signature", proof.signature())
+                .param("counterText", String.valueOf(proof.counter()))
+                .query(Integer.class)
+                .single();
+        return count != null && count > 0;
     }
 
     private UUID parseUuid(String value) {

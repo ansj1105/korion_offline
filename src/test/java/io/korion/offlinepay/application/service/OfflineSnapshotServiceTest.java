@@ -107,6 +107,17 @@ class OfflineSnapshotServiceTest {
         assertEquals("0", snapshot.collateral().unsettledOutgoing());
         assertEquals("23.00000000", snapshot.collateral().availableForPay());
         assertEquals("122.253587460317457206", snapshot.wallet().additionalCollateralAvailableAmount());
+
+        OfflineSnapshotService.CurrentSnapshot localizedSnapshot = service.getCurrentSnapshot(
+                1L,
+                "device-1",
+                "KORI",
+                "Asia/Seoul",
+                540
+        );
+        assertEquals("UTC", localizedSnapshot.serverTimeZone());
+        assertEquals("Asia/Seoul", localizedSnapshot.clientTimeZone());
+        assertEquals(540, localizedSnapshot.clientTimeZoneOffsetMinutes());
     }
 
     @Test

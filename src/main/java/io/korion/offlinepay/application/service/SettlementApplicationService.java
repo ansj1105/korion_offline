@@ -39,6 +39,7 @@ import io.korion.offlinepay.domain.model.OfflineSaga;
 import io.korion.offlinepay.domain.model.ReconciliationCase;
 import io.korion.offlinepay.domain.model.SettlementBatch;
 import io.korion.offlinepay.domain.model.SettlementRequest;
+import io.korion.offlinepay.domain.policy.DeviceTrustContract;
 import io.korion.offlinepay.domain.reason.OfflinePayReasonCode;
 import io.korion.offlinepay.domain.status.OfflineSagaStatus;
 import io.korion.offlinepay.domain.status.OfflineSagaType;
@@ -53,6 +54,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.springframework.stereotype.Service;
@@ -189,6 +191,298 @@ public class SettlementApplicationService {
             confirmed++;
         }
         return new ReceiverSettlementConfirmationResult(requested, confirmed, skipped);
+    }
+
+    @Transactional
+    public LocalEvidenceIngestResult ingestLocalEvidence(LocalEvidenceIngestCommand command) {
+        int requested = command.evidences() == null ? 0 : command.evidences().size();
+        int stored = 0;
+        int skipped = 0;
+        for (LocalEvidenceSubmission evidence : command.evidences() == null ? List.<LocalEvidenceSubmission>of() : command.evidences()) {
+            if (evidence == null || !hasRequiredLocalEvidence(command, evidence)) {
+                skipped++;
+                continue;
+            }
+            String direction = evidence.direction().trim().toUpperCase();
+            Map<String, Object> rawPayload = buildLocalEvidencePayload(evidence, direction);
+            LocalEvidenceVerification verification = verifyDirectLocalEvidence(evidence, direction);
+            localEvidenceRepository.save(new OfflinePayLocalEvidence(
+                    null,
+                    evidence.voucherId().trim(),
+                    evidence.sessionId() == null ? null : evidence.sessionId().trim(),
+                    direction,
+                    command.uploaderType().name(),
+                    command.uploaderDeviceId().trim(),
+                    evidence.senderDeviceId().trim(),
+                    evidence.receiverDeviceId().trim(),
+                    evidence.amount(),
+                    evidence.counter(),
+                    evidence.previousHash() == null ? "" : evidence.previousHash().trim(),
+                    evidence.hashChainHead().trim(),
+                    evidence.nonce().trim(),
+                    evidence.signature().trim(),
+                    evidence.canonicalPayload().trim(),
+                    rawPayload,
+                    verification.status(),
+                    verification.detail(),
+                    null
+            ));
+            if (!"VERIFIED".equals(verification.status())) {
+                skipped++;
+                continue;
+            }
+            stored++;
+            if ("RECEIVE".equals(direction)) {
+                processMatchingSenderSettlement(evidence.voucherId().trim());
+            }
+        }
+        return new LocalEvidenceIngestResult(requested, stored, skipped);
+    }
+
+    private LocalEvidenceVerification verifyDirectLocalEvidence(LocalEvidenceSubmission evidence, String direction) {
+        String canonicalPayload = evidence.canonicalPayload().trim();
+        String submittedHash = evidence.hashChainHead().trim();
+        if (!equalsText(sha256Hex(canonicalPayload), submittedHash)) {
+            return new LocalEvidenceVerification("FAILED", "local evidence hash mismatch");
+        }
+
+        JsonNode canonical = jsonService.readTree(canonicalPayload);
+        if (!equalsText(evidence.voucherId(), canonical.path("voucherId").asText(""))) {
+            return new LocalEvidenceVerification("FAILED", "local evidence voucher mismatch");
+        }
+        if (!equalsText(direction, canonical.path("direction").asText(""))) {
+            return new LocalEvidenceVerification("FAILED", "local evidence direction mismatch");
+        }
+        String expectedDeviceId = "SEND".equals(direction) ? evidence.senderDeviceId() : evidence.receiverDeviceId();
+        if (!equalsText(expectedDeviceId, canonical.path("deviceId").asText(""))) {
+            return new LocalEvidenceVerification("FAILED", "local evidence device mismatch");
+        }
+        if (!equalsText(evidence.senderDeviceId(), canonical.path("senderDeviceId").asText(""))) {
+            return new LocalEvidenceVerification("FAILED", "local evidence sender device mismatch");
+        }
+        if (!equalsText(evidence.receiverDeviceId(), canonical.path("receiverDeviceId").asText(""))) {
+            return new LocalEvidenceVerification("FAILED", "local evidence receiver device mismatch");
+        }
+        if (!equalsText(evidence.previousHash(), canonical.path("prevHash").asText(""))) {
+            return new LocalEvidenceVerification("FAILED", "local evidence previous hash mismatch");
+        }
+        if (!equalsText(evidence.nonce(), canonical.path("nonce").asText(""))) {
+            return new LocalEvidenceVerification("FAILED", "local evidence nonce mismatch");
+        }
+        if (!equalsText(evidence.transportSessionHash(), canonical.path("transportSessionHash").asText(""))) {
+            return new LocalEvidenceVerification("FAILED", "local evidence transport session hash mismatch");
+        }
+        if (!equalsText(evidence.deviceAttestationId(), canonical.path("deviceAttestationId").asText(""))) {
+            return new LocalEvidenceVerification("FAILED", "local evidence device attestation id mismatch");
+        }
+        if (!equalsText(evidence.deviceAttestationVerdict(), canonical.path("deviceAttestationVerdict").asText(""))) {
+            return new LocalEvidenceVerification("FAILED", "local evidence attestation verdict mismatch");
+        }
+        if (!equalsText(evidence.serverVerifiedTrustLevel(), canonical.path("serverVerifiedTrustLevel").asText(""))) {
+            return new LocalEvidenceVerification("FAILED", "local evidence trust level mismatch");
+        }
+        if (!equalsText(evidence.serverAttestationVerifiedAt(), canonical.path("serverAttestationVerifiedAt").asText(""))) {
+            return new LocalEvidenceVerification("FAILED", "local evidence attestation verified time mismatch");
+        }
+        if (canonical.path("counter").asLong(-1) != evidence.counter()) {
+            return new LocalEvidenceVerification("FAILED", "local evidence counter mismatch");
+        }
+        if (!amountEquals(evidence.amount(), canonical.path("amount").asText(""))) {
+            return new LocalEvidenceVerification("FAILED", "local evidence amount mismatch");
+        }
+
+        Device device = deviceIdentifierResolver.resolve(expectedDeviceId)
+                .orElse(null);
+        if (device == null) {
+            return new LocalEvidenceVerification("FAILED", "local evidence device not found");
+        }
+        String securityBindingError = verifyLocalEvidenceSecurityBinding(evidence, device);
+        if (securityBindingError != null) {
+            return new LocalEvidenceVerification("FAILED", securityBindingError);
+        }
+        DeviceSignatureVerificationService.VerificationResult signatureVerification =
+                deviceSignatureVerificationService.verifyPayload(device, canonicalPayload, evidence.signature());
+        if (!signatureVerification.verified()) {
+            return new LocalEvidenceVerification("FAILED", "local evidence signature invalid: " + signatureVerification.detail());
+        }
+        return new LocalEvidenceVerification("VERIFIED", "direct local evidence verified");
+    }
+
+    private String verifyLocalEvidenceSecurityBinding(LocalEvidenceSubmission evidence, Device device) {
+        String expectedKeyId = "device:" + device.deviceId() + ":v" + device.keyVersion();
+        if (evidence.keyId() == null || evidence.keyId().isBlank()) {
+            return "local evidence key id missing";
+        }
+        if (!equalsText(expectedKeyId, evidence.keyId())) {
+            return "local evidence key id mismatch";
+        }
+        if (evidence.publicKeyFingerprint() == null || evidence.publicKeyFingerprint().isBlank()) {
+            return "local evidence public key fingerprint missing";
+        }
+        String expectedFingerprint = sha256Hex(normalizePublicKeyMaterial(device.publicKey()));
+        if (!equalsText(expectedFingerprint, evidence.publicKeyFingerprint())) {
+            return "local evidence public key fingerprint mismatch";
+        }
+        if (evidence.transportSessionHash() == null || evidence.transportSessionHash().isBlank()) {
+            return "local evidence transport session hash missing";
+        }
+        if (!evidence.transportSessionHash().matches("(?i)^[0-9a-f]{64}$")) {
+            return "local evidence transport session hash invalid";
+        }
+        if (evidence.deviceAttestationId() == null || evidence.deviceAttestationId().isBlank()) {
+            return "local evidence device attestation id missing";
+        }
+        if (!DeviceTrustContract.MINIMUM_ATTESTATION_VERDICT.equals(evidence.deviceAttestationVerdict())) {
+            return "local evidence device attestation verdict insufficient";
+        }
+        if (!DeviceTrustContract.SERVER_VERIFIED.equals(evidence.serverVerifiedTrustLevel())) {
+            return "local evidence device attestation not server verified";
+        }
+        if (evidence.serverAttestationVerifiedAt() == null || evidence.serverAttestationVerifiedAt().isBlank()) {
+            return "local evidence device attestation verification time missing";
+        }
+        String deviceAttestationId = readMetadataText(device.metadataJson(), "deviceAttestationId");
+        if (!deviceAttestationId.isBlank() && !equalsText(deviceAttestationId, evidence.deviceAttestationId())) {
+            return "local evidence device attestation id not registered";
+        }
+        String attestationVerdict = readMetadataText(device.metadataJson(), "attestationVerdict");
+        if (!attestationVerdict.isBlank() && !equalsText(attestationVerdict, evidence.deviceAttestationVerdict())) {
+            return "local evidence device attestation verdict not registered";
+        }
+        String trustLevel = readMetadataText(device.metadataJson(), "serverVerifiedTrustLevel");
+        if (!trustLevel.isBlank() && !equalsText(trustLevel, evidence.serverVerifiedTrustLevel())) {
+            return "local evidence device trust level not registered";
+        }
+        return null;
+    }
+
+    private void processMatchingSenderSettlement(String voucherId) {
+        proofRepository.findByVoucherId(voucherId)
+                .flatMap(proof -> settlementRepository.findLatestByProofId(proof.id())
+                        .map(request -> Map.entry(proof, request)))
+                .filter(entry -> entry.getValue().status() == SettlementStatus.PENDING
+                        || entry.getValue().status() == SettlementStatus.VALIDATING)
+                .ifPresent(entry -> {
+                    OfflinePaymentProof proof = entry.getKey();
+                    if (requiresReceiverEvidenceBeforeFinalSettlement(proof)
+                            && localEvidenceRepository.existsMatchingReceiverEvidence(proof)) {
+                        processSettlementRequest(entry.getValue(), true);
+                    }
+                });
+    }
+
+    private boolean hasRequiredLocalEvidence(LocalEvidenceIngestCommand command, LocalEvidenceSubmission evidence) {
+        if (command == null || command.uploaderType() == null || command.uploaderDeviceId() == null || command.uploaderDeviceId().isBlank()) {
+            return false;
+        }
+        String direction = evidence.direction() == null ? "" : evidence.direction().trim().toUpperCase();
+        if (!"SEND".equals(direction) && !"RECEIVE".equals(direction)) {
+            return false;
+        }
+        if (command.uploaderType() == UploaderType.SENDER && !"SEND".equals(direction)) {
+            return false;
+        }
+        if (command.uploaderType() == UploaderType.RECEIVER && !"RECEIVE".equals(direction)) {
+            return false;
+        }
+        String expectedUploaderDeviceId = "SEND".equals(direction) ? evidence.senderDeviceId() : evidence.receiverDeviceId();
+        if (!equalsText(command.uploaderDeviceId(), expectedUploaderDeviceId)) {
+            return false;
+        }
+        return evidence.voucherId() != null && !evidence.voucherId().isBlank()
+                && evidence.senderDeviceId() != null && !evidence.senderDeviceId().isBlank()
+                && evidence.receiverDeviceId() != null && !evidence.receiverDeviceId().isBlank()
+                && evidence.amount() != null && evidence.amount().compareTo(BigDecimal.ZERO) > 0
+                && evidence.counter() != null && evidence.counter() > 0
+                && evidence.hashChainHead() != null && !evidence.hashChainHead().isBlank()
+                && evidence.nonce() != null && !evidence.nonce().isBlank()
+                && evidence.signature() != null && !evidence.signature().isBlank()
+                && evidence.canonicalPayload() != null && !evidence.canonicalPayload().isBlank()
+                && evidence.deviceAttestationId() != null && !evidence.deviceAttestationId().isBlank()
+                && evidence.deviceAttestationVerdict() != null && !evidence.deviceAttestationVerdict().isBlank()
+                && evidence.serverVerifiedTrustLevel() != null && !evidence.serverVerifiedTrustLevel().isBlank()
+                && evidence.serverAttestationVerifiedAt() != null && !evidence.serverAttestationVerifiedAt().isBlank();
+    }
+
+    private Map<String, Object> buildLocalEvidencePayload(LocalEvidenceSubmission evidence, String direction) {
+        Map<String, Object> rawPayload = new LinkedHashMap<>();
+        if (evidence.payload() != null) {
+            rawPayload.putAll(evidence.payload());
+        }
+        rawPayload.putIfAbsent("localEvidenceDirectUpload", true);
+        rawPayload.putIfAbsent("voucherId", evidence.voucherId());
+        rawPayload.putIfAbsent("sessionId", evidence.sessionId());
+        rawPayload.putIfAbsent("direction", direction);
+        rawPayload.putIfAbsent("senderDeviceId", evidence.senderDeviceId());
+        rawPayload.putIfAbsent("receiverDeviceId", evidence.receiverDeviceId());
+        rawPayload.putIfAbsent("amount", evidence.amount().toPlainString());
+        rawPayload.putIfAbsent("counter", evidence.counter());
+        rawPayload.putIfAbsent("prevHash", evidence.previousHash());
+        rawPayload.putIfAbsent("newHash", evidence.hashChainHead());
+        rawPayload.putIfAbsent("nonce", evidence.nonce());
+        rawPayload.putIfAbsent("signature", evidence.signature());
+        rawPayload.putIfAbsent("canonicalPayload", evidence.canonicalPayload());
+        putIfPresent(rawPayload, "merchantId", evidence.merchantId());
+        putIfPresent(rawPayload, "partnerId", evidence.partnerId());
+        putIfPresent(rawPayload, "leaderId", evidence.leaderId());
+        putIfPresent(rawPayload, "countryCode", upperOrBlank(evidence.countryCode()));
+        putIfPresent(rawPayload, "storeId", evidence.storeId());
+        putIfPresent(rawPayload, "orderId", evidence.orderId());
+        putIfPresent(rawPayload, "paymentIntentId", evidence.paymentIntentId());
+        putIfPresent(rawPayload, "invoiceId", evidence.invoiceId());
+        putIfPresent(rawPayload, "fiatAmount", evidence.fiatAmount());
+        putIfPresent(rawPayload, "fiatCurrency", upperOrBlank(evidence.fiatCurrency()));
+        putIfPresent(rawPayload, "exchangeRate", evidence.exchangeRate());
+        putIfPresent(rawPayload, "rateTimestamp", evidence.rateTimestamp());
+        putIfPresent(rawPayload, "schemaVersion", evidence.schemaVersion());
+        putIfPresent(rawPayload, "protocolVersion", evidence.protocolVersion());
+        putIfPresent(rawPayload, "hashAlgorithm", evidence.hashAlgorithm());
+        putIfPresent(rawPayload, "signatureAlgorithm", evidence.signatureAlgorithm());
+        putIfPresent(rawPayload, "keyId", evidence.keyId());
+        putIfPresent(rawPayload, "publicKeyFingerprint", evidence.publicKeyFingerprint());
+        putIfPresent(rawPayload, "appVersion", evidence.appVersion());
+        putIfPresent(rawPayload, "deviceAttestationId", evidence.deviceAttestationId());
+        putIfPresent(rawPayload, "deviceAttestationVerdict", evidence.deviceAttestationVerdict());
+        putIfPresent(rawPayload, "serverVerifiedTrustLevel", evidence.serverVerifiedTrustLevel());
+        putIfPresent(rawPayload, "serverAttestationVerifiedAt", evidence.serverAttestationVerifiedAt());
+        putIfPresent(rawPayload, "transportSessionHash", evidence.transportSessionHash());
+        return rawPayload;
+    }
+
+    private String readMetadataText(String metadataJson, String fieldName) {
+        if (metadataJson == null || metadataJson.isBlank()) {
+            return "";
+        }
+        JsonNode root = jsonService.readTree(metadataJson);
+        if (!root.isObject()) {
+            return "";
+        }
+        JsonNode direct = root.path(fieldName);
+        if (direct.isTextual() && !direct.asText().isBlank()) {
+            return direct.asText().trim();
+        }
+        JsonNode attestation = root.path("attestation");
+        JsonNode nested = attestation.path(fieldName);
+        return nested.isTextual() ? nested.asText().trim() : "";
+    }
+
+    private void putIfPresent(Map<String, Object> payload, String key, String value) {
+        if (value != null && !value.isBlank()) {
+            payload.putIfAbsent(key, value.trim());
+        }
+    }
+
+    private String upperOrBlank(String value) {
+        return value == null ? "" : value.trim().toUpperCase();
+    }
+
+    private String normalizePublicKeyMaterial(String value) {
+        return value == null
+                ? ""
+                : value.trim()
+                        .replace("-----BEGIN PUBLIC KEY-----", "")
+                        .replace("-----END PUBLIC KEY-----", "")
+                        .replaceAll("\\s+", "");
     }
 
     private SettlementBatch createBatch(SubmitSettlementBatchCommand command) {
@@ -474,6 +768,11 @@ public class SettlementApplicationService {
         if (parsed == null || parsed.compareTo(expected) != 0) {
             throw new IllegalArgumentException(prefix + " Amount mismatch");
         }
+    }
+
+    private boolean amountEquals(BigDecimal expected, Object actual) {
+        BigDecimal parsed = parsePositiveDecimal(actual);
+        return parsed != null && parsed.compareTo(expected) == 0;
     }
 
     private Long parsePositiveLong(Object value) {
@@ -940,7 +1239,7 @@ public class SettlementApplicationService {
                 )
         );
 
-        if (requiresReceiverEvidenceBeforeFinalSettlement(proof) && !receiverEvidenceMatched) {
+        if (requiresReceiverEvidenceBeforeFinalSettlement(proof) && !hasMatchingReceiverEvidence(proof, receiverEvidenceMatched)) {
             settlementRepository.update(
                     request.id(),
                     SettlementStatus.PENDING,
@@ -1066,6 +1365,10 @@ public class SettlementApplicationService {
         }
         JsonNode payload = jsonService.readTree(proof.rawPayloadJson());
         return payload.path("senderLocalBlock").asBoolean(false);
+    }
+
+    private boolean hasMatchingReceiverEvidence(OfflinePaymentProof proof, boolean receiverEvidenceMatched) {
+        return receiverEvidenceMatched || localEvidenceRepository.existsMatchingReceiverEvidence(proof);
     }
 
     private int currentAttemptCount(String summaryJson) {
@@ -1673,6 +1976,13 @@ public class SettlementApplicationService {
             String triggerMode
     ) {}
 
+    public record LocalEvidenceIngestCommand(
+            UploaderType uploaderType,
+            String uploaderDeviceId,
+            String idempotencyKey,
+            List<LocalEvidenceSubmission> evidences
+    ) {}
+
     public record ConfirmReceivedSettlementsCommand(
             long userId,
             List<String> proofIds
@@ -1701,6 +2011,113 @@ public class SettlementApplicationService {
             long expiresAtMs,
             String canonicalPayload,
             Map<String, Object> payload
+    ) {}
+
+    public record LocalEvidenceSubmission(
+            String voucherId,
+            String sessionId,
+            String direction,
+            String senderDeviceId,
+            String receiverDeviceId,
+            BigDecimal amount,
+            Long counter,
+            String previousHash,
+            String hashChainHead,
+            String nonce,
+            String signature,
+            String canonicalPayload,
+            String merchantId,
+            String partnerId,
+            String leaderId,
+            String countryCode,
+            String storeId,
+            String orderId,
+            String paymentIntentId,
+            String invoiceId,
+            String fiatAmount,
+            String fiatCurrency,
+            String exchangeRate,
+            String rateTimestamp,
+            String schemaVersion,
+            String protocolVersion,
+            String hashAlgorithm,
+            String signatureAlgorithm,
+            String keyId,
+            String publicKeyFingerprint,
+            String appVersion,
+            String deviceAttestationId,
+            String deviceAttestationVerdict,
+            String serverVerifiedTrustLevel,
+            String serverAttestationVerifiedAt,
+            String transportSessionHash,
+            Map<String, Object> payload
+    ) {
+        public LocalEvidenceSubmission(
+                String voucherId,
+                String sessionId,
+                String direction,
+                String senderDeviceId,
+                String receiverDeviceId,
+                BigDecimal amount,
+                Long counter,
+                String previousHash,
+                String hashChainHead,
+                String nonce,
+                String signature,
+                String canonicalPayload,
+                Map<String, Object> payload
+        ) {
+            this(
+                    voucherId,
+                    sessionId,
+                    direction,
+                    senderDeviceId,
+                    receiverDeviceId,
+                    amount,
+                    counter,
+                    previousHash,
+                    hashChainHead,
+                    nonce,
+                    signature,
+                    canonicalPayload,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    payload
+            );
+        }
+    }
+
+    public record LocalEvidenceIngestResult(
+            int requested,
+            int stored,
+            int skipped
+    ) {}
+
+    private record LocalEvidenceVerification(
+            String status,
+            String detail
     ) {}
 
     public enum UploaderType {

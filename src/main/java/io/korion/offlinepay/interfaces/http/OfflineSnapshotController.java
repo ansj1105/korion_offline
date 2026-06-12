@@ -44,9 +44,17 @@ public class OfflineSnapshotController {
     public OfflineSnapshotService.CurrentSnapshot current(
             @RequestParam long userId,
             @RequestParam String deviceId,
-            @RequestParam(required = false) String assetCode
+            @RequestParam(required = false) String assetCode,
+            @RequestHeader(value = "X-Client-Time-Zone", required = false) String clientTimeZone,
+            @RequestHeader(value = "X-Client-Time-Zone-Offset-Minutes", required = false) Integer clientTimeZoneOffsetMinutes
     ) {
-        return offlineSnapshotService.getCurrentSnapshot(userId, deviceId, assetCode);
+        return offlineSnapshotService.getCurrentSnapshot(
+                userId,
+                deviceId,
+                assetCode,
+                clientTimeZone,
+                clientTimeZoneOffsetMinutes
+        );
     }
 
     @GetMapping(path = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)

@@ -241,6 +241,40 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /api/settlements/local-evidence:
+    post:
+      tags: [Settlement]
+      summary: 로컬 offline-pay evidence 직접 업로드
+      description: |
+        `offline_pay_local_blocks_v1`처럼 앱 로컬 append-only block store에 남은 sender/receiver evidence를 서버 감사 테이블에 직접 적재한다.
+        이 endpoint는 proof 또는 settlement를 생성하지 않으며, receiver-only evidence만으로 정산을 확정하지 않는다.
+        서버는 canonicalPayload SHA-256, 등록 보안기기 서명, voucher/device/amount/counter/nonce 필드 일치를 검증한다.
+        검증된 evidence만 `stored`로 집계되고, 검증 실패 evidence는 final settlement gate를 열지 않는다.
+        최종 담보 반영과 수신자 정산은 `/api/settlements` sender proof와 matching verified receiver evidence가 모두 확인된 뒤 별도 settlement flow가 처리한다.
+      operationId: ingestLocalEvidence
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          required: true
+          schema:
+            type: string
+            maxLength: 64
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitLocalEvidenceRequest'
+      responses:
+        '202':
+          description: 저장 가능한 local evidence를 `offline_pay_local_evidence`에 upsert
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LocalEvidenceIngestResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
   /api/settlements/{batchId}:
     get:
       tags: [Settlement]
@@ -499,6 +533,15 @@ components:
         staleAfterMs:
           type: integer
           format: int64
+        serverTimeZone:
+          type: string
+          description: Server canonical timezone for verification timestamps. Defaults to UTC.
+        clientTimeZone:
+          type: string
+          description: IANA timezone requested by the client via X-Client-Time-Zone, or UTC fallback.
+        clientTimeZoneOffsetMinutes:
+          type: integer
+          description: Client timezone offset minutes reported by X-Client-Time-Zone-Offset-Minutes.
 
     CollateralSnapshot:
       type: object
@@ -610,8 +653,18 @@ components:
           type: string
         statusCode:
           type: string
-          enum: [PENDING, COMPLETED, SETTLED, FAILED]
-          description: PENDING=server validation pending, COMPLETED=local payment protocol completed, SETTLED=receiver wallet/history settlement completed, FAILED=failed.
+          enum: [PENDING, CONFIRMED, SETTLED, FAILED, EXPIRED, REJECTED, LOCKED]
+          description: |
+            Public ledger status normalized for client display.
+            PENDING=local protocol evidence exists, but server validation is not complete.
+            CONFIRMED=server validation completed but receiver wallet/history settlement is not finalized.
+            SETTLED=receiver wallet/history settlement completed.
+            FAILED=validation, transport, or settlement failure.
+            EXPIRED=offline transaction proof or policy validity window expired.
+            REJECTED=policy rejection, not a technical validation failure.
+            LOCKED=anomaly or security-review lock.
+            Legacy COMPLETED may appear in older client caches only; new API responses must use CONFIRMED. Final completion is SETTLED, not COMPLETED or CONFIRMED.
+            Internal statuses such as VALIDATING, CONSUMED_PENDING_SETTLEMENT, REJECTED, and EXPIRED may remain in domain tables and traces, but must be projected to this public enum before returning ledger/history rows.
         network:
           type: string
         token:
@@ -903,6 +956,190 @@ components:
           maxItems: 500
           items:
             $ref: '#/components/schemas/VoucherProof'
+
+    SubmitLocalEvidenceRequest:
+      type: object
+      required: [uploaderType, uploaderDeviceId, evidences]
+      properties:
+        uploaderType:
+          type: string
+          enum: [SENDER, RECEIVER]
+        uploaderDeviceId:
+          type: string
+          maxLength: 64
+        evidences:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/LocalEvidence'
+
+    LocalEvidence:
+      type: object
+      required:
+        - voucherId
+        - direction
+        - senderDeviceId
+        - receiverDeviceId
+        - amount
+        - counter
+        - newHash
+        - nonce
+        - signature
+        - canonicalPayload
+        - keyId
+        - publicKeyFingerprint
+        - transportSessionHash
+        - payload
+      properties:
+        voucherId:
+          type: string
+          maxLength: 64
+        sessionId:
+          type: string
+          maxLength: 64
+        direction:
+          type: string
+          enum: [SEND, RECEIVE]
+        senderDeviceId:
+          type: string
+          maxLength: 64
+        receiverDeviceId:
+          type: string
+          maxLength: 64
+        amount:
+          type: string
+          pattern: '^\d+(\.\d{1,18})?$'
+        counter:
+          type: integer
+          format: int64
+          minimum: 1
+        prevHash:
+          type: string
+          maxLength: 128
+        newHash:
+          type: string
+          maxLength: 128
+        nonce:
+          type: string
+          maxLength: 128
+        signature:
+          type: string
+        canonicalPayload:
+          type: string
+          description: Hash/signature 대상인 local block canonical payload.
+        merchantId:
+          type: string
+          maxLength: 64
+          description: Optional merchant id for store/payment reporting.
+        partnerId:
+          type: string
+          maxLength: 64
+          description: Optional sales/merchant partner id.
+        leaderId:
+          type: string
+          maxLength: 64
+          description: Optional country leader id for partner settlement reporting.
+        countryCode:
+          type: string
+          maxLength: 2
+          description: Optional ISO country code. Server stores uppercase when provided.
+        storeId:
+          type: string
+          maxLength: 64
+          description: Optional store id.
+        orderId:
+          type: string
+          maxLength: 128
+          description: Optional merchant order id.
+        paymentIntentId:
+          type: string
+          maxLength: 128
+          description: Optional payment intent/request id.
+        invoiceId:
+          type: string
+          maxLength: 128
+          description: Optional invoice or payment document id.
+        fiatAmount:
+          type: string
+          pattern: '^\d+(\.\d{1,18})?$'
+          description: Optional local fiat amount used for reporting.
+        fiatCurrency:
+          type: string
+          maxLength: 8
+          description: Optional local fiat currency. Server stores uppercase when provided.
+        exchangeRate:
+          type: string
+          pattern: '^\d+(\.\d{1,18})?$'
+          description: Optional KORI conversion rate applied to the transaction.
+        rateTimestamp:
+          type: string
+          format: date-time
+          description: Optional rate timestamp. This is reporting metadata, not the settlement clock.
+        schemaVersion:
+          type: string
+          maxLength: 32
+          description: Optional local block schema version for audit and migration.
+        protocolVersion:
+          type: string
+          maxLength: 32
+          description: Optional offline payment protocol version.
+        hashAlgorithm:
+          type: string
+          maxLength: 64
+          description: Optional local block hash algorithm, for example SHA-256.
+        signatureAlgorithm:
+          type: string
+          maxLength: 64
+          description: Optional local evidence signature algorithm, for example SHA256withECDSA or Ed25519.
+        keyId:
+          type: string
+          maxLength: 128
+          description: Required signing key id. Must match the registered device key id format `device:{deviceId}:v{keyVersion}`.
+        publicKeyFingerprint:
+          type: string
+          maxLength: 256
+          description: Required SHA-256 fingerprint of the registered device public key. Server rejects local evidence when this does not match the active device registration.
+        appVersion:
+          type: string
+          maxLength: 64
+          description: Optional app version that created the local evidence.
+        deviceAttestationId:
+          type: string
+          maxLength: 256
+          description: Required server-verified device attestation/integrity evidence id. Must match the signed canonicalPayload and registered device trust metadata.
+        deviceAttestationVerdict:
+          type: string
+          enum: [HARDWARE_BACKED_VERIFIED]
+          description: Required server-verified attestation verdict for offline-pay local evidence upload.
+        serverVerifiedTrustLevel:
+          type: string
+          enum: [SERVER_VERIFIED]
+          description: Required trust level granted after server-side attestation verification.
+        serverAttestationVerifiedAt:
+          type: string
+          format: date-time
+          description: Required server verification timestamp for the attestation verdict. This is trace/freshness metadata; settlement time still uses server-side processing time.
+        transportSessionHash:
+          type: string
+          pattern: '^[0-9a-fA-F]{64}$'
+          description: Required SHA-256 hash of the BLE/NFC/QR transport transcript. This must also be included in the signed canonicalPayload and is not the settlement clock.
+        payload:
+          type: object
+          additionalProperties: true
+
+    LocalEvidenceIngestResult:
+      type: object
+      required: [requested, stored, skipped]
+      properties:
+        requested:
+          type: integer
+          description: 요청에 포함된 evidence 수.
+        stored:
+          type: integer
+          description: canonical hash, device signature, identity field 검증을 통과해 정산 매칭 후보로 저장된 evidence 수.
+        skipped:
+          type: integer
+          description: 필수값 누락, uploader device 불일치, hash/signature/identity 검증 실패로 최종 정산 게이트를 열 수 없는 evidence 수.
 
     SettlementBatchDetailResponse:
       type: object

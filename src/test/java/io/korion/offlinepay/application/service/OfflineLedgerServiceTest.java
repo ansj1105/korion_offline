@@ -57,7 +57,7 @@ class OfflineLedgerServiceTest {
 
         assertEquals(1, response.receivedItems().size());
         assertEquals("Offline Receive", response.receivedItems().get(0).transactionType());
-        assertEquals("COMPLETED", response.receivedItems().get(0).statusCode());
+        assertEquals("CONFIRMED", response.receivedItems().get(0).statusCode());
         assertEquals("47ba2d8b-5b95-4510-8b23-007957e4fe46", response.receivedItems().get(0).walletAddress());
         assertEquals("0.999000", response.receivedItems().get(0).unsettledAmount());
         assertEquals("0", response.receivedItems().get(0).settledAmount());
@@ -152,7 +152,7 @@ class OfflineLedgerServiceTest {
     }
 
     @Test
-    void doesNotRestoreZeroCounterGapReceivedProofIntoUnsettledBalance() {
+    void mapsRejectedCounterGapReceivedProofToFailedPublicStatus() {
         String receiverDeviceId = "98db6beb-4ae1-4027-b9ee-507ce7eaeaa7";
         Device receiverDevice = device(receiverDeviceId, 39L);
         OfflinePaymentProof proof = rejectedProof("app-suffix:e7eaeaa7", "COUNTER_GAP");
@@ -167,14 +167,14 @@ class OfflineLedgerServiceTest {
         OfflineLedgerService.LedgerHistoryResponse response = service.getLedgerHistory(39L, "KORI", 200);
 
         assertEquals(1, response.receivedItems().size());
-        assertEquals("PENDING", response.receivedItems().get(0).statusCode());
+        assertEquals("FAILED", response.receivedItems().get(0).statusCode());
         assertEquals("0", response.receivedItems().get(0).unsettledAmount());
         assertEquals("0", response.receivedItems().get(0).settledAmount());
         assertEquals("0", response.totalReceivedAmount());
     }
 
     @Test
-    void doesNotRestoreZeroTransportInterruptedReceivedProofIntoUnsettledBalance() {
+    void mapsRejectedTransportInterruptedReceivedProofToFailedPublicStatus() {
         String receiverDeviceId = "98db6beb-4ae1-4027-b9ee-507ce7eaeaa7";
         Device receiverDevice = device(receiverDeviceId, 39L);
         OfflinePaymentProof proof = rejectedProof("app-suffix:e7eaeaa7", "SEND_INTERRUPTED");
@@ -189,7 +189,7 @@ class OfflineLedgerServiceTest {
         OfflineLedgerService.LedgerHistoryResponse response = service.getLedgerHistory(39L, "KORI", 200);
 
         assertEquals(1, response.receivedItems().size());
-        assertEquals("PENDING", response.receivedItems().get(0).statusCode());
+        assertEquals("FAILED", response.receivedItems().get(0).statusCode());
         assertEquals("0", response.receivedItems().get(0).unsettledAmount());
         assertEquals("0", response.receivedItems().get(0).settledAmount());
         assertEquals("0", response.totalReceivedAmount());
