@@ -4,7 +4,10 @@ import io.korion.offlinepay.application.port.OfflinePayLocalEvidenceRepository;
 import io.korion.offlinepay.application.service.JsonService;
 import io.korion.offlinepay.domain.model.OfflinePayLocalEvidence;
 import io.korion.offlinepay.domain.model.OfflinePaymentProof;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
@@ -13,6 +16,27 @@ public class JdbcOfflinePayLocalEvidenceRepository implements OfflinePayLocalEvi
 
     private final JdbcClient jdbcClient;
     private final JsonService jsonService;
+    private final RowMapper<OfflinePayLocalEvidence> rowMapper = (rs, rowNum) -> new OfflinePayLocalEvidence(
+            rs.getString("proof_id"),
+            rs.getString("voucher_id"),
+            rs.getString("session_id"),
+            rs.getString("direction"),
+            rs.getString("uploader_type"),
+            rs.getString("uploader_device_id"),
+            rs.getString("sender_device_id"),
+            rs.getString("receiver_device_id"),
+            rs.getBigDecimal("amount"),
+            rs.getObject("counter") == null ? null : rs.getLong("counter"),
+            rs.getString("previous_hash"),
+            rs.getString("hash_chain_head"),
+            rs.getString("nonce"),
+            rs.getString("signature"),
+            rs.getString("canonical_payload"),
+            readPayload(rs.getString("raw_payload")),
+            rs.getString("verification_status"),
+            rs.getString("verification_detail"),
+            rs.getString("matched_proof_id")
+    );
 
     public JdbcOfflinePayLocalEvidenceRepository(JdbcClient jdbcClient, JsonService jsonService) {
         this.jdbcClient = jdbcClient;
@@ -116,7 +140,114 @@ public class JdbcOfflinePayLocalEvidenceRepository implements OfflinePayLocalEvi
         String sql = """
                 SELECT COUNT(*)
                 FROM offline_pay_local_evidence
-                WHERE direction = 'RECEIVE'
+                WHERE %s
+                """.formatted(matchingReceiverEvidencePredicate());
+        Integer count = bindMatchingReceiverEvidenceParams(jdbcClient.sql(sql), proof)
+                .query(Integer.class)
+                .single();
+        return count != null && count > 0;
+    }
+
+    @Override
+    public void markMatchingReceiverEvidence(OfflinePaymentProof proof) {
+        String sql = """
+                UPDATE offline_pay_local_evidence
+                SET proof_id = COALESCE(proof_id, :proofId),
+                    matched_proof_id = :proofId,
+                    matched_at = COALESCE(matched_at, NOW()),
+                    updated_at = NOW()
+                WHERE %s
+                """;
+        bindMatchingReceiverEvidenceParams(jdbcClient.sql(sql.formatted(matchingReceiverEvidencePredicate())), proof)
+                .update();
+    }
+
+    @Override
+    public List<OfflinePayLocalEvidence> findVerifiedSenderEvidenceWithMatchingReceiverEvidence(int limit) {
+        String sql = """
+                SELECT s.*
+                FROM offline_pay_local_evidence s
+                WHERE s.direction = 'SEND'
+                  AND s.verification_status = 'VERIFIED'
+                  AND s.matched_proof_id IS NULL
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM offline_payment_proofs p
+                      WHERE p.voucher_id = s.voucher_id
+                  )
+                  AND EXISTS (
+                      SELECT 1
+                      FROM offline_pay_local_evidence r
+                      WHERE r.direction = 'RECEIVE'
+                        AND r.verification_status = 'VERIFIED'
+                        AND r.voucher_id = s.voucher_id
+                        AND r.sender_device_id = s.sender_device_id
+                        AND r.receiver_device_id = s.receiver_device_id
+                        AND r.amount = s.amount
+                        AND (
+                            r.raw_payload ->> 'receiverEvidenceBlockSenderProofNewHash' = s.hash_chain_head
+                            AND r.raw_payload ->> 'receiverEvidenceBlockSenderProofPrevHash' = s.previous_hash
+                            AND r.raw_payload ->> 'receiverEvidenceBlockSenderProofNonce' = s.nonce
+                            AND r.raw_payload ->> 'receiverEvidenceBlockSenderProofSignature' = s.signature
+                            AND r.raw_payload ->> 'receiverEvidenceBlockSenderProofCounter' = s.counter::text
+                        )
+                  )
+                ORDER BY s.created_at ASC
+                LIMIT :limit
+                """;
+        return jdbcClient.sql(sql)
+                .param("limit", Math.max(1, limit))
+                .query(rowMapper)
+                .list();
+    }
+
+    @Override
+    public LocalEvidenceStatus summarizeStatus(String voucherId, String sessionId) {
+        String sql = """
+                SELECT
+                    COALESCE(MAX(voucher_id), :voucherId) AS voucher_id,
+                    COALESCE(MAX(session_id), :sessionId) AS session_id,
+                    COUNT(*)::int AS total,
+                    COALESCE(SUM(CASE WHEN verification_status = 'VERIFIED' THEN 1 ELSE 0 END), 0)::int AS stored,
+                    COALESCE(SUM(CASE WHEN verification_status = 'VERIFIED' AND matched_proof_id IS NOT NULL THEN 1 ELSE 0 END), 0)::int AS matched,
+                    COALESCE(SUM(CASE WHEN verification_status = 'VERIFIED' AND matched_proof_id IS NULL THEN 1 ELSE 0 END), 0)::int AS awaiting_carrier,
+                    COALESCE(SUM(CASE WHEN verification_status <> 'VERIFIED' THEN 1 ELSE 0 END), 0)::int AS failed,
+                    COALESCE(SUM(CASE WHEN direction = 'SEND' AND verification_status = 'VERIFIED' THEN 1 ELSE 0 END), 0)::int AS sender_stored,
+                    COALESCE(SUM(CASE WHEN direction = 'RECEIVE' AND verification_status = 'VERIFIED' THEN 1 ELSE 0 END), 0)::int AS receiver_stored,
+                    COALESCE(SUM(CASE WHEN direction = 'SEND' AND verification_status = 'VERIFIED' AND matched_proof_id IS NOT NULL THEN 1 ELSE 0 END), 0)::int AS sender_matched,
+                    COALESCE(SUM(CASE WHEN direction = 'RECEIVE' AND verification_status = 'VERIFIED' AND matched_proof_id IS NOT NULL THEN 1 ELSE 0 END), 0)::int AS receiver_matched,
+                    COALESCE(SUM(CASE WHEN direction = 'SEND' AND verification_status <> 'VERIFIED' THEN 1 ELSE 0 END), 0)::int AS sender_failed,
+                    COALESCE(SUM(CASE WHEN direction = 'RECEIVE' AND verification_status <> 'VERIFIED' THEN 1 ELSE 0 END), 0)::int AS receiver_failed,
+                    MAX(updated_at)::text AS latest_updated_at
+                FROM offline_pay_local_evidence
+                WHERE (:voucherId IS NULL OR voucher_id = :voucherId)
+                  AND (:sessionId IS NULL OR session_id = :sessionId)
+                """;
+        return jdbcClient.sql(sql)
+                .param("voucherId", blankToNull(voucherId))
+                .param("sessionId", blankToNull(sessionId))
+                .query((rs, rowNum) -> new LocalEvidenceStatus(
+                        rs.getString("voucher_id"),
+                        rs.getString("session_id"),
+                        rs.getInt("total"),
+                        rs.getInt("stored"),
+                        rs.getInt("matched"),
+                        rs.getInt("awaiting_carrier"),
+                        rs.getInt("failed"),
+                        rs.getInt("sender_stored"),
+                        rs.getInt("receiver_stored"),
+                        rs.getInt("sender_matched"),
+                        rs.getInt("receiver_matched"),
+                        rs.getInt("sender_failed"),
+                        rs.getInt("receiver_failed"),
+                        rs.getString("latest_updated_at")
+                ))
+                .single();
+    }
+
+    private String matchingReceiverEvidencePredicate() {
+        return """
+                direction = 'RECEIVE'
                   AND verification_status = 'VERIFIED'
                   AND voucher_id = :voucherId
                   AND sender_device_id = :senderDeviceId
@@ -142,7 +273,10 @@ public class JdbcOfflinePayLocalEvidenceRepository implements OfflinePayLocalEvi
                       )
                   )
                 """;
-        Integer count = jdbcClient.sql(sql)
+    }
+
+    private JdbcClient.StatementSpec bindMatchingReceiverEvidenceParams(JdbcClient.StatementSpec spec, OfflinePaymentProof proof) {
+        return spec
                 .param("voucherId", proof.voucherId())
                 .param("senderDeviceId", proof.senderDeviceId())
                 .param("receiverDeviceId", proof.receiverDeviceId())
@@ -153,10 +287,7 @@ public class JdbcOfflinePayLocalEvidenceRepository implements OfflinePayLocalEvi
                 .param("previousHash", proof.previousHash())
                 .param("nonce", proof.nonce())
                 .param("signature", proof.signature())
-                .param("counterText", String.valueOf(proof.counter()))
-                .query(Integer.class)
-                .single();
-        return count != null && count > 0;
+                .param("counterText", String.valueOf(proof.counter()));
     }
 
     private UUID parseUuid(String value) {
@@ -168,5 +299,12 @@ public class JdbcOfflinePayLocalEvidenceRepository implements OfflinePayLocalEvi
 
     private String blankToNull(String value) {
         return value == null || value.isBlank() ? null : value;
+    }
+
+    private Map<String, Object> readPayload(String json) {
+        if (json == null || json.isBlank()) {
+            return Map.of();
+        }
+        return jsonService.readMap(json);
     }
 }

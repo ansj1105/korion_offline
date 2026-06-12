@@ -1063,6 +1063,8 @@ class SettlementApplicationServiceTest {
                                 SERVER_ATTESTATION_VERIFIED_AT,
                                 transportSessionHash,
                                 TRANSPORT_TRANSCRIPT_SOURCE,
+                                null,
+                                null,
                                 java.util.Map.of("receiverEvidenceBlock", true)
                         ))
                 )
@@ -1071,6 +1073,8 @@ class SettlementApplicationServiceTest {
         assertEquals(1, result.requested());
         assertEquals(0, result.stored());
         assertEquals(1, result.skipped());
+        assertEquals(0, result.matched());
+        assertEquals(0, result.awaitingCarrier());
         verify(localEvidenceRepository).save(argThat(evidence ->
                 evidence.proofId() == null
                         && "voucher-local-evidence".equals(evidence.voucherId())
@@ -1110,10 +1114,11 @@ class SettlementApplicationServiceTest {
         KeyPairGenerator generator = KeyPairGenerator.getInstance("EC");
         generator.initialize(256);
         KeyPair receiverKeyPair = generator.generateKeyPair();
-        String transportSessionHash = "b".repeat(64);
+        String transportTranscript = "BLE:req-local-evidence-verified:sender-device:receiver-device:2.10000000";
+        String transportSessionHash = sha256Hex(transportTranscript);
         String canonicalPayload = """
-                {"voucherId":"voucher-local-evidence-verified","direction":"RECEIVE","deviceId":"receiver-device","senderDeviceId":"sender-device","receiverDeviceId":"receiver-device","prevHash":"prev-local-evidence-verified","nonce":"nonce-local-evidence-verified","deviceAttestationId":"%s","deviceAttestationVerdict":"%s","serverVerifiedTrustLevel":"%s","serverAttestationVerifiedAt":"%s","transportSessionHash":"%s","transportTranscriptSource":"%s","counter":13,"amount":"2.10000000"}
-                """.formatted(DEVICE_ATTESTATION_ID, DEVICE_ATTESTATION_VERDICT, SERVER_VERIFIED_TRUST_LEVEL, SERVER_ATTESTATION_VERIFIED_AT, transportSessionHash, TRANSPORT_TRANSCRIPT_SOURCE).trim();
+                {"voucherId":"voucher-local-evidence-verified","direction":"RECEIVE","deviceId":"receiver-device","senderDeviceId":"sender-device","receiverDeviceId":"receiver-device","prevHash":"prev-local-evidence-verified","nonce":"nonce-local-evidence-verified","deviceAttestationId":"%s","deviceAttestationVerdict":"%s","serverVerifiedTrustLevel":"%s","serverAttestationVerifiedAt":"%s","transportSessionHash":"%s","transportTranscriptHash":"%s","transportTranscriptSource":"%s","counter":13,"amount":"2.10000000"}
+                """.formatted(DEVICE_ATTESTATION_ID, DEVICE_ATTESTATION_VERDICT, SERVER_VERIFIED_TRUST_LEVEL, SERVER_ATTESTATION_VERIFIED_AT, transportSessionHash, transportSessionHash, TRANSPORT_TRANSCRIPT_SOURCE).trim();
         Signature signer = Signature.getInstance("SHA256withECDSA");
         signer.initSign(receiverKeyPair.getPrivate());
         signer.update(canonicalPayload.getBytes(StandardCharsets.UTF_8));
@@ -1175,6 +1180,8 @@ class SettlementApplicationServiceTest {
                                 SERVER_ATTESTATION_VERIFIED_AT,
                                 transportSessionHash,
                                 TRANSPORT_TRANSCRIPT_SOURCE,
+                                transportTranscript,
+                                "UTF-8",
                                 java.util.Map.of("receiverEvidenceBlock", true)
                         ))
                 )
@@ -1183,11 +1190,15 @@ class SettlementApplicationServiceTest {
         assertEquals(1, result.requested());
         assertEquals(1, result.stored());
         assertEquals(0, result.skipped());
+        assertEquals(0, result.matched());
+        assertEquals(1, result.awaitingCarrier());
         verify(localEvidenceRepository).save(argThat(evidence ->
                 evidence.proofId() == null
                         && "voucher-local-evidence-verified".equals(evidence.voucherId())
                         && "RECEIVE".equals(evidence.direction())
                         && "VERIFIED".equals(evidence.verificationStatus())
+                        && transportTranscript.equals(evidence.rawPayload().get("transportTranscript"))
+                        && "UTF-8".equals(evidence.rawPayload().get("transportTranscriptEncoding"))
                         && evidence.matchedProofId() == null
         ));
         verify(proofRepository).findByVoucherId("voucher-local-evidence-verified");
@@ -1265,6 +1276,8 @@ class SettlementApplicationServiceTest {
                                 SERVER_ATTESTATION_VERIFIED_AT,
                                 transportSessionHash,
                                 invalidSource,
+                                null,
+                                null,
                                 java.util.Map.of("receiverEvidenceBlock", true)
                         ))
                 )
@@ -1273,6 +1286,8 @@ class SettlementApplicationServiceTest {
         assertEquals(1, result.requested());
         assertEquals(0, result.stored());
         assertEquals(1, result.skipped());
+        assertEquals(0, result.matched());
+        assertEquals(0, result.awaitingCarrier());
         verify(localEvidenceRepository).save(argThat(evidence ->
                 "FAILED".equals(evidence.verificationStatus())
                         && evidence.verificationDetail().contains("transport transcript source invalid")
@@ -1349,6 +1364,8 @@ class SettlementApplicationServiceTest {
                                 SERVER_ATTESTATION_VERIFIED_AT,
                                 transportSessionHash,
                                 TRANSPORT_TRANSCRIPT_SOURCE,
+                                null,
+                                null,
                                 java.util.Map.of("receiverEvidenceBlock", true)
                         ))
                 )
@@ -1357,6 +1374,8 @@ class SettlementApplicationServiceTest {
         assertEquals(1, result.requested());
         assertEquals(0, result.stored());
         assertEquals(1, result.skipped());
+        assertEquals(0, result.matched());
+        assertEquals(0, result.awaitingCarrier());
         verify(localEvidenceRepository).save(argThat(evidence ->
                 "FAILED".equals(evidence.verificationStatus())
                         && evidence.verificationDetail().contains("public key fingerprint mismatch")
@@ -1488,13 +1507,18 @@ class SettlementApplicationServiceTest {
                                 SERVER_ATTESTATION_VERIFIED_AT,
                                 transportSessionHash,
                                 TRANSPORT_TRANSCRIPT_SOURCE,
+                                null,
+                                null,
                                 java.util.Map.of("receiverEvidenceBlock", true)
                         ))
                 )
         );
 
         assertEquals(1, result.stored());
+        assertEquals(1, result.matched());
+        assertEquals(0, result.awaitingCarrier());
         verify(localEvidenceRepository).existsMatchingReceiverEvidence(proof);
+        verify(localEvidenceRepository).markMatchingReceiverEvidence(proof);
         verify(proofRepository).updateLifecycle(
                 eq("proof-local-evidence-wake"),
                 eq(OfflineProofStatus.CONSUMED_PENDING_SETTLEMENT),
@@ -1540,6 +1564,8 @@ class SettlementApplicationServiceTest {
         assertEquals(1, result.requested());
         assertEquals(0, result.stored());
         assertEquals(1, result.skipped());
+        assertEquals(0, result.matched());
+        assertEquals(0, result.awaitingCarrier());
         verifyNoInteractions(localEvidenceRepository, batchRepository, settlementRepository);
     }
 
@@ -1647,6 +1673,223 @@ class SettlementApplicationServiceTest {
                 anyString(),
                 anyString()
         );
+    }
+
+    @Test
+    void reconcileDirectLocalEvidenceCreatesSettlementCarrierFromMatchedSenderAndReceiverEvidence() {
+        long now = System.currentTimeMillis();
+        java.util.Map<String, Object> payload = new java.util.LinkedHashMap<>();
+        payload.put("collateralId", "11111111-1111-1111-1111-111111111111");
+        payload.put("keyVersion", 1);
+        payload.put("policyVersion", 1);
+        payload.put("timestampMs", now);
+        payload.put("expiresAtMs", now + 600_000);
+        payload.put("senderLocalBlock", true);
+        payload.put("senderLocalBlockVoucherId", "voucher-direct-reconcile");
+        payload.put("senderLocalBlockAmount", "3.30000000");
+        payload.put("senderLocalBlockSenderDeviceId", "sender-device");
+        payload.put("senderLocalBlockReceiverDeviceId", "receiver-device");
+        payload.put("senderLocalBlockCounter", 31L);
+        payload.put("senderLocalBlockPrevHash", "GENESIS");
+        payload.put("senderLocalBlockNewHash", "hash-direct-reconcile");
+        payload.put("senderLocalBlockNonce", "nonce-direct-reconcile");
+        payload.put("senderLocalBlockSignature", "signature-direct-reconcile");
+
+        OfflinePayLocalEvidence evidence = new OfflinePayLocalEvidence(
+                null,
+                "voucher-direct-reconcile",
+                "req-direct-reconcile",
+                "SEND",
+                "SENDER",
+                "sender-device",
+                "sender-device",
+                "receiver-device",
+                new BigDecimal("3.30000000"),
+                31L,
+                "GENESIS",
+                "hash-direct-reconcile",
+                "nonce-direct-reconcile",
+                "signature-direct-reconcile",
+                "{\"voucherId\":\"voucher-direct-reconcile\"}",
+                payload,
+                "VERIFIED",
+                "direct sender evidence verified",
+                null
+        );
+        SettlementBatch batch = new SettlementBatch(
+                "22222222-2222-2222-2222-222222222222",
+                "sender-device",
+                "direct-local-evidence:voucher-direct-reconcile",
+                SettlementBatchStatus.CREATED,
+                null,
+                1,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        SettlementBatch uploadedBatch = new SettlementBatch(
+                batch.id(),
+                batch.sourceDeviceId(),
+                batch.idempotencyKey(),
+                SettlementBatchStatus.UPLOADED,
+                null,
+                1,
+                "{}",
+                batch.createdAt(),
+                OffsetDateTime.now()
+        );
+        CollateralLock collateral = new CollateralLock(
+                "11111111-1111-1111-1111-111111111111",
+                77L,
+                "sender-device",
+                "USDT",
+                new BigDecimal("150"),
+                new BigDecimal("100"),
+                "GENESIS",
+                1,
+                CollateralStatus.LOCKED,
+                "lock-direct-reconcile",
+                OffsetDateTime.now().plusDays(1),
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        OfflinePaymentProof proof = new OfflinePaymentProof(
+                "33333333-3333-3333-3333-333333333333",
+                batch.id(),
+                "voucher-direct-reconcile",
+                collateral.id(),
+                "sender-device",
+                "receiver-device",
+                1,
+                1,
+                31L,
+                "nonce-direct-reconcile",
+                "hash-direct-reconcile",
+                "GENESIS",
+                "signature-direct-reconcile",
+                new BigDecimal("3.30000000"),
+                now,
+                now + 600_000,
+                "{\"voucherId\":\"voucher-direct-reconcile\"}",
+                "SENDER",
+                "{}",
+                OffsetDateTime.now()
+        );
+        SettlementRequest request = new SettlementRequest(
+                "44444444-4444-4444-4444-444444444444",
+                batch.id(),
+                collateral.id(),
+                proof.id(),
+                SettlementStatus.PENDING,
+                null,
+                false,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+
+        when(localEvidenceRepository.findVerifiedSenderEvidenceWithMatchingReceiverEvidence(25))
+                .thenReturn(java.util.List.of(evidence));
+        when(batchRepository.findByIdempotencyKey("direct-local-evidence:voucher-direct-reconcile"))
+                .thenReturn(Optional.empty());
+        when(batchRepository.save(
+                eq("sender-device"),
+                eq("direct-local-evidence:voucher-direct-reconcile"),
+                eq(SettlementBatchStatus.CREATED),
+                isNull(),
+                eq(1),
+                anyString()
+        )).thenReturn(batch);
+        when(batchRepository.findById(batch.id())).thenReturn(Optional.of(uploadedBatch));
+        when(proofRepository.findByVoucherId("voucher-direct-reconcile")).thenReturn(Optional.empty());
+        when(proofRepository.findBySenderNonce("sender-device", "nonce-direct-reconcile")).thenReturn(Optional.empty());
+        when(collateralRepository.findById(collateral.id())).thenReturn(Optional.of(collateral));
+        when(proofRepository.save(
+                eq(batch.id()),
+                eq("voucher-direct-reconcile"),
+                eq(collateral.id()),
+                eq("sender-device"),
+                eq("receiver-device"),
+                eq(1),
+                eq(1),
+                eq(31L),
+                eq("nonce-direct-reconcile"),
+                eq("hash-direct-reconcile"),
+                eq("GENESIS"),
+                eq("signature-direct-reconcile"),
+                eq(new BigDecimal("3.30000000")),
+                eq(now),
+                eq(now + 600_000),
+                eq("{\"voucherId\":\"voucher-direct-reconcile\"}"),
+                eq("SENDER"),
+                anyString(),
+                anyString()
+        )).thenReturn(proof);
+        when(settlementRepository.save(
+                eq(batch.id()),
+                eq(collateral.id()),
+                eq(proof.id()),
+                eq(SettlementStatus.PENDING),
+                isNull(),
+                eq(false),
+                anyString()
+        )).thenReturn(request);
+
+        SettlementApplicationService.DirectLocalEvidenceReconcileResult result =
+                service.reconcileDirectLocalEvidence(25);
+
+        assertEquals(1, result.candidates());
+        assertEquals(1, result.created());
+        assertEquals(0, result.skipped());
+        assertEquals(java.util.List.of(batch.id()), result.batchIds());
+        verify(settlementRepository).save(
+                eq(batch.id()),
+                eq(collateral.id()),
+                eq(proof.id()),
+                eq(SettlementStatus.PENDING),
+                isNull(),
+                eq(false),
+                anyString()
+        );
+    }
+
+    @Test
+    void getLocalEvidenceStatusReturnsAwaitingCarrierSummaryByVoucherId() {
+        when(localEvidenceRepository.summarizeStatus("voucher-status", null))
+                .thenReturn(new OfflinePayLocalEvidenceRepository.LocalEvidenceStatus(
+                        "voucher-status",
+                        "req-status",
+                        2,
+                        2,
+                        1,
+                        1,
+                        0,
+                        1,
+                        1,
+                        1,
+                        0,
+                        0,
+                        0,
+                        "2026-06-12 03:00:00+00"
+                ));
+
+        SettlementApplicationService.LocalEvidenceStatusResult result =
+                service.getLocalEvidenceStatus("voucher-status", null);
+
+        assertEquals("voucher-status", result.voucherId());
+        assertEquals("req-status", result.sessionId());
+        assertEquals(2, result.stored());
+        assertEquals(1, result.matched());
+        assertEquals(1, result.awaitingCarrier());
+        assertEquals(0, result.failed());
+        assertEquals("AWAITING_CARRIER", result.state());
+    }
+
+    @Test
+    void getLocalEvidenceStatusRequiresVoucherIdOrSessionId() {
+        assertThrows(IllegalArgumentException.class, () -> service.getLocalEvidenceStatus(" ", null));
+        verify(localEvidenceRepository, never()).summarizeStatus(any(), any());
     }
 
     @Test

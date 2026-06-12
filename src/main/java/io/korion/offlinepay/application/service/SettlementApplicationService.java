@@ -54,10 +54,12 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Set;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -205,6 +207,8 @@ public class SettlementApplicationService {
         int requested = command.evidences() == null ? 0 : command.evidences().size();
         int stored = 0;
         int skipped = 0;
+        int matched = 0;
+        int awaitingCarrier = 0;
         for (LocalEvidenceSubmission evidence : command.evidences() == null ? List.<LocalEvidenceSubmission>of() : command.evidences()) {
             if (evidence == null || !hasRequiredLocalEvidence(command, evidence)) {
                 skipped++;
@@ -240,10 +244,153 @@ public class SettlementApplicationService {
             }
             stored++;
             if ("RECEIVE".equals(direction)) {
-                processMatchingSenderSettlement(evidence.voucherId().trim());
+                if (processMatchingSenderSettlement(evidence.voucherId().trim())) {
+                    matched++;
+                } else {
+                    awaitingCarrier++;
+                }
+            } else {
+                awaitingCarrier++;
             }
         }
-        return new LocalEvidenceIngestResult(requested, stored, skipped);
+        return new LocalEvidenceIngestResult(requested, stored, skipped, matched, awaitingCarrier);
+    }
+
+    @Transactional
+    public DirectLocalEvidenceReconcileResult reconcileDirectLocalEvidence(int limit) {
+        List<OfflinePayLocalEvidence> candidates =
+                localEvidenceRepository.findVerifiedSenderEvidenceWithMatchingReceiverEvidence(Math.max(1, limit));
+        int created = 0;
+        int skipped = 0;
+        List<String> batchIds = new ArrayList<>();
+        for (OfflinePayLocalEvidence evidence : candidates) {
+            Optional<ProofSubmission> proofSubmission = toDirectEvidenceProofSubmission(evidence);
+            if (proofSubmission.isEmpty()) {
+                skipped++;
+                continue;
+            }
+            String idempotencyKey = "direct-local-evidence:" + evidence.voucherId();
+            SettlementBatch batch = submitBatch(new SubmitSettlementBatchCommand(
+                    UploaderType.SENDER,
+                    evidence.senderDeviceId(),
+                    idempotencyKey,
+                    List.of(proofSubmission.get()),
+                    "DIRECT_LOCAL_EVIDENCE"
+            ));
+            batchIds.add(batch.id());
+            created++;
+        }
+        return new DirectLocalEvidenceReconcileResult(candidates.size(), created, skipped, batchIds);
+    }
+
+    @Transactional(readOnly = true)
+    public LocalEvidenceStatusResult getLocalEvidenceStatus(String voucherId, String sessionId) {
+        String normalizedVoucherId = voucherId == null ? "" : voucherId.trim();
+        String normalizedSessionId = sessionId == null ? "" : sessionId.trim();
+        if (normalizedVoucherId.isBlank() && normalizedSessionId.isBlank()) {
+            throw new IllegalArgumentException("voucherId or sessionId is required");
+        }
+        var status = localEvidenceRepository.summarizeStatus(
+                normalizedVoucherId.isBlank() ? null : normalizedVoucherId,
+                normalizedSessionId.isBlank() ? null : normalizedSessionId
+        );
+        return new LocalEvidenceStatusResult(
+                status.voucherId(),
+                status.sessionId(),
+                status.total(),
+                status.stored(),
+                status.matched(),
+                status.awaitingCarrier(),
+                status.failed(),
+                status.senderStored(),
+                status.receiverStored(),
+                status.senderMatched(),
+                status.receiverMatched(),
+                status.senderFailed(),
+                status.receiverFailed(),
+                resolveLocalEvidenceState(status),
+                status.latestUpdatedAt()
+        );
+    }
+
+    private String resolveLocalEvidenceState(OfflinePayLocalEvidenceRepository.LocalEvidenceStatus status) {
+        if (status.total() <= 0) {
+            return "NOT_FOUND";
+        }
+        if (status.awaitingCarrier() > 0) {
+            return "AWAITING_CARRIER";
+        }
+        if (status.matched() > 0 && status.failed() == 0) {
+            return "MATCHED";
+        }
+        if (status.failed() > 0 && status.stored() == 0) {
+            return "FAILED";
+        }
+        return "PARTIAL";
+    }
+
+    private Optional<ProofSubmission> toDirectEvidenceProofSubmission(OfflinePayLocalEvidence evidence) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        if (evidence.rawPayload() != null) {
+            payload.putAll(evidence.rawPayload());
+        }
+        String collateralId = firstText(payload, "collateralId", "senderLocalBlockCollateralId", "localBlockCollateralId");
+        Integer keyVersion = firstPositiveInteger(payload, "keyVersion", "senderLocalBlockKeyVersion", "localBlockKeyVersion");
+        Integer policyVersion = firstPositiveInteger(payload, "policyVersion", "senderLocalBlockPolicyVersion", "localBlockPolicyVersion");
+        Long timestampMs = firstPositiveLong(payload, "timestampMs", "senderLocalBlockTimestampMs", "localBlockTimestampMs", "timestamp");
+        Long expiresAtMs = firstEpochLong(payload, "expiresAtMs", "senderLocalBlockExpiresAtMs", "localBlockExpiresAtMs", "expiresAt");
+        if (collateralId.isBlank()
+                || keyVersion == null
+                || policyVersion == null
+                || timestampMs == null
+                || expiresAtMs == null
+                || evidence.counter() == null
+                || evidence.amount() == null
+                || evidence.hashChainHead() == null
+                || evidence.hashChainHead().isBlank()
+                || evidence.signature() == null
+                || evidence.signature().isBlank()
+                || evidence.nonce() == null
+                || evidence.nonce().isBlank()
+                || evidence.canonicalPayload() == null
+                || evidence.canonicalPayload().isBlank()) {
+            return Optional.empty();
+        }
+
+        payload.put("directLocalEvidenceCarrier", true);
+        payload.put("senderLocalBlock", true);
+        payload.putIfAbsent("senderLocalBlockVoucherId", evidence.voucherId());
+        payload.putIfAbsent("senderLocalBlockCollateralId", collateralId);
+        payload.putIfAbsent("senderLocalBlockAmount", evidence.amount().toPlainString());
+        payload.putIfAbsent("senderLocalBlockSenderDeviceId", evidence.senderDeviceId());
+        payload.putIfAbsent("senderLocalBlockReceiverDeviceId", evidence.receiverDeviceId());
+        payload.putIfAbsent("senderLocalBlockCounter", evidence.counter());
+        payload.putIfAbsent("senderLocalBlockPrevHash", evidence.previousHash());
+        payload.putIfAbsent("senderLocalBlockNewHash", evidence.hashChainHead());
+        payload.putIfAbsent("senderLocalBlockNonce", evidence.nonce());
+        payload.putIfAbsent("senderLocalBlockSignature", evidence.signature());
+        payload.putIfAbsent("senderLocalBlockCanonicalPayload", evidence.canonicalPayload());
+        payload.putIfAbsent("senderLocalBlockTimestampMs", timestampMs);
+        payload.putIfAbsent("senderLocalBlockExpiresAtMs", expiresAtMs);
+
+        return Optional.of(new ProofSubmission(
+                evidence.voucherId(),
+                collateralId,
+                evidence.senderDeviceId(),
+                evidence.receiverDeviceId(),
+                keyVersion,
+                policyVersion,
+                evidence.counter(),
+                evidence.nonce(),
+                evidence.hashChainHead(),
+                evidence.previousHash(),
+                evidence.signature(),
+                evidence.amount(),
+                timestampMs,
+                expiresAtMs,
+                evidence.canonicalPayload(),
+                payload
+        ));
     }
 
     private LocalEvidenceVerification verifyDirectLocalEvidence(LocalEvidenceSubmission evidence, String direction) {
@@ -281,6 +428,10 @@ public class SettlementApplicationService {
         }
         if (!equalsText(evidence.transportTranscriptSource(), canonical.path("transportTranscriptSource").asText(""))) {
             return new LocalEvidenceVerification("FAILED", "local evidence transport transcript source mismatch");
+        }
+        String transportTranscriptError = verifyTransportTranscript(evidence, canonical);
+        if (transportTranscriptError != null) {
+            return new LocalEvidenceVerification("FAILED", transportTranscriptError);
         }
         if (!equalsText(evidence.deviceAttestationId(), canonical.path("deviceAttestationId").asText(""))) {
             return new LocalEvidenceVerification("FAILED", "local evidence device attestation id mismatch");
@@ -372,19 +523,57 @@ public class SettlementApplicationService {
         return null;
     }
 
-    private void processMatchingSenderSettlement(String voucherId) {
-        proofRepository.findByVoucherId(voucherId)
+    private String verifyTransportTranscript(LocalEvidenceSubmission evidence, JsonNode canonical) {
+        String transcript = evidence.transportTranscript() == null ? "" : evidence.transportTranscript().trim();
+        if (transcript.isBlank()) {
+            return null;
+        }
+        if (transcript.length() > 16_384) {
+            return "local evidence transport transcript too large";
+        }
+        String canonicalTranscriptHash = canonical.path("transportTranscriptHash").asText("");
+        if (!canonicalTranscriptHash.isBlank() && !equalsText(canonicalTranscriptHash, evidence.transportSessionHash())) {
+            return "local evidence canonical transport transcript hash mismatch";
+        }
+        String encoding = evidence.transportTranscriptEncoding() == null || evidence.transportTranscriptEncoding().isBlank()
+                ? "UTF-8"
+                : evidence.transportTranscriptEncoding().trim().toUpperCase();
+        byte[] transcriptBytes;
+        try {
+            transcriptBytes = switch (encoding) {
+                case "UTF-8", "UTF8", "TEXT" -> transcript.getBytes(StandardCharsets.UTF_8);
+                case "BASE64" -> Base64.getDecoder().decode(transcript);
+                default -> null;
+            };
+        } catch (IllegalArgumentException exception) {
+            return "local evidence transport transcript base64 invalid";
+        }
+        if (transcriptBytes == null) {
+            return "local evidence transport transcript encoding unsupported";
+        }
+        if (!equalsText(sha256Hex(transcriptBytes), evidence.transportSessionHash())) {
+            return "local evidence transport transcript hash mismatch";
+        }
+        return null;
+    }
+
+    private boolean processMatchingSenderSettlement(String voucherId) {
+        return proofRepository.findByVoucherId(voucherId)
                 .flatMap(proof -> settlementRepository.findLatestByProofId(proof.id())
                         .map(request -> Map.entry(proof, request)))
-                .filter(entry -> entry.getValue().status() == SettlementStatus.PENDING
-                        || entry.getValue().status() == SettlementStatus.VALIDATING)
-                .ifPresent(entry -> {
-                    OfflinePaymentProof proof = entry.getKey();
-                    if (requiresReceiverEvidenceBeforeFinalSettlement(proof)
-                            && localEvidenceRepository.existsMatchingReceiverEvidence(proof)) {
-                        processSettlementRequest(entry.getValue(), true);
+                .map(entry -> {
+                    SettlementRequest request = entry.getValue();
+                    if (request.status() == SettlementStatus.PENDING || request.status() == SettlementStatus.VALIDATING) {
+                        OfflinePaymentProof proof = entry.getKey();
+                        if (requiresReceiverEvidenceBeforeFinalSettlement(proof)
+                                && localEvidenceRepository.existsMatchingReceiverEvidence(proof)) {
+                            processSettlementRequest(request, true);
+                            return true;
+                        }
                     }
-                });
+                    return false;
+                })
+                .orElse(false);
     }
 
     private boolean hasRequiredLocalEvidence(LocalEvidenceIngestCommand command, LocalEvidenceSubmission evidence) {
@@ -464,6 +653,8 @@ public class SettlementApplicationService {
         putIfPresent(rawPayload, "serverAttestationVerifiedAt", evidence.serverAttestationVerifiedAt());
         putIfPresent(rawPayload, "transportSessionHash", evidence.transportSessionHash());
         putIfPresent(rawPayload, "transportTranscriptSource", evidence.transportTranscriptSource());
+        putIfPresent(rawPayload, "transportTranscript", evidence.transportTranscript());
+        putIfPresent(rawPayload, "transportTranscriptEncoding", evidence.transportTranscriptEncoding());
         return rawPayload;
     }
 
@@ -809,6 +1000,22 @@ public class SettlementApplicationService {
         return null;
     }
 
+    private Long parseNonNegativeLong(Object value) {
+        if (value instanceof Number number) {
+            long parsed = number.longValue();
+            return parsed >= 0 ? parsed : null;
+        }
+        if (value instanceof String text && !text.isBlank()) {
+            try {
+                long parsed = Long.parseLong(text.trim());
+                return parsed >= 0 ? parsed : null;
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
+    }
+
     private String stringValue(Object value) {
         return value == null ? "" : String.valueOf(value).trim();
     }
@@ -839,10 +1046,35 @@ public class SettlementApplicationService {
         return null;
     }
 
+    private Long firstEpochLong(Map<String, Object> payload, String... keys) {
+        if (payload == null || keys == null) {
+            return null;
+        }
+        for (String key : keys) {
+            Long value = parseNonNegativeLong(payload.get(key));
+            if (value != null) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private Integer firstPositiveInteger(Map<String, Object> payload, String... keys) {
+        Long value = firstPositiveLong(payload, keys);
+        if (value == null || value > Integer.MAX_VALUE) {
+            return null;
+        }
+        return value.intValue();
+    }
+
     private String sha256Hex(String value) {
+        return sha256Hex((value == null ? "" : value).getBytes(StandardCharsets.UTF_8));
+    }
+
+    private String sha256Hex(byte[] value) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] bytes = digest.digest((value == null ? "" : value).getBytes(StandardCharsets.UTF_8));
+            byte[] bytes = digest.digest(value == null ? new byte[0] : value);
             StringBuilder builder = new StringBuilder(bytes.length * 2);
             for (byte current : bytes) {
                 builder.append(String.format("%02x", current));
@@ -1386,7 +1618,11 @@ public class SettlementApplicationService {
     }
 
     private boolean hasMatchingReceiverEvidence(OfflinePaymentProof proof, boolean receiverEvidenceMatched) {
-        return receiverEvidenceMatched || localEvidenceRepository.existsMatchingReceiverEvidence(proof);
+        if (receiverEvidenceMatched || localEvidenceRepository.existsMatchingReceiverEvidence(proof)) {
+            localEvidenceRepository.markMatchingReceiverEvidence(proof);
+            return true;
+        }
+        return false;
     }
 
     private int currentAttemptCount(String summaryJson) {
@@ -2069,6 +2305,8 @@ public class SettlementApplicationService {
             String serverAttestationVerifiedAt,
             String transportSessionHash,
             String transportTranscriptSource,
+            String transportTranscript,
+            String transportTranscriptEncoding,
             Map<String, Object> payload
     ) {
         public LocalEvidenceSubmission(
@@ -2124,6 +2362,8 @@ public class SettlementApplicationService {
                     null,
                     null,
                     null,
+                    null,
+                    null,
                     payload
             );
         }
@@ -2132,7 +2372,34 @@ public class SettlementApplicationService {
     public record LocalEvidenceIngestResult(
             int requested,
             int stored,
-            int skipped
+            int skipped,
+            int matched,
+            int awaitingCarrier
+    ) {}
+
+    public record DirectLocalEvidenceReconcileResult(
+            int candidates,
+            int created,
+            int skipped,
+            List<String> batchIds
+    ) {}
+
+    public record LocalEvidenceStatusResult(
+            String voucherId,
+            String sessionId,
+            int total,
+            int stored,
+            int matched,
+            int awaitingCarrier,
+            int failed,
+            int senderStored,
+            int receiverStored,
+            int senderMatched,
+            int receiverMatched,
+            int senderFailed,
+            int receiverFailed,
+            String state,
+            String latestUpdatedAt
     ) {}
 
     private record LocalEvidenceVerification(

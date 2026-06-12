@@ -60,6 +60,8 @@ public record SubmitLocalEvidenceRequest(
                                 evidence.serverAttestationVerifiedAt(),
                                 evidence.transportSessionHash(),
                                 evidence.transportTranscriptSource(),
+                                evidence.transportTranscript(),
+                                evidence.transportTranscriptEncoding(),
                                 evidence.payload()
                         ))
                         .toList()
@@ -104,6 +106,8 @@ public record SubmitLocalEvidenceRequest(
             @NotBlank String serverAttestationVerifiedAt,
             @NotBlank String transportSessionHash,
             @NotBlank String transportTranscriptSource,
+            String transportTranscript,
+            String transportTranscriptEncoding,
             @NotNull Map<String, Object> payload
     ) {}
 }

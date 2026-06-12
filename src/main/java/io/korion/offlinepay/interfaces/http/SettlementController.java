@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -48,6 +49,22 @@ public class SettlementController {
             @Valid @RequestBody SubmitLocalEvidenceRequest request
     ) {
         return settlementApplicationService.ingestLocalEvidence(request.toCommand(idempotencyKey));
+    }
+
+    @PostMapping("/local-evidence/reconcile")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public Object reconcileLocalEvidence(
+            @RequestParam(defaultValue = "50") int limit
+    ) {
+        return settlementApplicationService.reconcileDirectLocalEvidence(limit);
+    }
+
+    @GetMapping("/local-evidence/status")
+    public Object getLocalEvidenceStatus(
+            @RequestParam(required = false) String voucherId,
+            @RequestParam(required = false) String sessionId
+    ) {
+        return settlementApplicationService.getLocalEvidenceStatus(voucherId, sessionId);
     }
 
     @GetMapping("/{batchId}")

@@ -12,10 +12,40 @@ tags:
   - name: Device
   - name: Collateral
   - name: Settlement
+  - name: Time
   - name: ClientTrace
   - name: Admin
 
 paths:
+  /api/time/sync:
+    get:
+      tags: [Time]
+      summary: Offline Pay 서버 시간 동기화 anchor 조회
+      description: |
+        앱은 Offline Pay 거래/evidence 시간 계산용으로만 이 값을 저장한다.
+        전역 기기 시간이나 UI 타이머 기준을 대체하지 않는다.
+      operationId: syncOfflinePayServerTime
+      parameters:
+        - in: header
+          name: X-Client-Time-Zone
+          required: false
+          schema:
+            type: string
+          description: 앱이 감지한 IANA timezone.
+        - in: header
+          name: X-Client-Time-Zone-Offset-Minutes
+          required: false
+          schema:
+            type: integer
+          description: 앱이 감지한 timezone offset minutes.
+      responses:
+        '200':
+          description: 서버 시간 anchor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TimeSyncResponse'
+
   /api/snapshots/current:
     get:
       tags: [Collateral]
@@ -275,6 +305,63 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
+  /api/settlements/local-evidence/reconcile:
+    post:
+      tags: [Settlement]
+      summary: direct local evidence 기반 settlement carrier 생성
+      description: |
+        `offline_pay_local_evidence`에 direct upload로 저장된 VERIFIED sender evidence와 matching VERIFIED receiver evidence를 조회한다.
+        기존 `offline_payment_proofs`가 없는 voucher에 한해 서버 내부에서 `/api/settlements`와 동일한 proof/settlement carrier를 생성한다.
+        receiver-only evidence는 이 endpoint에서도 정산을 만들 수 없으며, sender evidence에 proof 생성 필수 필드(collateralId, keyVersion, policyVersion, timestampMs, expiresAtMs)가 없으면 skip된다.
+      operationId: reconcileDirectLocalEvidence
+      parameters:
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            default: 50
+            minimum: 1
+            maximum: 500
+      responses:
+        '202':
+          description: direct local evidence pair를 settlement carrier로 승격
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DirectLocalEvidenceReconcileResult'
+
+  /api/settlements/local-evidence/status:
+    get:
+      tags: [Settlement]
+      summary: 로컬 evidence 매칭 상태 조회
+      description: |
+        `voucherId` 또는 `sessionId` 기준으로 direct local evidence 저장/매칭 상태를 조회한다.
+        운영 화면은 이 응답의 `matched`, `awaitingCarrier`, `failed`를 이용해 carrier 대기 또는 매칭 완료 상태를 표시한다.
+      operationId: getLocalEvidenceStatus
+      parameters:
+        - in: query
+          name: voucherId
+          required: false
+          schema:
+            type: string
+            maxLength: 64
+        - in: query
+          name: sessionId
+          required: false
+          schema:
+            type: string
+            maxLength: 160
+      responses:
+        '200':
+          description: local evidence status summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LocalEvidenceStatusResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
   /api/settlements/{batchId}:
     get:
       tags: [Settlement]
@@ -511,6 +598,28 @@ paths:
 
 components:
   schemas:
+    TimeSyncResponse:
+      type: object
+      required: [serverTime, serverEpochMs, serverTimeZone, clientTimeZone, clientTimeZoneOffsetMinutes]
+      properties:
+        serverTime:
+          type: string
+          format: date-time
+          description: UTC 기준 서버 시간. Offline Pay estimated server time anchor로 저장된다.
+        serverEpochMs:
+          type: integer
+          format: int64
+          description: UTC 기준 서버 epoch milliseconds.
+        serverTimeZone:
+          type: string
+          description: 서버 검증 기준 timezone. 기본값 UTC.
+        clientTimeZone:
+          type: string
+          description: 클라이언트가 보낸 IANA timezone 또는 UTC fallback.
+        clientTimeZoneOffsetMinutes:
+          type: integer
+          description: 클라이언트가 보낸 timezone offset minutes 또는 0 fallback.
+
     CurrentSnapshotResponse:
       type: object
       required: [userId, deviceId, assetCode, deviceRegistration, walletRefreshRequired, refreshedAt, staleAfterMs]
@@ -1123,7 +1232,7 @@ components:
         transportSessionHash:
           type: string
           pattern: '^[0-9a-fA-F]{64}$'
-          description: Required SHA-256 hash produced by the native BLE/NFC/QR transport transcript producer. This must also be included in the signed canonicalPayload and is not the settlement clock. App-level correlation hashes are not accepted as local evidence.
+          description: Required SHA-256 hash produced by the native BLE/NFC/QR transport transcript producer. This must also be included in the signed canonicalPayload and is not the settlement clock. App-level correlation hashes are not accepted as local evidence. If `transportTranscript` is supplied, the server recomputes SHA-256 over the transcript bytes and requires it to match this value.
         transportTranscriptSource:
           type: string
           enum:
@@ -1132,23 +1241,116 @@ components:
             - NATIVE_NFC_BRIDGE_TRANSCRIPT_V1
             - NATIVE_QR_SCAN_TRANSCRIPT_V1
           description: Required native transport transcript producer id. Must match the signed canonicalPayload and one of the server-approved native transcript sources.
+        transportTranscript:
+          type: string
+          maxLength: 16384
+          description: Optional raw native BLE/NFC/QR transport transcript. New clients should include this so the server can recompute `transportSessionHash`; legacy hash-only clients remain accepted for compatibility.
+        transportTranscriptEncoding:
+          type: string
+          enum: [UTF-8, BASE64]
+          description: Encoding of `transportTranscript`. Defaults to UTF-8 when omitted.
         payload:
           type: object
           additionalProperties: true
 
     LocalEvidenceIngestResult:
       type: object
-      required: [requested, stored, skipped]
+      required: [requested, stored, skipped, matched, awaitingCarrier]
       properties:
         requested:
           type: integer
           description: 요청에 포함된 evidence 수.
         stored:
           type: integer
-          description: canonical hash, device signature, identity field 검증을 통과해 정산 매칭 후보로 저장된 evidence 수.
+          description: canonical hash, device signature, identity field 검증을 통과해 정산 매칭 후보로 저장된 evidence 수. 이 값은 proof 또는 settlement 생성 성공을 의미하지 않는다.
         skipped:
           type: integer
           description: 필수값 누락, uploader device 불일치, hash/signature/identity 검증 실패로 최종 정산 게이트를 열 수 없는 evidence 수.
+        matched:
+          type: integer
+          description: 기존 `/api/settlements` sender proof carrier와 매칭되어 pending settlement wake-up 대상이 된 receiver evidence 수.
+        awaitingCarrier:
+          type: integer
+          description: 검증/저장은 됐지만 아직 대응되는 settlement carrier가 없어 direct evidence store에 감사 증거로만 대기 중인 evidence 수.
+
+    DirectLocalEvidenceReconcileResult:
+      type: object
+      required: [candidates, created, skipped, batchIds]
+      properties:
+        candidates:
+          type: integer
+          description: matching receiver evidence가 있는 VERIFIED sender evidence 후보 수.
+        created:
+          type: integer
+          description: proof/settlement carrier 생성이 접수된 후보 수.
+        skipped:
+          type: integer
+          description: sender evidence에 proof 생성 필수 필드가 없어 carrier 생성에서 제외된 후보 수.
+        batchIds:
+          type: array
+          items:
+            type: string
+          description: 생성 또는 재사용된 settlement batch id 목록.
+
+    LocalEvidenceStatusResponse:
+      type: object
+      required:
+        - total
+        - stored
+        - matched
+        - awaitingCarrier
+        - failed
+        - senderStored
+        - receiverStored
+        - senderMatched
+        - receiverMatched
+        - senderFailed
+        - receiverFailed
+        - state
+      properties:
+        voucherId:
+          type: string
+          nullable: true
+          description: 조회된 evidence의 voucher id. 조회 결과가 없고 query에도 없으면 null.
+        sessionId:
+          type: string
+          nullable: true
+          description: 조회된 evidence의 session id. 조회 결과가 없고 query에도 없으면 null.
+        total:
+          type: integer
+          description: 조건에 매칭된 evidence row 수.
+        stored:
+          type: integer
+          description: verificationStatus=VERIFIED인 evidence 수.
+        matched:
+          type: integer
+          description: VERIFIED이고 settlement proof/carrier와 matchedProofId로 연결된 evidence 수.
+        awaitingCarrier:
+          type: integer
+          description: VERIFIED지만 아직 settlement carrier와 매칭되지 않은 evidence 수.
+        failed:
+          type: integer
+          description: 검증 실패 또는 VERIFIED가 아닌 evidence 수.
+        senderStored:
+          type: integer
+        receiverStored:
+          type: integer
+        senderMatched:
+          type: integer
+        receiverMatched:
+          type: integer
+        senderFailed:
+          type: integer
+        receiverFailed:
+          type: integer
+        state:
+          type: string
+          enum: [NOT_FOUND, AWAITING_CARRIER, MATCHED, FAILED, PARTIAL]
+          description: 운영 화면 표시용 local evidence aggregate state.
+        latestUpdatedAt:
+          type: string
+          nullable: true
+          description: 조건에 매칭된 evidence의 최신 updated_at.
 
     SettlementBatchDetailResponse:
       type: object

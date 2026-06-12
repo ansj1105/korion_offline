@@ -74,6 +74,67 @@ class ProofPayloadConsistencyValidatorTest {
     }
 
     @Test
+    void acceptsZeroExpiryAsOfflineSettlementNoExpirySentinel() {
+        long timestampMs = 1_778_164_128_344L;
+        String rawPayload = """
+                {
+                  "voucherId": "voucher-no-expiry",
+                  "deviceId": "device-1",
+                  "counterpartyDeviceId": "device-2",
+                  "amount": "1.00",
+                  "expiresAt": 0,
+                  "expiresAtPolicy": "NO_OFFLINE_PROOF_EXPIRY",
+                  "offlineProofNoExpiry": true,
+                  "spendingProof": {
+                    "deviceId": "device-1",
+                    "amount": "1.00",
+                    "monotonicCounter": 18,
+                    "nonce": "nonce-no-expiry",
+                    "newStateHash": "hash-new",
+                    "prevStateHash": "hash-prev",
+                    "signature": "signature",
+                    "timestamp": %d
+                  }
+                }
+                """.formatted(timestampMs);
+        String canonicalPayload = """
+                {
+                  "voucherId": "voucher-no-expiry",
+                  "deviceId": "device-1",
+                  "counterpartyDeviceId": "device-2",
+                  "expiresAt": 0,
+                  "expiresAtPolicy": "NO_OFFLINE_PROOF_EXPIRY",
+                  "offlineProofNoExpiry": true
+                }
+                """;
+
+        OfflinePaymentProof proof = new OfflinePaymentProof(
+                "proof-no-expiry",
+                "batch-no-expiry",
+                "voucher-no-expiry",
+                "collateral-no-expiry",
+                "device-1",
+                "device-2",
+                1,
+                1,
+                18,
+                "nonce-no-expiry",
+                "hash-new",
+                "hash-prev",
+                "signature",
+                new BigDecimal("1.00"),
+                timestampMs,
+                0L,
+                canonicalPayload,
+                "SENDER",
+                rawPayload,
+                OffsetDateTime.now()
+        );
+
+        assertTrue(validator.validate(proof).passed());
+    }
+
+    @Test
     void validatesHybridOfflineTimeEnvelope() {
         OfflinePaymentProof proof = proofWithHybridTime("2026-06-11T03:02:03Z");
 

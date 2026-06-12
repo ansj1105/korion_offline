@@ -411,7 +411,7 @@ public class JdbcOfflinePaymentProofRepository implements OfflinePaymentProofRep
     }
 
     private void requireExpiresAfterTimestamp(long timestampMs, long expiresAtMs) {
-        if (expiresAtMs <= timestampMs) {
+        if (expiresAtMs != 0 && expiresAtMs <= timestampMs) {
             throw new IllegalArgumentException("expiresAtMs must be greater than timestampMs");
         }
     }

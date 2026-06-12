@@ -75,4 +75,41 @@ class SubmitSettlementBatchRequestTest {
         assertThat(proof.timestampMs()).isEqualTo(1_778_164_128_344L);
         assertThat(proof.expiresAtMs()).isEqualTo(1_778_164_307_000L);
     }
+
+    @Test
+    void preservesZeroExpiryAsOfflineSettlementNoExpirySentinel() {
+        SubmitSettlementBatchRequest request = new SubmitSettlementBatchRequest(
+                "SENDER",
+                "sender-device",
+                List.of(new SubmitSettlementBatchRequest.ProofRequest(
+                        "voucher-no-expiry",
+                        "collateral-no-expiry",
+                        "sender-device",
+                        "receiver-device",
+                        "hash-new",
+                        "hash-prev",
+                        "signature",
+                        new BigDecimal("1.00"),
+                        1L,
+                        1L,
+                        18L,
+                        "nonce-no-expiry",
+                        1_778_164_128_344L,
+                        0L,
+                        "{}",
+                        Map.of(
+                                "paymentMethod", "BLE",
+                                "expiresAtPolicy", "NO_OFFLINE_PROOF_EXPIRY",
+                                "offlineProofNoExpiry", true
+                        )
+                )),
+                null
+        );
+
+        SettlementApplicationService.SubmitSettlementBatchCommand command = request.toCommand("idempotency-key");
+        SettlementApplicationService.ProofSubmission proof = command.proofs().get(0);
+
+        assertThat(proof.timestampMs()).isEqualTo(1_778_164_128_344L);
+        assertThat(proof.expiresAtMs()).isZero();
+    }
 }

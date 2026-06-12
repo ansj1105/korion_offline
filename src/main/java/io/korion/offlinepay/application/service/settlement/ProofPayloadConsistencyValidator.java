@@ -106,7 +106,7 @@ public class ProofPayloadConsistencyValidator {
         if (longValue(spendingProof, "timestamp") == null) {
             return invalid(OfflinePayReasonCode.PAYLOAD_REQUIRED_FIELD_MISSING, proof, "timestamp missing");
         }
-        if (longValue(rawPayload, "expiresAt") == null) {
+        if (!rawPayload.has("expiresAt") || rawPayload.path("expiresAt").isNull()) {
             return invalid(OfflinePayReasonCode.PAYLOAD_REQUIRED_FIELD_MISSING, proof, "expiresAt missing");
         }
         return ValidationResult.success();
