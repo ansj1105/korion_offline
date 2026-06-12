@@ -1,5 +1,6 @@
 package io.korion.offlinepay.application.service;
 
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
@@ -28,7 +29,7 @@ class SettlementWorkerTest {
     private final SettlementApplicationService settlementApplicationService = Mockito.mock(SettlementApplicationService.class);
 
     @Test
-    void deadLettersBatchAfterMaxAttempts() {
+    void keepsBatchRetryableAfterMaxAttempts() {
         AppProperties properties = new AppProperties(
                 "USDT",
                 24,
@@ -63,17 +64,17 @@ class SettlementWorkerTest {
                 .when(settlementApplicationService)
                 .markBatchValidating("batch-1");
         when(settlementApplicationService.recordBatchProcessingFailure("batch-1", "boom", 3))
-                .thenReturn(new SettlementApplicationService.BatchFailureOutcome("batch-1", 3, true));
+                .thenReturn(new SettlementApplicationService.BatchFailureOutcome("batch-1", 3, false));
 
         worker.poll();
 
-        verify(eventBus).publishDeadLetter(eq("batch-1"), eq(3), eq("boom"), anyString());
-        verify(eventBus).acknowledgeRequested("1-0");
+        verify(eventBus, never()).publishDeadLetter(eq("batch-1"), anyInt(), anyString(), anyString());
+        verify(eventBus, never()).acknowledgeRequested("1-0");
         verify(settlementApplicationService, never()).finalizeBatch("batch-1");
     }
 
     @Test
-    void deadLettersExternalSyncAfterMaxAttempts() {
+    void keepsExternalSyncRetryableAfterMaxAttempts() {
         AppProperties properties = new AppProperties(
                 "USDT",
                 24,
@@ -143,17 +144,17 @@ class SettlementWorkerTest {
 
         worker.poll();
 
-        verify(eventBus).publishExternalSyncDeadLetter(
-                eq("LEDGER_SYNC_REQUESTED"),
-                eq("settlement-1"),
-                eq("batch-1"),
-                eq("proof-1"),
-                eq(3),
-                eq("LEDGER_SYNC_FAIL"),
-                eq("boom"),
+        verify(eventBus, never()).publishExternalSyncDeadLetter(
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyInt(),
+                anyString(),
+                anyString(),
                 anyString()
         );
-        verify(eventBus).acknowledgeExternalSync("sync-1");
+        verify(eventBus, never()).acknowledgeExternalSync("sync-1");
     }
 
     @Test
@@ -520,30 +521,25 @@ class SettlementWorkerTest {
 
         worker.poll();
 
-        verify(offlineSagaService).markCompensationRequired(
-                eq(io.korion.offlinepay.domain.status.OfflineSagaType.SETTLEMENT),
-                eq("settlement-1"),
-                eq("COMPENSATION_REQUIRED"),
-                eq("RECEIVER_CONFIRMATION_EXPIRED"),
-                Mockito.argThat(argument -> argument != null
-                        && Boolean.TRUE.equals(argument.get("receiverHistoryPending")))
+        verify(offlineSagaService, never()).markCompensationRequired(
+                Mockito.any(),
+                Mockito.anyString(),
+                Mockito.anyString(),
+                Mockito.anyString(),
+                Mockito.anyMap()
         );
-        verify(settlementRepository).markReceiverConfirmationExpired(
-                eq("settlement-1"),
-                eq("RECEIVER_CONFIRMATION_EXPIRED"),
-                Mockito.argThat(argument -> argument != null
-                        && argument.contains("RECEIVER_CONFIRMATION_EXPIRED"))
+        verify(settlementRepository, never()).markReceiverConfirmationExpired(
+                Mockito.anyString(),
+                Mockito.anyString(),
+                Mockito.anyString()
         );
-        verify(eventBus).publishExternalSyncRequested(
+        verify(eventBus, never()).publishExternalSyncRequested(
                 eq("LEDGER_COMPENSATION_REQUESTED"),
-                eq("settlement-1"),
-                eq("batch-1"),
-                eq("proof-1"),
-                Mockito.argThat(argument -> argument != null
-                        && argument.contains("RECEIVER_CONFIRMATION_EXPIRED")
-                        && argument.contains("OFFLINE_PAY_COMPENSATION")
-                        && argument.contains("\"transferRef\":\"settlement-1:C\"")),
-                anyString()
+                Mockito.anyString(),
+                Mockito.anyString(),
+                Mockito.anyString(),
+                Mockito.anyString(),
+                Mockito.anyString()
         );
         verify(foxCoinHistoryPort, never()).recordSettlementHistory(Mockito.any());
         verify(coinManageSettlementPort, never()).compensateSettlement(Mockito.any());

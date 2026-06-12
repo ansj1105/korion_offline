@@ -1438,33 +1438,14 @@ public class SettlementApplicationService {
         SettlementBatch batch = batchRepository.findById(batchId)
                 .orElseThrow(() -> new IllegalArgumentException("settlement batch not found: " + batchId));
         int attemptCount = currentAttemptCount(batch.summaryJson()) + 1;
-        boolean deadLettered = attemptCount >= maxAttempts;
 
         batchRepository.updateStatus(
                 batch.id(),
-                deadLettered ? SettlementBatchStatus.FAILED : batch.status(),
-                normalizeBatchReasonCode(deadLettered ? SettlementBatchStatus.FAILED : batch.status(), OfflinePayReasonCode.BATCH_SYNC_FAIL),
-                deadLettered
-                        ? settlementBatchFactory.deadLetterSummary(attemptCount, errorMessage, OfflinePayReasonCode.BATCH_SYNC_FAIL)
-                        : settlementBatchFactory.failureSummary(attemptCount, errorMessage, OfflinePayReasonCode.BATCH_SYNC_FAIL)
+                batch.status(),
+                normalizeBatchReasonCode(batch.status(), OfflinePayReasonCode.BATCH_SYNC_FAIL),
+                settlementBatchFactory.failureSummary(attemptCount, errorMessage, OfflinePayReasonCode.BATCH_SYNC_FAIL)
         );
-        if (deadLettered) {
-            reconciliationCaseRepository.save(
-                    null,
-                    batch.id(),
-                    null,
-                    null,
-                    "BATCH_SYNC_FAILED",
-                    ReconciliationCaseStatus.OPEN,
-                    OfflinePayReasonCode.BATCH_SYNC_FAIL,
-                    jsonService.write(Map.of(
-                            "batchId", batch.id(),
-                            "attemptCount", attemptCount,
-                            "errorMessage", errorMessage
-                    ))
-            );
-        }
-        return new BatchFailureOutcome(batch.id(), attemptCount, deadLettered);
+        return new BatchFailureOutcome(batch.id(), attemptCount, false);
     }
 
     private SettlementEvaluation processSettlementRequest(SettlementRequest request) {

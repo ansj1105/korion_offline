@@ -1,6 +1,7 @@
 package io.korion.offlinepay.application.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -3596,7 +3597,7 @@ class SettlementApplicationServiceTest {
     }
 
     @Test
-    void recordBatchProcessingFailureCreatesReconciliationCaseWhenDeadLettered() {
+    void recordBatchProcessingFailureKeepsBatchRetryable() {
         SettlementBatch batch = new SettlementBatch(
                 "batch-dead-1",
                 "device-1",
@@ -3613,16 +3614,16 @@ class SettlementApplicationServiceTest {
         SettlementApplicationService.BatchFailureOutcome outcome =
                 service.recordBatchProcessingFailure("batch-dead-1", "sync timeout", 2);
 
-        assertTrue(outcome.deadLettered());
-        verify(reconciliationCaseRepository).save(
-                eq(null),
-                eq("batch-dead-1"),
-                eq(null),
-                eq(null),
-                eq("BATCH_SYNC_FAILED"),
-                eq(io.korion.offlinepay.domain.status.ReconciliationCaseStatus.OPEN),
-                eq("BATCH_SYNC_FAIL"),
-                anyString()
+        assertFalse(outcome.deadLettered());
+        verify(reconciliationCaseRepository, never()).save(
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any()
         );
     }
 

@@ -80,28 +80,14 @@ public class SettlementExternalSyncWorker {
                 process(message);
                 eventBus.acknowledgeExternalSync(message.messageId());
             } catch (RuntimeException exception) {
-                if (message.attempts() >= properties.worker().maxAttempts()) {
-                    eventBus.publishExternalSyncDeadLetter(
-                            message.eventType(),
-                            message.settlementId(),
-                            message.batchId(),
-                            message.proofId(),
-                            message.attempts(),
-                            resolveFailureReasonCode(message.eventType(), exception),
-                            exception.getMessage() == null ? "unknown external sync failure" : exception.getMessage(),
-                            OffsetDateTime.now().toString()
-                    );
-                    ensureReconciliationCase(
-                            message,
-                            resolveFailureCaseType(message.eventType(), exception),
-                            resolveFailureReasonCode(message.eventType(), exception),
-                            exception
-                    );
-                    eventBus.acknowledgeExternalSync(message.messageId());
-                }
+                ensureReconciliationCase(
+                        message,
+                        resolveFailureCaseType(message.eventType(), exception),
+                        resolveFailureReasonCode(message.eventType(), exception),
+                        exception
+                );
             }
         }
-        expireReceiverHistoryPendingSettlements();
     }
 
     private void process(SettlementBatchEventBus.QueuedExternalSyncMessage message) {
