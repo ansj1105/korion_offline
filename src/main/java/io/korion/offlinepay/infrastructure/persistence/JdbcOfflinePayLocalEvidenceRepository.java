@@ -253,7 +253,9 @@ public class JdbcOfflinePayLocalEvidenceRepository implements OfflinePayLocalEvi
 
     @Override
     public LocalEvidenceStatus summarizeStatus(String voucherId, String sessionId, OffsetDateTime staleCutoff) {
-        String sql = """
+        String normalizedVoucherId = blankToNull(voucherId);
+        String normalizedSessionId = blankToNull(sessionId);
+        StringBuilder sql = new StringBuilder("""
                 SELECT
                     COALESCE(MAX(voucher_id), :voucherId) AS voucher_id,
                     COALESCE(MAX(session_id), :sessionId) AS session_id,
@@ -279,12 +281,17 @@ public class JdbcOfflinePayLocalEvidenceRepository implements OfflinePayLocalEvi
                         THEN updated_at ELSE NULL END)::text AS oldest_awaiting_carrier_at,
                     MAX(updated_at)::text AS latest_updated_at
                 FROM offline_pay_local_evidence
-                WHERE (:voucherId IS NULL OR voucher_id = :voucherId)
-                  AND (:sessionId IS NULL OR session_id = :sessionId)
-                """;
-        return jdbcClient.sql(sql)
-                .param("voucherId", blankToNull(voucherId))
-                .param("sessionId", blankToNull(sessionId))
+                WHERE 1 = 1
+                """);
+        if (normalizedVoucherId != null) {
+            sql.append(" AND voucher_id = :voucherId\n");
+        }
+        if (normalizedSessionId != null) {
+            sql.append(" AND session_id = :sessionId\n");
+        }
+        return jdbcClient.sql(sql.toString())
+                .param("voucherId", normalizedVoucherId)
+                .param("sessionId", normalizedSessionId)
                 .param("staleCutoff", staleCutoff == null ? OffsetDateTime.now().minusHours(24) : staleCutoff)
                 .query((rs, rowNum) -> new LocalEvidenceStatus(
                         rs.getString("voucher_id"),
