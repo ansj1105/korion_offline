@@ -10,6 +10,7 @@ import io.korion.offlinepay.application.port.CollateralRepository;
 import io.korion.offlinepay.application.port.CollateralOperationRepository;
 import io.korion.offlinepay.application.port.DeviceRepository;
 import io.korion.offlinepay.application.port.FoxCoinHistoryPort;
+import io.korion.offlinepay.application.port.OfflinePayLocalEvidenceRepository;
 import io.korion.offlinepay.application.port.OfflinePaymentProofRepository;
 import io.korion.offlinepay.application.port.OfflineSagaRepository;
 import io.korion.offlinepay.application.port.ReconciliationCaseRepository;
@@ -33,6 +34,7 @@ import io.korion.offlinepay.application.service.settlement.IssuedProofVerificati
 import io.korion.offlinepay.domain.model.CollateralLock;
 import io.korion.offlinepay.domain.model.Device;
 import io.korion.offlinepay.domain.model.OfflinePaymentProof;
+import io.korion.offlinepay.domain.model.OfflinePayLocalEvidence;
 import io.korion.offlinepay.domain.model.OfflineSaga;
 import io.korion.offlinepay.domain.model.ReconciliationCase;
 import io.korion.offlinepay.domain.model.SettlementBatch;
@@ -47,6 +49,8 @@ import io.korion.offlinepay.domain.status.ReconciliationCaseStatus;
 import io.korion.offlinepay.domain.status.SettlementBatchStatus;
 import io.korion.offlinepay.domain.status.SettlementStatus;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -60,6 +64,7 @@ public class SettlementApplicationService {
     private final CollateralRepository collateralRepository;
     private final CollateralOperationRepository collateralOperationRepository;
     private final DeviceRepository deviceRepository;
+    private final OfflinePayLocalEvidenceRepository localEvidenceRepository;
     private final OfflinePaymentProofRepository proofRepository;
     private final SettlementBatchRepository batchRepository;
     private final SettlementRepository settlementRepository;
@@ -89,6 +94,7 @@ public class SettlementApplicationService {
             CollateralRepository collateralRepository,
             CollateralOperationRepository collateralOperationRepository,
             DeviceRepository deviceRepository,
+            OfflinePayLocalEvidenceRepository localEvidenceRepository,
             OfflinePaymentProofRepository proofRepository,
             SettlementBatchRepository batchRepository,
             SettlementRepository settlementRepository,
@@ -119,6 +125,7 @@ public class SettlementApplicationService {
         this.collateralRepository = collateralRepository;
         this.collateralOperationRepository = collateralOperationRepository;
         this.deviceRepository = deviceRepository;
+        this.localEvidenceRepository = localEvidenceRepository;
         this.proofRepository = proofRepository;
         this.batchRepository = batchRepository;
         this.settlementRepository = settlementRepository;
@@ -186,9 +193,13 @@ public class SettlementApplicationService {
 
     private SettlementBatch createBatch(SubmitSettlementBatchCommand command) {
         for (ProofSubmission submission : command.proofs()) {
+            assertLocalBlockMatchesSubmission(submission);
             OfflinePaymentProof existing = proofRepository.findByVoucherId(submission.voucherId()).orElse(null);
             if (existing != null && isReceiverConfirmation(command, submission, existing)) {
                 continue;
+            }
+            if (command.uploaderType() == UploaderType.RECEIVER && existing == null && hasReceiverLocalBlock(submission)) {
+                throw new IllegalArgumentException("receiver settlement requires existing sender proof: " + submission.voucherId());
             }
             assertProofSubmissionNotReplayed(submission);
         }
@@ -211,9 +222,21 @@ public class SettlementApplicationService {
         for (ProofSubmission submission : command.proofs()) {
             OfflinePaymentProof existing = proofRepository.findByVoucherId(submission.voucherId()).orElse(null);
             if (existing != null && isReceiverConfirmation(command, submission, existing)) {
+                String existingProofId = existing.id();
                 SettlementRequest request = settlementRepository.findLatestByProofId(existing.id())
-                        .orElseThrow(() -> new IllegalStateException("settlement request not found for proof: " + existing.id()));
+                        .orElseThrow(() -> new IllegalStateException("settlement request not found for proof: " + existingProofId));
+                saveLocalEvidence(command, submission, existing.id(), "VERIFIED", "matched receiver evidence");
+                if (request.status() == SettlementStatus.PENDING || request.status() == SettlementStatus.VALIDATING) {
+                    processSettlementRequest(request, true);
+                    request = settlementRepository.findLatestByProofId(existing.id())
+                            .orElseThrow(() -> new IllegalStateException("settlement request not found for proof: " + existingProofId));
+                    existing = proofRepository.findById(existing.id())
+                            .orElse(existing);
+                }
                 preserveReceivedUnsettledAmount(existing, request);
+                if (shouldAutoConfirmReceiverSettlement(submission)) {
+                    handleReceiverOnlineConfirmation(existing, request);
+                }
                 requestIds.add(request.id());
                 receiverConfirmationCount++;
                 continue;
@@ -243,6 +266,7 @@ public class SettlementApplicationService {
                     extractChannelType(submission.payload()),
                     jsonService.write(submission.payload())
             );
+            saveLocalEvidence(command, submission, proof.id(), "PENDING", "sender evidence stored before receiver match");
 
             SettlementRequest request = settlementRepository.save(
                     batch.id(),
@@ -299,10 +323,263 @@ public class SettlementApplicationService {
         return batchRepository.findById(batch.id()).orElseThrow();
     }
 
+    private void assertLocalBlockMatchesSubmission(ProofSubmission submission) {
+        assertLocalBlockMatchesSubmission(submission, "senderLocalBlock");
+        assertLocalBlockMatchesSubmission(submission, "receiverLocalBlock");
+        assertReceiverEvidenceBlockMatchesSubmission(submission);
+    }
+
+    private boolean hasReceiverLocalBlock(ProofSubmission submission) {
+        Map<String, Object> payload = submission.payload();
+        return payload != null && (Boolean.TRUE.equals(payload.get("receiverLocalBlock"))
+                || Boolean.TRUE.equals(payload.get("receiverEvidenceBlock")));
+    }
+
+    private void saveLocalEvidence(
+            SubmitSettlementBatchCommand command,
+            ProofSubmission submission,
+            String proofId,
+            String verificationStatus,
+            String verificationDetail
+    ) {
+        Map<String, Object> payload = submission.payload();
+        if (payload == null) {
+            return;
+        }
+        boolean senderEvidence = Boolean.TRUE.equals(payload.get("senderLocalBlock"))
+                || !stringValue(payload.get("localBlockNewHash")).isBlank();
+        boolean receiverEvidence = Boolean.TRUE.equals(payload.get("receiverEvidenceBlock"))
+                || Boolean.TRUE.equals(payload.get("receiverLocalBlock"));
+        if (!senderEvidence && !receiverEvidence) {
+            return;
+        }
+        String direction = receiverEvidence ? "RECEIVE" : "SEND";
+        String prefix = receiverEvidence
+                ? (Boolean.TRUE.equals(payload.get("receiverEvidenceBlock")) ? "receiverEvidenceBlock" : "receiverLocalBlock")
+                : "senderLocalBlock";
+        String uploaderDeviceId = command.uploaderDeviceId() == null || command.uploaderDeviceId().isBlank()
+                ? ("RECEIVE".equals(direction) ? submission.receiverDeviceId() : submission.senderDeviceId())
+                : command.uploaderDeviceId();
+        String evidenceNonce = firstText(payload, prefix + "Nonce", "localBlockNonce", "nonce", "requestId", "offlineTxSequence");
+        if (evidenceNonce.isBlank()) {
+            evidenceNonce = submission.nonce();
+        }
+        localEvidenceRepository.save(new OfflinePayLocalEvidence(
+                proofId,
+                submission.voucherId(),
+                firstText(payload, prefix + "SessionId", "receiverLocalBlockSessionId", "senderLocalBlockSessionId", "requestId"),
+                direction,
+                command.uploaderType().name(),
+                uploaderDeviceId,
+                submission.senderDeviceId(),
+                submission.receiverDeviceId(),
+                submission.amount(),
+                firstPositiveLong(payload, prefix + "Counter", "localBlockCounter"),
+                firstText(payload, prefix + "PrevHash", "localBlockPrevHash"),
+                firstText(payload, prefix + "NewHash", "localBlockNewHash"),
+                evidenceNonce,
+                firstText(payload, prefix + "Signature", "localBlockSignature"),
+                firstText(payload, prefix + "CanonicalPayload", "localBlockCanonicalPayload"),
+                payload,
+                verificationStatus == null || verificationStatus.isBlank() ? "PENDING" : verificationStatus,
+                verificationDetail,
+                proofId
+        ));
+    }
+
+    private void assertLocalBlockMatchesSubmission(ProofSubmission submission, String prefix) {
+        Map<String, Object> payload = submission.payload();
+        if (payload == null || !Boolean.TRUE.equals(payload.get(prefix))) {
+            return;
+        }
+        assertLocalBlockText(prefix, "VoucherId", submission.voucherId(), payload.get(prefix + "VoucherId"));
+        assertLocalBlockText(prefix, "SenderDeviceId", submission.senderDeviceId(), payload.get(prefix + "SenderDeviceId"));
+        assertLocalBlockText(prefix, "ReceiverDeviceId", submission.receiverDeviceId(), payload.get(prefix + "ReceiverDeviceId"));
+        assertLocalBlockLong(prefix, "Counter", submission.counter(), payload.get(prefix + "Counter"));
+        assertLocalBlockText(prefix, "PrevHash", submission.previousHash(), payload.get(prefix + "PrevHash"));
+        assertLocalBlockText(prefix, "NewHash", submission.hashChainHead(), payload.get(prefix + "NewHash"));
+        assertLocalBlockText(prefix, "Nonce", submission.nonce(), payload.get(prefix + "Nonce"));
+        assertLocalBlockText(prefix, "Signature", submission.signature(), payload.get(prefix + "Signature"));
+        assertLocalBlockAmount(prefix, submission.amount(), payload.get(prefix + "Amount"));
+    }
+
+    private void assertReceiverEvidenceBlockMatchesSubmission(ProofSubmission submission) {
+        Map<String, Object> payload = submission.payload();
+        if (payload == null || !Boolean.TRUE.equals(payload.get("receiverEvidenceBlock"))) {
+            return;
+        }
+
+        String prefix = "receiverEvidenceBlock";
+        String canonicalPayload = stringValue(payload.get(prefix + "CanonicalPayload"));
+        if (canonicalPayload.isBlank()) {
+            throw new IllegalArgumentException(prefix + " CanonicalPayload missing");
+        }
+        String submittedHash = stringValue(payload.get(prefix + "NewHash"));
+        if (!equalsText(sha256Hex(canonicalPayload), submittedHash)) {
+            throw new IllegalArgumentException(prefix + " NewHash mismatch");
+        }
+        long blockCounter = requirePositiveLong(prefix, "Counter", payload.get(prefix + "Counter"));
+        assertLocalBlockText(prefix, "SenderProofNewHash", submission.hashChainHead(), payload.get(prefix + "SenderProofNewHash"));
+        assertLocalBlockText(prefix, "SenderProofPrevHash", submission.previousHash(), payload.get(prefix + "SenderProofPrevHash"));
+        assertLocalBlockText(prefix, "SenderProofNonce", submission.nonce(), payload.get(prefix + "SenderProofNonce"));
+        assertLocalBlockText(prefix, "SenderProofSignature", submission.signature(), payload.get(prefix + "SenderProofSignature"));
+        assertLocalBlockLong(prefix, "SenderProofCounter", submission.counter(), payload.get(prefix + "SenderProofCounter"));
+
+        JsonNode canonical = jsonService.readTree(canonicalPayload);
+        assertLocalBlockText(prefix, "CanonicalVoucherId", submission.voucherId(), canonical.path("voucherId").asText(""));
+        assertLocalBlockText(prefix, "CanonicalDirection", "RECEIVE", canonical.path("direction").asText(""));
+        assertLocalBlockText(prefix, "CanonicalDeviceId", submission.receiverDeviceId(), canonical.path("deviceId").asText(""));
+        assertLocalBlockText(prefix, "CanonicalSenderDeviceId", submission.senderDeviceId(), canonical.path("senderDeviceId").asText(""));
+        assertLocalBlockText(prefix, "CanonicalReceiverDeviceId", submission.receiverDeviceId(), canonical.path("receiverDeviceId").asText(""));
+        assertLocalBlockText(prefix, "CanonicalPrevHash", stringValue(payload.get(prefix + "PrevHash")), canonical.path("prevHash").asText(""));
+        assertLocalBlockText(prefix, "CanonicalNonce", stringValue(payload.get(prefix + "Nonce")), canonical.path("nonce").asText(""));
+        assertLocalBlockLong(prefix, "CanonicalCounter", blockCounter, canonical.path("counter").asLong(-1));
+        assertLocalBlockAmount(prefix, submission.amount(), canonical.path("amount").asText(""));
+
+        Device receiverDevice = deviceIdentifierResolver.resolve(submission.receiverDeviceId())
+                .orElseThrow(() -> new IllegalArgumentException(prefix + " receiver device not found"));
+        DeviceSignatureVerificationService.VerificationResult verification = deviceSignatureVerificationService.verifyPayload(
+                receiverDevice,
+                canonicalPayload,
+                stringValue(payload.get(prefix + "Signature"))
+        );
+        if (!verification.verified()) {
+            throw new IllegalArgumentException(prefix + " signature invalid: " + verification.detail());
+        }
+    }
+
+    private void assertLocalBlockText(String prefix, String field, String expected, Object actual) {
+        if (!equalsText(expected, actual == null ? "" : String.valueOf(actual))) {
+            throw new IllegalArgumentException(prefix + " " + field + " mismatch");
+        }
+    }
+
+    private void assertLocalBlockLong(String prefix, String field, long expected, Object actual) {
+        Long parsed = parsePositiveLong(actual);
+        if (parsed == null || parsed != expected) {
+            throw new IllegalArgumentException(prefix + " " + field + " mismatch");
+        }
+    }
+
+    private long requirePositiveLong(String prefix, String field, Object actual) {
+        Long parsed = parsePositiveLong(actual);
+        if (parsed == null) {
+            throw new IllegalArgumentException(prefix + " " + field + " mismatch");
+        }
+        return parsed;
+    }
+
+    private void assertLocalBlockAmount(String prefix, BigDecimal expected, Object actual) {
+        BigDecimal parsed = parsePositiveDecimal(actual);
+        if (parsed == null || parsed.compareTo(expected) != 0) {
+            throw new IllegalArgumentException(prefix + " Amount mismatch");
+        }
+    }
+
+    private Long parsePositiveLong(Object value) {
+        if (value instanceof Number number) {
+            long parsed = number.longValue();
+            return parsed > 0 ? parsed : null;
+        }
+        if (value instanceof String text && !text.isBlank()) {
+            try {
+                long parsed = Long.parseLong(text.trim());
+                return parsed > 0 ? parsed : null;
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    private String stringValue(Object value) {
+        return value == null ? "" : String.valueOf(value).trim();
+    }
+
+    private String firstText(Map<String, Object> payload, String... keys) {
+        if (payload == null || keys == null) {
+            return "";
+        }
+        for (String key : keys) {
+            String value = stringValue(payload.get(key));
+            if (!value.isBlank()) {
+                return value;
+            }
+        }
+        return "";
+    }
+
+    private Long firstPositiveLong(Map<String, Object> payload, String... keys) {
+        if (payload == null || keys == null) {
+            return null;
+        }
+        for (String key : keys) {
+            Long value = parsePositiveLong(payload.get(key));
+            if (value != null) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private String sha256Hex(String value) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] bytes = digest.digest((value == null ? "" : value).getBytes(StandardCharsets.UTF_8));
+            StringBuilder builder = new StringBuilder(bytes.length * 2);
+            for (byte current : bytes) {
+                builder.append(String.format("%02x", current));
+            }
+            return builder.toString();
+        } catch (Exception exception) {
+            throw new IllegalStateException("SHA-256 unavailable", exception);
+        }
+    }
+
+    private BigDecimal parsePositiveDecimal(Object value) {
+        if (value instanceof BigDecimal decimal) {
+            return decimal.compareTo(BigDecimal.ZERO) > 0 ? decimal : null;
+        }
+        if (value instanceof Number number) {
+            BigDecimal decimal = new BigDecimal(number.toString());
+            return decimal.compareTo(BigDecimal.ZERO) > 0 ? decimal : null;
+        }
+        if (value instanceof String text && !text.isBlank()) {
+            try {
+                BigDecimal decimal = new BigDecimal(text.trim());
+                return decimal.compareTo(BigDecimal.ZERO) > 0 ? decimal : null;
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
+    }
+
     private void preserveReceivedUnsettledAmount(OfflinePaymentProof proof, SettlementRequest request) {
         if (proof.status() == OfflineProofStatus.SETTLED && request.status() == SettlementStatus.SETTLED) {
             proofRepository.ensureReceivedUnsettledAmount(proof.id(), calculateReceiverAmount(proof, resolveProofAssetCode(proof)));
         }
+    }
+
+    private boolean shouldAutoConfirmReceiverSettlement(ProofSubmission submission) {
+        Map<String, Object> payload = submission.payload();
+        if (payload == null) {
+            return false;
+        }
+        Object autoEnabled = payload.get("receiverSettlementAutoEnabled");
+        if (Boolean.TRUE.equals(autoEnabled)) {
+            return true;
+        }
+        Object mode = payload.get("receiverSettlementMode");
+        return mode instanceof String text && "AUTO".equalsIgnoreCase(text.trim());
+    }
+
+    private boolean shouldAutoConfirmReceiverSettlement(OfflinePaymentProof proof) {
+        JsonNode payload = jsonService.readTree(proof.rawPayloadJson());
+        if (payload.path("receiverSettlementAutoEnabled").asBoolean(false)) {
+            return true;
+        }
+        return "AUTO".equalsIgnoreCase(payload.path("receiverSettlementMode").asText(""));
     }
 
     private BigDecimal calculateReceiverAmount(OfflinePaymentProof proof, String assetCode) {
@@ -506,18 +783,21 @@ public class SettlementApplicationService {
 
         int settledCount = 0;
         int failedCount = 0;
+        int pendingCount = 0;
         boolean hasConflict = false;
         for (SettlementRequest request : requests) {
             SettlementEvaluation evaluation = processSettlementRequest(request);
             if (evaluation.status() == SettlementStatus.SETTLED) {
                 settledCount++;
+            } else if (evaluation.status() == SettlementStatus.PENDING || evaluation.status() == SettlementStatus.VALIDATING) {
+                pendingCount++;
             } else {
                 failedCount++;
             }
             hasConflict = hasConflict || evaluation.conflictDetected();
         }
 
-        SettlementBatchStatus batchStatus = resolveBatchStatus(settledCount, failedCount, hasConflict);
+        SettlementBatchStatus batchStatus = resolveBatchStatus(settledCount, failedCount, pendingCount, hasConflict);
         String batchReasonCode = failedCount > 0
                 ? (settledCount > 0 ? OfflinePayReasonCode.PARTIAL_SETTLEMENT : OfflinePayReasonCode.SERVER_VALIDATION_FAIL)
                 : null;
@@ -529,6 +809,7 @@ public class SettlementApplicationService {
                 jsonService.write(Map.of(
                         "acceptedCount", settledCount,
                         "failedCount", failedCount,
+                        "pendingCount", pendingCount,
                         "hasConflict", hasConflict,
                         "finalizedAt", OffsetDateTime.now().toString()
                 ))
@@ -638,6 +919,10 @@ public class SettlementApplicationService {
     }
 
     private SettlementEvaluation processSettlementRequest(SettlementRequest request) {
+        return processSettlementRequest(request, false);
+    }
+
+    private SettlementEvaluation processSettlementRequest(SettlementRequest request, boolean receiverEvidenceMatched) {
         OfflinePaymentProof proof = proofRepository.findById(request.proofId())
                 .orElseThrow(() -> new IllegalArgumentException("proof not found: " + request.proofId()));
         CollateralLock collateral = collateralRepository.findById(request.collateralId())
@@ -654,6 +939,45 @@ public class SettlementApplicationService {
                         "voucherId", proof.voucherId()
                 )
         );
+
+        if (requiresReceiverEvidenceBeforeFinalSettlement(proof) && !receiverEvidenceMatched) {
+            settlementRepository.update(
+                    request.id(),
+                    SettlementStatus.PENDING,
+                    null,
+                    false,
+                    jsonService.write(Map.of(
+                            "voucherId", proof.voucherId(),
+                            "reasonCode", OfflinePayReasonCode.RECEIVER_EVIDENCE_REQUIRED,
+                            "detail", "sender proof is waiting for matching receiver local block"
+                    ))
+            );
+            offlineSagaService.markProcessing(
+                    OfflineSagaType.SETTLEMENT,
+                    request.id(),
+                    "AWAITING_RECEIVER_EVIDENCE",
+                    Map.of(
+                            "settlementId", request.id(),
+                            "batchId", request.batchId(),
+                            "proofId", proof.id(),
+                            "collateralId", collateral.id(),
+                            "voucherId", proof.voucherId(),
+                            "reasonCode", OfflinePayReasonCode.RECEIVER_EVIDENCE_REQUIRED
+                    )
+            );
+            return new SettlementEvaluation(
+                    SettlementStatus.PENDING,
+                    false,
+                    OfflinePayReasonCode.RECEIVER_EVIDENCE_REQUIRED,
+                    jsonService.write(Map.of(
+                            "voucherId", proof.voucherId(),
+                            "reasonCode", OfflinePayReasonCode.RECEIVER_EVIDENCE_REQUIRED,
+                            "detail", "sender proof is waiting for matching receiver local block"
+                    )),
+                    BigDecimal.ZERO,
+                    "HOLD"
+            );
+        }
 
         proofRepository.updateLifecycle(proof.id(), OfflineProofStatus.CONSUMED_PENDING_SETTLEMENT, null, true, false, false);
         CollateralLock settlementCollateralScope = resolveSettlementCollateralScope(collateral, proof);
@@ -734,6 +1058,14 @@ public class SettlementApplicationService {
             );
         }
         return evaluation;
+    }
+
+    private boolean requiresReceiverEvidenceBeforeFinalSettlement(OfflinePaymentProof proof) {
+        if (!"SENDER".equalsIgnoreCase(proof.uploaderType())) {
+            return false;
+        }
+        JsonNode payload = jsonService.readTree(proof.rawPayloadJson());
+        return payload.path("senderLocalBlock").asBoolean(false);
     }
 
     private int currentAttemptCount(String summaryJson) {
@@ -977,7 +1309,11 @@ public class SettlementApplicationService {
                 evaluation.conflictDetected()
         );
         FoxCoinHistoryPort.SettlementHistoryCommand receiverHistoryCommand = null;
-        if (receiverDevice != null && "RECEIVER".equalsIgnoreCase(proof.uploaderType())) {
+        if (
+                receiverDevice != null
+                        && "RECEIVER".equalsIgnoreCase(proof.uploaderType())
+                        && shouldAutoConfirmReceiverSettlement(proof)
+        ) {
             receiverHistoryCommand = settlementSyncCommandFactory.createReceiverHistoryCommand(
                             collateral,
                             proof.id(),
@@ -1157,7 +1493,10 @@ public class SettlementApplicationService {
         );
     }
 
-    private SettlementBatchStatus resolveBatchStatus(int settledCount, int failedCount, boolean hasConflict) {
+    private SettlementBatchStatus resolveBatchStatus(int settledCount, int failedCount, int pendingCount, boolean hasConflict) {
+        if (pendingCount > 0 && settledCount == 0 && failedCount == 0) {
+            return SettlementBatchStatus.UPLOADED;
+        }
         if (settledCount > 0 && failedCount > 0) {
             return SettlementBatchStatus.PARTIALLY_SETTLED;
         }

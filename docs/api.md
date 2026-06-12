@@ -832,6 +832,11 @@ components:
           description: |
             Offline sender envelope. Legacy payloads without hybrid time fields remain accepted, but any payload that includes one hybrid time field must include the full hybrid time/sequence envelope in both `payload` and `canonicalPayload`.
             Server validation treats `offlineTxSequence` as the sender-device ordering key and rejects duplicate or inconsistent sequence submissions.
+            When `senderLocalBlock=true` or `receiverLocalBlock=true`, the corresponding `*VoucherId`, `*Amount`, `*SenderDeviceId`, `*ReceiverDeviceId`, `*Counter`, `*PrevHash`, `*NewHash`, `*Nonce`, and `*Signature` fields must match the top-level proof fields. Receiver uploads may include `receiverLocalBlock*` fields together with the sender-signed payload so the server can cross-check sender and receiver local evidence by session/voucher/hash/signature before accepting confirmation.
+            Receiver uploads must include `receiverSettlementMode` (`AUTO` or `MANUAL`) and `receiverSettlementAutoEnabled`. A validated manual receiver upload keeps `receivedUnsettledAmount` until `/api/settlements/received/confirm` is called; only automatic receiver uploads or explicit confirmation may create receiver wallet/history settlement.
+            Receiver-only local evidence is not a settlement proof. A receiver upload must match an existing sender proof for the same voucher/session; otherwise the server rejects the upload before creating proof or settlement rows.
+            Sender local evidence alone is not enough for final collateral settlement. If a sender proof carries `senderLocalBlock=true`, the server keeps the settlement `PENDING` with `RECEIVER_EVIDENCE_REQUIRED` until a matching receiver local block confirms the same voucher, devices, counter, hash, nonce, signature, and amount.
+            Sender and receiver local evidence is stored in `offline_pay_local_evidence` for audit and replay recovery. New receiver uploads should include `receiverEvidenceBlock=true`, `receiverEvidenceBlockCanonicalPayload`, `receiverEvidenceBlockNewHash`, `receiverEvidenceBlockSignature`, and `receiverEvidenceBlockSenderProof*` reference fields. The server recomputes SHA-256 over the canonical payload, verifies the receiver device signature, and checks the sender proof reference before final settlement.
           properties:
             requestId:
               type: string
@@ -891,7 +896,7 @@ components:
         triggerMode:
           type: string
           default: MANUAL
-          enum: [MANUAL, AUTO, QR_OFFLINE_SYNC]
+          enum: [MANUAL, AUTO, BLE_OFFLINE_SYNC, NFC_OFFLINE_SYNC, QR_OFFLINE_SYNC]
         proofs:
           type: array
           minItems: 1

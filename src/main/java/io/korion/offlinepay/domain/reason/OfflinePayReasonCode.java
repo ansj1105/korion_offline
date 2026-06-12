@@ -82,6 +82,7 @@ public final class OfflinePayReasonCode {
     public static final String HISTORY_CIRCUIT_OPEN = "HISTORY_CIRCUIT_OPEN";
     public static final String HISTORY_SYNC_FAIL = "HISTORY_SYNC_FAIL";
     public static final String RECEIVER_CONFIRMATION_EXPIRED = "RECEIVER_CONFIRMATION_EXPIRED";
+    public static final String RECEIVER_EVIDENCE_REQUIRED = "RECEIVER_EVIDENCE_REQUIRED";
     public static final String SERVER_VALIDATION_FAIL = "SERVER_VALIDATION_FAIL";
     public static final String SETTLEMENT_FAIL = "SETTLEMENT_FAIL";
     public static final String PARTIAL_SETTLEMENT = "PARTIAL_SETTLEMENT";

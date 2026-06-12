@@ -9,6 +9,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
@@ -25,6 +26,7 @@ import io.korion.offlinepay.application.port.CollateralOperationRepository;
 import io.korion.offlinepay.application.port.CollateralRepository;
 import io.korion.offlinepay.application.port.DeviceRepository;
 import io.korion.offlinepay.application.port.FoxCoinHistoryPort;
+import io.korion.offlinepay.application.port.OfflinePayLocalEvidenceRepository;
 import io.korion.offlinepay.application.port.OfflinePaymentProofRepository;
 import io.korion.offlinepay.application.port.OfflineSagaRepository;
 import io.korion.offlinepay.application.port.ReconciliationCaseRepository;
@@ -49,6 +51,7 @@ import io.korion.offlinepay.domain.model.CollateralLock;
 import io.korion.offlinepay.domain.model.CollateralOperation;
 import io.korion.offlinepay.domain.model.Device;
 import io.korion.offlinepay.domain.model.OfflinePaymentProof;
+import io.korion.offlinepay.domain.model.OfflinePayLocalEvidence;
 import io.korion.offlinepay.domain.model.OfflineSaga;
 import io.korion.offlinepay.domain.model.ReconciliationCase;
 import io.korion.offlinepay.domain.model.SettlementBatch;
@@ -64,7 +67,13 @@ import io.korion.offlinepay.domain.status.ReconciliationCaseStatus;
 import io.korion.offlinepay.domain.status.SettlementBatchStatus;
 import io.korion.offlinepay.domain.status.SettlementStatus;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.security.MessageDigest;
+import java.security.Signature;
 import java.time.OffsetDateTime;
+import java.util.Base64;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -76,6 +85,7 @@ class SettlementApplicationServiceTest {
     private final CollateralRepository collateralRepository = Mockito.mock(CollateralRepository.class);
     private final CollateralOperationRepository collateralOperationRepository = Mockito.mock(CollateralOperationRepository.class);
     private final DeviceRepository deviceRepository = Mockito.mock(DeviceRepository.class);
+    private final OfflinePayLocalEvidenceRepository localEvidenceRepository = Mockito.mock(OfflinePayLocalEvidenceRepository.class);
     private final OfflinePaymentProofRepository proofRepository = Mockito.mock(OfflinePaymentProofRepository.class);
     private final SettlementBatchRepository batchRepository = Mockito.mock(SettlementBatchRepository.class);
     private final SettlementRepository settlementRepository = Mockito.mock(SettlementRepository.class);
@@ -96,6 +106,7 @@ class SettlementApplicationServiceTest {
             collateralRepository,
             collateralOperationRepository,
             deviceRepository,
+            localEvidenceRepository,
             proofRepository,
             batchRepository,
             settlementRepository,
@@ -426,7 +437,19 @@ class SettlementApplicationServiceTest {
                 now,
                 now + 60_000,
                 "{}",
-                java.util.Map.of("requestId", "req-receiver-confirm")
+                java.util.Map.ofEntries(
+                        java.util.Map.entry("requestId", "req-receiver-confirm"),
+                        java.util.Map.entry("receiverLocalBlock", true),
+                        java.util.Map.entry("receiverLocalBlockVoucherId", "voucher-receiver-confirm"),
+                        java.util.Map.entry("receiverLocalBlockAmount", "5.30000000"),
+                        java.util.Map.entry("receiverLocalBlockSenderDeviceId", "sender-device"),
+                        java.util.Map.entry("receiverLocalBlockReceiverDeviceId", "receiver-device"),
+                        java.util.Map.entry("receiverLocalBlockCounter", 7L),
+                        java.util.Map.entry("receiverLocalBlockPrevHash", "GENESIS"),
+                        java.util.Map.entry("receiverLocalBlockNewHash", "hash-receiver-confirm"),
+                        java.util.Map.entry("receiverLocalBlockNonce", "nonce-receiver-confirm"),
+                        java.util.Map.entry("receiverLocalBlockSignature", "signature-receiver-confirm")
+                )
         );
         when(proofRepository.findByVoucherId("voucher-receiver-confirm")).thenReturn(Optional.of(existingProof));
         when(settlementRepository.findLatestByProofId("proof-receiver-confirm")).thenReturn(Optional.of(request));
@@ -450,9 +473,638 @@ class SettlementApplicationServiceTest {
         ));
 
         assertEquals(SettlementBatchStatus.SETTLED, result.status());
+        verify(localEvidenceRepository).save(argThat(evidence ->
+                "proof-receiver-confirm".equals(evidence.proofId())
+                        && "RECEIVE".equals(evidence.direction())
+                        && "receiver-device".equals(evidence.uploaderDeviceId())
+                        && "hash-receiver-confirm".equals(evidence.hashChainHead())
+                        && "VERIFIED".equals(evidence.verificationStatus())
+        ));
         verify(proofRepository).ensureReceivedUnsettledAmount("proof-receiver-confirm", new BigDecimal("5.294700"));
         verify(eventBus, never()).publishExternalSyncRequested(
                 eq("RECEIVER_HISTORY_SYNC_REQUESTED"),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString()
+        );
+    }
+
+    @Test
+    void submitBatchStoresSenderLocalEvidenceBeforeSettlementFinalization() {
+        long now = System.currentTimeMillis();
+        SettlementApplicationService.ProofSubmission submission = new SettlementApplicationService.ProofSubmission(
+                "voucher-sender-evidence",
+                "collateral-sender-evidence",
+                "sender-device",
+                "receiver-device",
+                1,
+                1,
+                11L,
+                "nonce-sender-evidence",
+                "hash-sender-evidence",
+                "prev-sender-evidence",
+                "signature-sender-evidence",
+                new BigDecimal("2.50000000"),
+                now,
+                now + 60_000,
+                "{}",
+                java.util.Map.ofEntries(
+                        java.util.Map.entry("requestId", "req-sender-evidence"),
+                        java.util.Map.entry("senderLocalBlock", true),
+                        java.util.Map.entry("senderLocalBlockVoucherId", "voucher-sender-evidence"),
+                        java.util.Map.entry("senderLocalBlockAmount", "2.50000000"),
+                        java.util.Map.entry("senderLocalBlockSenderDeviceId", "sender-device"),
+                        java.util.Map.entry("senderLocalBlockReceiverDeviceId", "receiver-device"),
+                        java.util.Map.entry("senderLocalBlockCounter", 11L),
+                        java.util.Map.entry("senderLocalBlockPrevHash", "prev-sender-evidence"),
+                        java.util.Map.entry("senderLocalBlockNewHash", "hash-sender-evidence"),
+                        java.util.Map.entry("senderLocalBlockNonce", "nonce-sender-evidence"),
+                        java.util.Map.entry("senderLocalBlockSignature", "signature-sender-evidence")
+                )
+        );
+        SettlementBatch createdBatch = new SettlementBatch(
+                "batch-sender-evidence",
+                "sender-device",
+                "idempotency-sender-evidence",
+                SettlementBatchStatus.CREATED,
+                null,
+                1,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        SettlementBatch uploadedBatch = new SettlementBatch(
+                "batch-sender-evidence",
+                "sender-device",
+                "idempotency-sender-evidence",
+                SettlementBatchStatus.UPLOADED,
+                null,
+                1,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        CollateralLock collateral = new CollateralLock(
+                "collateral-sender-evidence",
+                77L,
+                "sender-device",
+                "USDT",
+                new BigDecimal("150"),
+                new BigDecimal("100"),
+                "GENESIS",
+                1,
+                CollateralStatus.LOCKED,
+                "lock-sender-evidence",
+                OffsetDateTime.now().plusDays(1),
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        OfflinePaymentProof proof = new OfflinePaymentProof(
+                "proof-sender-evidence",
+                "batch-sender-evidence",
+                "voucher-sender-evidence",
+                "collateral-sender-evidence",
+                "sender-device",
+                "receiver-device",
+                1,
+                1,
+                11L,
+                "nonce-sender-evidence",
+                "hash-sender-evidence",
+                "prev-sender-evidence",
+                "signature-sender-evidence",
+                new BigDecimal("2.50000000"),
+                now,
+                now + 60_000,
+                "{}",
+                "SENDER",
+                "{}",
+                OffsetDateTime.now()
+        );
+        SettlementRequest request = new SettlementRequest(
+                "settlement-sender-evidence",
+                "batch-sender-evidence",
+                "collateral-sender-evidence",
+                "proof-sender-evidence",
+                SettlementStatus.PENDING,
+                null,
+                false,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        when(proofRepository.findByVoucherId("voucher-sender-evidence")).thenReturn(Optional.empty());
+        when(batchRepository.findByIdempotencyKey("idempotency-sender-evidence")).thenReturn(Optional.empty());
+        when(batchRepository.save(anyString(), anyString(), any(), any(), anyInt(), anyString())).thenReturn(createdBatch);
+        when(collateralRepository.findById("collateral-sender-evidence")).thenReturn(Optional.of(collateral));
+        when(proofRepository.save(
+                anyString(), anyString(), anyString(), anyString(), anyString(),
+                anyInt(), anyInt(), anyLong(), anyString(), anyString(), anyString(), anyString(),
+                any(), anyLong(), anyLong(), anyString(), anyString(), anyString(), anyString()
+        )).thenReturn(proof);
+        when(settlementRepository.save(anyString(), anyString(), anyString(), any(), any(), anyBoolean(), anyString()))
+                .thenReturn(request);
+        when(batchRepository.findById("batch-sender-evidence")).thenReturn(Optional.of(uploadedBatch));
+
+        SettlementBatch result = service.submitBatch(new SettlementApplicationService.SubmitSettlementBatchCommand(
+                SettlementApplicationService.UploaderType.SENDER,
+                "sender-device",
+                "idempotency-sender-evidence",
+                java.util.List.of(submission),
+                "BLE_OFFLINE_SYNC"
+        ));
+
+        assertEquals(SettlementBatchStatus.UPLOADED, result.status());
+        verify(localEvidenceRepository).save(argThat(evidence ->
+                "proof-sender-evidence".equals(evidence.proofId())
+                        && "SEND".equals(evidence.direction())
+                        && "sender-device".equals(evidence.uploaderDeviceId())
+                        && "hash-sender-evidence".equals(evidence.hashChainHead())
+                        && "PENDING".equals(evidence.verificationStatus())
+        ));
+    }
+
+    @Test
+    void receiverDuplicateUploadWithAutoSettlementRequestsReceiverHistorySync() {
+        long now = System.currentTimeMillis();
+        OfflinePaymentProof existingProof = new OfflinePaymentProof(
+                "proof-receiver-auto-confirm",
+                "batch-existing-receiver-auto-confirm",
+                "voucher-receiver-auto-confirm",
+                "collateral-receiver-auto-confirm",
+                "sender-device",
+                "receiver-device",
+                1,
+                1,
+                7L,
+                "nonce-receiver-auto-confirm",
+                "hash-receiver-auto-confirm",
+                "GENESIS",
+                "signature-receiver-auto-confirm",
+                new BigDecimal("5.30000000"),
+                now,
+                now + 60_000,
+                "{}",
+                "SENDER",
+                "BLE",
+                OfflineProofStatus.SETTLED,
+                "SETTLED",
+                BigDecimal.ZERO,
+                BigDecimal.ZERO,
+                null,
+                null,
+                null,
+                "{\"requestId\":\"req-receiver-auto-confirm\"}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now(),
+                OffsetDateTime.now(),
+                OffsetDateTime.now(),
+                OffsetDateTime.now(),
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        SettlementRequest request = new SettlementRequest(
+                "settlement-receiver-auto-confirm",
+                "batch-existing-receiver-auto-confirm",
+                "collateral-receiver-auto-confirm",
+                "proof-receiver-auto-confirm",
+                SettlementStatus.SETTLED,
+                "SETTLED",
+                false,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        SettlementBatch createdBatch = new SettlementBatch(
+                "batch-receiver-auto-confirm",
+                "receiver-device",
+                "idempotency-receiver-auto-confirm",
+                SettlementBatchStatus.CREATED,
+                null,
+                1,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        SettlementBatch settledBatch = new SettlementBatch(
+                "batch-receiver-auto-confirm",
+                "receiver-device",
+                "idempotency-receiver-auto-confirm",
+                SettlementBatchStatus.SETTLED,
+                "SETTLED",
+                1,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        SettlementApplicationService.ProofSubmission submission = new SettlementApplicationService.ProofSubmission(
+                "voucher-receiver-auto-confirm",
+                "collateral-receiver-auto-confirm",
+                "sender-device",
+                "receiver-device",
+                1,
+                1,
+                7L,
+                "nonce-receiver-auto-confirm",
+                "hash-receiver-auto-confirm",
+                "GENESIS",
+                "signature-receiver-auto-confirm",
+                new BigDecimal("5.30000000"),
+                now,
+                now + 60_000,
+                "{}",
+                java.util.Map.of(
+                        "requestId", "req-receiver-auto-confirm",
+                        "receiverSettlementMode", "AUTO",
+                        "receiverSettlementAutoEnabled", true
+                )
+        );
+        Device receiverDevice = new Device(
+                "row-receiver-auto-confirm",
+                "receiver-device",
+                88L,
+                "receiver-public-key",
+                1,
+                DeviceStatus.ACTIVE,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        CollateralLock collateral = new CollateralLock(
+                "collateral-receiver-auto-confirm",
+                77L,
+                "sender-device",
+                "USDT",
+                new BigDecimal("150"),
+                new BigDecimal("100"),
+                "GENESIS",
+                1,
+                CollateralStatus.LOCKED,
+                "lock-receiver-auto-confirm",
+                OffsetDateTime.now().plusDays(1),
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        when(proofRepository.findByVoucherId("voucher-receiver-auto-confirm")).thenReturn(Optional.of(existingProof));
+        when(settlementRepository.findLatestByProofId("proof-receiver-auto-confirm")).thenReturn(Optional.of(request));
+        when(batchRepository.findByIdempotencyKey("idempotency-receiver-auto-confirm")).thenReturn(Optional.empty());
+        when(batchRepository.save(
+                anyString(),
+                anyString(),
+                any(SettlementBatchStatus.class),
+                any(),
+                anyInt(),
+                anyString()
+        )).thenReturn(createdBatch);
+        when(batchRepository.findById("batch-receiver-auto-confirm")).thenReturn(Optional.of(settledBatch));
+        when(offlineSagaRepository.findBySagaTypeAndReferenceId(OfflineSagaType.SETTLEMENT, "settlement-receiver-auto-confirm"))
+                .thenReturn(Optional.empty());
+        when(deviceRepository.findByDeviceId("receiver-device")).thenReturn(Optional.of(receiverDevice));
+        when(collateralRepository.findById("collateral-receiver-auto-confirm")).thenReturn(Optional.of(collateral));
+
+        SettlementBatch result = service.submitBatch(new SettlementApplicationService.SubmitSettlementBatchCommand(
+                SettlementApplicationService.UploaderType.RECEIVER,
+                "receiver-device",
+                "idempotency-receiver-auto-confirm",
+                java.util.List.of(submission),
+                "BLE_OFFLINE_SYNC"
+        ));
+
+        assertEquals(SettlementBatchStatus.SETTLED, result.status());
+        verify(proofRepository).ensureReceivedUnsettledAmount("proof-receiver-auto-confirm", new BigDecimal("5.294700"));
+        verify(eventBus).publishExternalSyncRequested(
+                eq("RECEIVER_HISTORY_SYNC_REQUESTED"),
+                eq("settlement-receiver-auto-confirm"),
+                eq("batch-existing-receiver-auto-confirm"),
+                eq("proof-receiver-auto-confirm"),
+                argThat(payload -> payload.contains("\"receiverHistoryCommand\"")
+                        && payload.contains("\"receiverOnlineConfirmedAt\"")),
+                anyString()
+        );
+    }
+
+    @Test
+    void submitBatchRejectsMismatchedReceiverLocalBlockBeforeCreatingBatch() {
+        long now = System.currentTimeMillis();
+        SettlementApplicationService.ProofSubmission submission = new SettlementApplicationService.ProofSubmission(
+                "voucher-receiver-block",
+                "collateral-receiver-block",
+                "sender-device",
+                "receiver-device",
+                1,
+                1,
+                7L,
+                "nonce-receiver-block",
+                "hash-receiver-block",
+                "GENESIS",
+                "signature-receiver-block",
+                new BigDecimal("5.30000000"),
+                now,
+                now + 60_000,
+                "{}",
+                java.util.Map.ofEntries(
+                        java.util.Map.entry("requestId", "req-receiver-block"),
+                        java.util.Map.entry("receiverLocalBlock", true),
+                        java.util.Map.entry("receiverLocalBlockVoucherId", "voucher-receiver-block"),
+                        java.util.Map.entry("receiverLocalBlockAmount", "5.30000000"),
+                        java.util.Map.entry("receiverLocalBlockSenderDeviceId", "sender-device"),
+                        java.util.Map.entry("receiverLocalBlockReceiverDeviceId", "receiver-device"),
+                        java.util.Map.entry("receiverLocalBlockCounter", 7L),
+                        java.util.Map.entry("receiverLocalBlockPrevHash", "GENESIS"),
+                        java.util.Map.entry("receiverLocalBlockNewHash", "different-hash"),
+                        java.util.Map.entry("receiverLocalBlockNonce", "nonce-receiver-block"),
+                        java.util.Map.entry("receiverLocalBlockSignature", "signature-receiver-block")
+                )
+        );
+
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> service.submitBatch(new SettlementApplicationService.SubmitSettlementBatchCommand(
+                        SettlementApplicationService.UploaderType.RECEIVER,
+                        "receiver-device",
+                        "idempotency-receiver-block",
+                        java.util.List.of(submission),
+                        "BLE_OFFLINE_SYNC"
+                ))
+        );
+
+        assertTrue(exception.getMessage().contains("receiverLocalBlock NewHash mismatch"));
+        verify(batchRepository, never()).save(
+                anyString(),
+                anyString(),
+                any(SettlementBatchStatus.class),
+                any(),
+                anyInt(),
+                anyString()
+        );
+    }
+
+    @Test
+    void submitBatchRejectsInvalidReceiverEvidenceBlockSignatureBeforeCreatingBatch() throws Exception {
+        long now = System.currentTimeMillis();
+        KeyPairGenerator generator = KeyPairGenerator.getInstance("EC");
+        generator.initialize(256);
+        KeyPair receiverKeyPair = generator.generateKeyPair();
+        KeyPair otherKeyPair = generator.generateKeyPair();
+        String canonicalPayload = """
+                {"amount":"5.30000000","assetCode":"KORI","counter":3,"createdAt":"2026-06-12T00:00:00.000Z","deviceId":"receiver-device","direction":"RECEIVE","fee":"0.005300","nonce":"nonce-receiver-block","payload":{"senderProofCounter":7},"prevHash":"GENESIS","proofId":"proof-receiver-block","receiverDeviceId":"receiver-device","senderDeviceId":"sender-device","sessionId":"req-receiver-block","source":"SENDER_COMPLETE","userId":"1","voucherId":"voucher-receiver-block"}
+                """.trim();
+        Signature signer = Signature.getInstance("SHA256withECDSA");
+        signer.initSign(otherKeyPair.getPrivate());
+        signer.update(canonicalPayload.getBytes(StandardCharsets.UTF_8));
+        String invalidSignature = Base64.getEncoder().encodeToString(signer.sign());
+        Device receiverDevice = new Device(
+                "receiver-row",
+                "receiver-device",
+                1L,
+                Base64.getEncoder().encodeToString(receiverKeyPair.getPublic().getEncoded()),
+                1,
+                DeviceStatus.ACTIVE,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        when(deviceRepository.findByDeviceId("receiver-device")).thenReturn(Optional.of(receiverDevice));
+        SettlementApplicationService.ProofSubmission submission = new SettlementApplicationService.ProofSubmission(
+                "voucher-receiver-block",
+                "collateral-receiver-block",
+                "sender-device",
+                "receiver-device",
+                1,
+                1,
+                7L,
+                "nonce-sender-proof",
+                "hash-sender-proof",
+                "prev-sender-proof",
+                "signature-sender-proof",
+                new BigDecimal("5.30000000"),
+                now,
+                now + 60_000,
+                "{}",
+                java.util.Map.ofEntries(
+                        java.util.Map.entry("requestId", "req-receiver-block"),
+                        java.util.Map.entry("receiverLocalBlock", true),
+                        java.util.Map.entry("receiverLocalBlockVoucherId", "voucher-receiver-block"),
+                        java.util.Map.entry("receiverLocalBlockAmount", "5.30000000"),
+                        java.util.Map.entry("receiverLocalBlockSenderDeviceId", "sender-device"),
+                        java.util.Map.entry("receiverLocalBlockReceiverDeviceId", "receiver-device"),
+                        java.util.Map.entry("receiverLocalBlockCounter", 7L),
+                        java.util.Map.entry("receiverLocalBlockPrevHash", "prev-sender-proof"),
+                        java.util.Map.entry("receiverLocalBlockNewHash", "hash-sender-proof"),
+                        java.util.Map.entry("receiverLocalBlockNonce", "nonce-sender-proof"),
+                        java.util.Map.entry("receiverLocalBlockSignature", "signature-sender-proof"),
+                        java.util.Map.entry("receiverEvidenceBlock", true),
+                        java.util.Map.entry("receiverEvidenceBlockCounter", 3L),
+                        java.util.Map.entry("receiverEvidenceBlockPrevHash", "GENESIS"),
+                        java.util.Map.entry("receiverEvidenceBlockNewHash", sha256Hex(canonicalPayload)),
+                        java.util.Map.entry("receiverEvidenceBlockNonce", "nonce-receiver-block"),
+                        java.util.Map.entry("receiverEvidenceBlockSignature", invalidSignature),
+                        java.util.Map.entry("receiverEvidenceBlockCanonicalPayload", canonicalPayload),
+                        java.util.Map.entry("receiverEvidenceBlockSenderProofCounter", 7L),
+                        java.util.Map.entry("receiverEvidenceBlockSenderProofPrevHash", "prev-sender-proof"),
+                        java.util.Map.entry("receiverEvidenceBlockSenderProofNewHash", "hash-sender-proof"),
+                        java.util.Map.entry("receiverEvidenceBlockSenderProofNonce", "nonce-sender-proof"),
+                        java.util.Map.entry("receiverEvidenceBlockSenderProofSignature", "signature-sender-proof")
+                )
+        );
+
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> service.submitBatch(new SettlementApplicationService.SubmitSettlementBatchCommand(
+                        SettlementApplicationService.UploaderType.RECEIVER,
+                        "receiver-device",
+                        "idempotency-receiver-evidence-block",
+                        java.util.List.of(submission),
+                        "BLE_OFFLINE_SYNC"
+                ))
+        );
+
+        assertTrue(exception.getMessage().contains("receiverEvidenceBlock signature invalid"));
+        verify(batchRepository, never()).save(anyString(), anyString(), any(), any(), anyInt(), anyString());
+    }
+
+    @Test
+    void submitBatchRejectsReceiverOnlyEvidenceBeforeCreatingProof() {
+        long now = System.currentTimeMillis();
+        SettlementApplicationService.ProofSubmission submission = new SettlementApplicationService.ProofSubmission(
+                "voucher-receiver-only",
+                "collateral-receiver-only",
+                "sender-device",
+                "receiver-device",
+                1,
+                1,
+                8L,
+                "nonce-receiver-only",
+                "hash-receiver-only",
+                "GENESIS",
+                "signature-receiver-only",
+                new BigDecimal("4.20000000"),
+                now,
+                now + 60_000,
+                "{}",
+                java.util.Map.ofEntries(
+                        java.util.Map.entry("requestId", "req-receiver-only"),
+                        java.util.Map.entry("receiverLocalBlock", true),
+                        java.util.Map.entry("receiverLocalBlockVoucherId", "voucher-receiver-only"),
+                        java.util.Map.entry("receiverLocalBlockAmount", "4.20000000"),
+                        java.util.Map.entry("receiverLocalBlockSenderDeviceId", "sender-device"),
+                        java.util.Map.entry("receiverLocalBlockReceiverDeviceId", "receiver-device"),
+                        java.util.Map.entry("receiverLocalBlockCounter", 8L),
+                        java.util.Map.entry("receiverLocalBlockPrevHash", "GENESIS"),
+                        java.util.Map.entry("receiverLocalBlockNewHash", "hash-receiver-only"),
+                        java.util.Map.entry("receiverLocalBlockNonce", "nonce-receiver-only"),
+                        java.util.Map.entry("receiverLocalBlockSignature", "signature-receiver-only"),
+                        java.util.Map.entry("receiverSettlementMode", "MANUAL"),
+                        java.util.Map.entry("receiverSettlementAutoEnabled", false)
+                )
+        );
+        when(proofRepository.findByVoucherId("voucher-receiver-only")).thenReturn(Optional.empty());
+
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> service.submitBatch(new SettlementApplicationService.SubmitSettlementBatchCommand(
+                        SettlementApplicationService.UploaderType.RECEIVER,
+                        "receiver-device",
+                        "idempotency-receiver-only",
+                        java.util.List.of(submission),
+                        "BLE_OFFLINE_SYNC"
+                ))
+        );
+
+        assertTrue(exception.getMessage().contains("receiver settlement requires existing sender proof"));
+        verify(batchRepository, never()).save(
+                anyString(),
+                anyString(),
+                any(SettlementBatchStatus.class),
+                any(),
+                anyInt(),
+                anyString()
+        );
+        verify(proofRepository, never()).save(
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyInt(),
+                anyInt(),
+                anyLong(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString(),
+                any(),
+                anyLong(),
+                anyLong(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString()
+        );
+    }
+
+    @Test
+    void senderLocalBlockWaitsForReceiverEvidenceBeforeFinalCollateralSettlement() {
+        SettlementRequest request = new SettlementRequest(
+                "settlement-sender-wait",
+                "batch-sender-wait",
+                "collateral-sender-wait",
+                "proof-sender-wait",
+                SettlementStatus.VALIDATING,
+                null,
+                false,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        SettlementRequest pending = new SettlementRequest(
+                "settlement-sender-wait",
+                "batch-sender-wait",
+                "collateral-sender-wait",
+                "proof-sender-wait",
+                SettlementStatus.PENDING,
+                null,
+                false,
+                "{\"reasonCode\":\"RECEIVER_EVIDENCE_REQUIRED\"}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        CollateralLock collateral = new CollateralLock(
+                "collateral-sender-wait",
+                77L,
+                "sender-device",
+                "USDT",
+                new BigDecimal("150"),
+                new BigDecimal("100"),
+                "GENESIS",
+                1,
+                CollateralStatus.LOCKED,
+                "lock-sender-wait",
+                OffsetDateTime.now().plusDays(1),
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        long now = System.currentTimeMillis();
+        OfflinePaymentProof proof = new OfflinePaymentProof(
+                "proof-sender-wait",
+                "batch-sender-wait",
+                "voucher-sender-wait",
+                "collateral-sender-wait",
+                "sender-device",
+                "receiver-device",
+                1,
+                1,
+                10L,
+                "nonce-sender-wait",
+                "hash-sender-wait",
+                "GENESIS",
+                "signature-sender-wait",
+                new BigDecimal("6.00000000"),
+                now,
+                now + 60_000,
+                "{}",
+                "SENDER",
+                "{\"requestId\":\"req-sender-wait\",\"senderLocalBlock\":true,\"senderLocalBlockVoucherId\":\"voucher-sender-wait\",\"senderLocalBlockAmount\":\"6.00000000\",\"senderLocalBlockSenderDeviceId\":\"sender-device\",\"senderLocalBlockReceiverDeviceId\":\"receiver-device\",\"senderLocalBlockCounter\":10,\"senderLocalBlockPrevHash\":\"GENESIS\",\"senderLocalBlockNewHash\":\"hash-sender-wait\",\"senderLocalBlockNonce\":\"nonce-sender-wait\",\"senderLocalBlockSignature\":\"signature-sender-wait\"}",
+                OffsetDateTime.now()
+        );
+        when(settlementRepository.findById("settlement-sender-wait"))
+                .thenReturn(Optional.of(request))
+                .thenReturn(Optional.of(pending));
+        when(proofRepository.findById("proof-sender-wait")).thenReturn(Optional.of(proof));
+        when(collateralRepository.findById("collateral-sender-wait")).thenReturn(Optional.of(collateral));
+
+        SettlementRequest result = service.finalizeSettlement("settlement-sender-wait");
+
+        assertEquals(SettlementStatus.PENDING, result.status());
+        verify(settlementRepository).update(
+                eq("settlement-sender-wait"),
+                eq(SettlementStatus.PENDING),
+                isNull(),
+                eq(false),
+                argThat(payload -> payload.contains("RECEIVER_EVIDENCE_REQUIRED"))
+        );
+        verify(offlineSagaService).markProcessing(
+                eq(OfflineSagaType.SETTLEMENT),
+                eq("settlement-sender-wait"),
+                eq("AWAITING_RECEIVER_EVIDENCE"),
+                any()
+        );
+        verify(proofRepository, never()).updateLifecycle(
+                anyString(),
+                any(OfflineProofStatus.class),
+                any(),
+                anyBoolean(),
+                anyBoolean(),
+                anyBoolean()
+        );
+        verify(collateralRepository, never()).deductLockedAndRemainingAmount(anyString(), any());
+        verify(eventBus, never()).publishExternalSyncRequested(
+                eq("LEDGER_SYNC_REQUESTED"),
                 anyString(),
                 anyString(),
                 anyString(),
@@ -2795,5 +3447,15 @@ class SettlementApplicationServiceTest {
                 eq("DUPLICATE_NONCE"),
                 anyString()
         );
+    }
+
+    private String sha256Hex(String value) throws Exception {
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        byte[] bytes = digest.digest(value.getBytes(StandardCharsets.UTF_8));
+        StringBuilder builder = new StringBuilder(bytes.length * 2);
+        for (byte current : bytes) {
+            builder.append(String.format("%02x", current));
+        }
+        return builder.toString();
     }
 }

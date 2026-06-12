@@ -65,6 +65,44 @@ class DeviceSignatureVerificationServiceTest {
     }
 
     @Test
+    void verifiesGenericCanonicalPayloadSignatureWhenPublicKeyMatches() throws Exception {
+        KeyPairGenerator generator = KeyPairGenerator.getInstance("EC");
+        generator.initialize(256);
+        KeyPair keyPair = generator.generateKeyPair();
+        String canonicalPayload = "{\"direction\":\"RECEIVE\",\"voucherId\":\"voucher-1\"}";
+
+        Signature signer = Signature.getInstance("SHA256withECDSA");
+        signer.initSign(keyPair.getPrivate());
+        signer.update(canonicalPayload.getBytes(StandardCharsets.UTF_8));
+        String signature = Base64.getEncoder().encodeToString(signer.sign());
+
+        Device device = device(Base64.getEncoder().encodeToString(keyPair.getPublic().getEncoded()));
+
+        DeviceSignatureVerificationService.VerificationResult result = service.verifyPayload(
+                device,
+                canonicalPayload,
+                signature
+        );
+
+        assertTrue(result.verified());
+        assertFalse(result.unsupported());
+    }
+
+    @Test
+    void rejectsGenericCanonicalPayloadWebFallbackSignature() {
+        Device device = device("public-key");
+
+        DeviceSignatureVerificationService.VerificationResult result = service.verifyPayload(
+                device,
+                "{\"direction\":\"RECEIVE\"}",
+                "local_block_sig_abc"
+        );
+
+        assertFalse(result.verified());
+        assertTrue(result.unsupported());
+    }
+
+    @Test
     void verifiesSignatureUsingBindingContextFromSpendingProofPayload() throws Exception {
         KeyPairGenerator generator = KeyPairGenerator.getInstance("EC");
         generator.initialize(256);

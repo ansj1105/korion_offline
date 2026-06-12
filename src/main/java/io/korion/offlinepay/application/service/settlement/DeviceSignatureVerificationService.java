@@ -49,6 +49,38 @@ public class DeviceSignatureVerificationService {
         }
     }
 
+    public VerificationResult verifyPayload(Device device, String payload, String signature) {
+        if (signature == null || signature.isBlank()) {
+            return VerificationResult.invalidResult("missing signature");
+        }
+        if (signature.startsWith("local_sig_") || signature.startsWith("local_block_sig_")) {
+            return VerificationResult.unsupportedResult("web fallback signature");
+        }
+        if (payload == null || payload.isBlank()) {
+            return VerificationResult.invalidResult("missing signing payload");
+        }
+        if (device.publicKey() == null || device.publicKey().isBlank()) {
+            return VerificationResult.unsupportedResult("device public key missing");
+        }
+
+        try {
+            PublicKey publicKey = parseEcPublicKey(device.publicKey());
+            Signature verifier = Signature.getInstance("SHA256withECDSA");
+            verifier.initVerify(publicKey);
+            verifier.update(payload.getBytes(StandardCharsets.UTF_8));
+            boolean verified = verifier.verify(Base64.getDecoder().decode(normalizeBase64(signature)));
+            return verified
+                    ? VerificationResult.verifiedResult()
+                    : VerificationResult.invalidResult(
+                            "signature mismatch; signingPayloadHash=" + signingPayloadHashForVerification(payload)
+                    );
+        } catch (IllegalArgumentException exception) {
+            return VerificationResult.invalidResult("invalid signature encoding");
+        } catch (Exception exception) {
+            return VerificationResult.unsupportedResult(exception.getMessage());
+        }
+    }
+
     private PublicKey parseEcPublicKey(String encodedPublicKey) throws Exception {
         byte[] bytes = Base64.getDecoder().decode(normalizeBase64(stripPem(encodedPublicKey)));
         X509EncodedKeySpec keySpec = new X509EncodedKeySpec(bytes);
