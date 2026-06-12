@@ -31,11 +31,12 @@ public class DirectLocalEvidenceReconciliationWorker {
         try {
             SettlementApplicationService.DirectLocalEvidenceReconcileResult result =
                     settlementApplicationService.reconcileDirectLocalEvidence(properties.worker().localEvidenceReconciliationLimit());
-            if (result.candidates() > 0 || result.created() > 0 || result.skipped() > 0) {
+            if (result.candidates() > 0 || result.created() > 0 || result.reused() > 0 || result.skipped() > 0) {
                 log.info(
-                        "Direct local evidence reconciled: candidates={}, created={}, finalized={}, rejected={}, skipped={}, batchIds={}, settlementIds={}",
+                        "Direct local evidence reconciled: candidates={}, created={}, reused={}, finalized={}, rejected={}, skipped={}, batchIds={}, settlementIds={}",
                         result.candidates(),
                         result.created(),
+                        result.reused(),
                         result.finalized(),
                         result.rejected(),
                         result.skipped(),

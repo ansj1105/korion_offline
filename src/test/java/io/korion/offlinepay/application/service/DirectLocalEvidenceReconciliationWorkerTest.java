@@ -20,7 +20,7 @@ class DirectLocalEvidenceReconciliationWorkerTest {
                 properties(true, 7)
         );
         when(settlementApplicationService.reconcileDirectLocalEvidence(7))
-                .thenReturn(new SettlementApplicationService.DirectLocalEvidenceReconcileResult(1, 1, 1, 0, 0, List.of("batch-1"), List.of("settlement-1")));
+                .thenReturn(new SettlementApplicationService.DirectLocalEvidenceReconcileResult(1, 1, 0, 1, 0, 0, List.of("batch-1"), List.of("settlement-1")));
 
         worker.poll();
 

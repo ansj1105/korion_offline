@@ -1284,7 +1284,7 @@ components:
 
     DirectLocalEvidenceReconcileResult:
       type: object
-      required: [candidates, created, skipped, batchIds]
+      required: [candidates, created, reused, finalized, rejected, skipped, batchIds, settlementIds]
       properties:
         candidates:
           type: integer
@@ -1292,14 +1292,28 @@ components:
         created:
           type: integer
           description: proof/settlement carrier 생성이 접수된 후보 수.
+        reused:
+          type: integer
+          description: 기존 `/api/settlements` carrier 또는 레이스로 먼저 생성된 proof/settlement를 재사용한 후보 수. 이 경우 direct evidence worker는 중복 proof를 만들지 않는다.
+        finalized:
+          type: integer
+          description: direct evidence pair 또는 재사용 carrier 처리 결과 최종 SETTLED까지 진행된 settlement 수.
+        rejected:
+          type: integer
+          description: direct evidence pair 또는 재사용 carrier 처리 결과 서버 검증에서 REJECTED/EXPIRED/CONFLICT로 닫힌 settlement 수.
         skipped:
           type: integer
-          description: sender evidence에 proof 생성 필수 필드가 없어 carrier 생성에서 제외된 후보 수.
+          description: sender evidence에 proof 생성 필수 필드가 없거나 기존 proof에 settlement request가 없어 carrier 생성/재사용에서 제외된 후보 수.
         batchIds:
           type: array
           items:
             type: string
-          description: 생성 또는 재사용된 settlement batch id 목록.
+          description: direct evidence worker가 새로 생성한 settlement batch id 목록. 기존 carrier 재사용은 중복 batch를 만들지 않으므로 이 목록에 추가되지 않는다.
+        settlementIds:
+          type: array
+          items:
+            type: string
+          description: direct evidence worker가 생성 또는 재사용 후 처리한 settlement request id 목록.
 
     LocalEvidenceStatusResponse:
       type: object

@@ -243,12 +243,8 @@ public class SettlementApplicationService {
                 continue;
             }
             stored++;
-            if ("RECEIVE".equals(direction)) {
-                if (processMatchingSenderSettlement(evidence.voucherId().trim())) {
-                    matched++;
-                } else {
-                    awaitingCarrier++;
-                }
+            if (processMatchingSenderSettlement(evidence.voucherId().trim())) {
+                matched++;
             } else {
                 awaitingCarrier++;
             }
@@ -261,6 +257,7 @@ public class SettlementApplicationService {
         List<OfflinePayLocalEvidence> candidates =
                 localEvidenceRepository.findVerifiedSenderEvidenceWithMatchingReceiverEvidence(Math.max(1, limit));
         int created = 0;
+        int reused = 0;
         int finalized = 0;
         int rejected = 0;
         int skipped = 0;
@@ -270,6 +267,26 @@ public class SettlementApplicationService {
             Optional<ProofSubmission> proofSubmission = toDirectEvidenceProofSubmission(evidence);
             if (proofSubmission.isEmpty()) {
                 skipped++;
+                continue;
+            }
+            Optional<OfflinePaymentProof> existingProof = proofRepository.findByVoucherId(evidence.voucherId());
+            if (existingProof.isPresent()) {
+                Optional<SettlementRequest> request = settlementRepository.findLatestByProofId(existingProof.get().id());
+                if (request.isEmpty()) {
+                    skipped++;
+                    continue;
+                }
+                localEvidenceRepository.markMatchingEvidence(existingProof.get());
+                SettlementEvaluation evaluation = processSettlementRequest(request.get(), true);
+                settlementIds.add(request.get().id());
+                reused++;
+                if (evaluation.status() == SettlementStatus.SETTLED) {
+                    finalized++;
+                } else if (evaluation.status() == SettlementStatus.REJECTED
+                        || evaluation.status() == SettlementStatus.EXPIRED
+                        || evaluation.status() == SettlementStatus.CONFLICT) {
+                    rejected++;
+                }
                 continue;
             }
             String idempotencyKey = "direct-local-evidence:" + evidence.voucherId();
@@ -303,7 +320,7 @@ public class SettlementApplicationService {
                 rejected++;
             }
         }
-        return new DirectLocalEvidenceReconcileResult(candidates.size(), created, finalized, rejected, skipped, batchIds, settlementIds);
+        return new DirectLocalEvidenceReconcileResult(candidates.size(), created, reused, finalized, rejected, skipped, batchIds, settlementIds);
     }
 
     @Transactional(readOnly = true)
@@ -2401,6 +2418,7 @@ public class SettlementApplicationService {
     public record DirectLocalEvidenceReconcileResult(
             int candidates,
             int created,
+            int reused,
             int finalized,
             int rejected,
             int skipped,
