@@ -54,6 +54,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.Set;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -62,6 +63,12 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class SettlementApplicationService {
+    private static final Set<String> ALLOWED_TRANSPORT_TRANSCRIPT_SOURCES = Set.of(
+            "NATIVE_BLE_SEND_TRANSCRIPT_V1",
+            "NATIVE_BLE_RECEIVE_TRANSCRIPT_V1",
+            "NATIVE_NFC_BRIDGE_TRANSCRIPT_V1",
+            "NATIVE_QR_SCAN_TRANSCRIPT_V1"
+    );
 
     private final CollateralRepository collateralRepository;
     private final CollateralOperationRepository collateralOperationRepository;
@@ -272,6 +279,9 @@ public class SettlementApplicationService {
         if (!equalsText(evidence.transportSessionHash(), canonical.path("transportSessionHash").asText(""))) {
             return new LocalEvidenceVerification("FAILED", "local evidence transport session hash mismatch");
         }
+        if (!equalsText(evidence.transportTranscriptSource(), canonical.path("transportTranscriptSource").asText(""))) {
+            return new LocalEvidenceVerification("FAILED", "local evidence transport transcript source mismatch");
+        }
         if (!equalsText(evidence.deviceAttestationId(), canonical.path("deviceAttestationId").asText(""))) {
             return new LocalEvidenceVerification("FAILED", "local evidence device attestation id mismatch");
         }
@@ -328,6 +338,12 @@ public class SettlementApplicationService {
         }
         if (!evidence.transportSessionHash().matches("(?i)^[0-9a-f]{64}$")) {
             return "local evidence transport session hash invalid";
+        }
+        if (evidence.transportTranscriptSource() == null || evidence.transportTranscriptSource().isBlank()) {
+            return "local evidence transport transcript source missing";
+        }
+        if (!ALLOWED_TRANSPORT_TRANSCRIPT_SOURCES.contains(evidence.transportTranscriptSource().trim().toUpperCase())) {
+            return "local evidence transport transcript source invalid";
         }
         if (evidence.deviceAttestationId() == null || evidence.deviceAttestationId().isBlank()) {
             return "local evidence device attestation id missing";
@@ -401,7 +417,8 @@ public class SettlementApplicationService {
                 && evidence.deviceAttestationId() != null && !evidence.deviceAttestationId().isBlank()
                 && evidence.deviceAttestationVerdict() != null && !evidence.deviceAttestationVerdict().isBlank()
                 && evidence.serverVerifiedTrustLevel() != null && !evidence.serverVerifiedTrustLevel().isBlank()
-                && evidence.serverAttestationVerifiedAt() != null && !evidence.serverAttestationVerifiedAt().isBlank();
+                && evidence.serverAttestationVerifiedAt() != null && !evidence.serverAttestationVerifiedAt().isBlank()
+                && evidence.transportTranscriptSource() != null && !evidence.transportTranscriptSource().isBlank();
     }
 
     private Map<String, Object> buildLocalEvidencePayload(LocalEvidenceSubmission evidence, String direction) {
@@ -446,6 +463,7 @@ public class SettlementApplicationService {
         putIfPresent(rawPayload, "serverVerifiedTrustLevel", evidence.serverVerifiedTrustLevel());
         putIfPresent(rawPayload, "serverAttestationVerifiedAt", evidence.serverAttestationVerifiedAt());
         putIfPresent(rawPayload, "transportSessionHash", evidence.transportSessionHash());
+        putIfPresent(rawPayload, "transportTranscriptSource", evidence.transportTranscriptSource());
         return rawPayload;
     }
 
@@ -2050,6 +2068,7 @@ public class SettlementApplicationService {
             String serverVerifiedTrustLevel,
             String serverAttestationVerifiedAt,
             String transportSessionHash,
+            String transportTranscriptSource,
             Map<String, Object> payload
     ) {
         public LocalEvidenceSubmission(
@@ -2080,6 +2099,7 @@ public class SettlementApplicationService {
                     nonce,
                     signature,
                     canonicalPayload,
+                    null,
                     null,
                     null,
                     null,

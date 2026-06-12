@@ -85,6 +85,7 @@ class SettlementApplicationServiceTest {
     private static final String DEVICE_ATTESTATION_VERDICT = "HARDWARE_BACKED_VERIFIED";
     private static final String SERVER_VERIFIED_TRUST_LEVEL = "SERVER_VERIFIED";
     private static final String SERVER_ATTESTATION_VERIFIED_AT = "2026-06-11T23:58:00.000Z";
+    private static final String TRANSPORT_TRANSCRIPT_SOURCE = "NATIVE_BLE_SEND_TRANSCRIPT_V1";
     private static final String VERIFIED_DEVICE_METADATA = """
             {"deviceAttestationId":"attestation-001","attestationVerdict":"HARDWARE_BACKED_VERIFIED","serverVerifiedTrustLevel":"SERVER_VERIFIED","serverAttestationVerifiedAt":"2026-06-11T23:58:00.000Z"}
             """;
@@ -1061,6 +1062,7 @@ class SettlementApplicationServiceTest {
                                 SERVER_VERIFIED_TRUST_LEVEL,
                                 SERVER_ATTESTATION_VERIFIED_AT,
                                 transportSessionHash,
+                                TRANSPORT_TRANSCRIPT_SOURCE,
                                 java.util.Map.of("receiverEvidenceBlock", true)
                         ))
                 )
@@ -1110,8 +1112,8 @@ class SettlementApplicationServiceTest {
         KeyPair receiverKeyPair = generator.generateKeyPair();
         String transportSessionHash = "b".repeat(64);
         String canonicalPayload = """
-                {"voucherId":"voucher-local-evidence-verified","direction":"RECEIVE","deviceId":"receiver-device","senderDeviceId":"sender-device","receiverDeviceId":"receiver-device","prevHash":"prev-local-evidence-verified","nonce":"nonce-local-evidence-verified","deviceAttestationId":"%s","deviceAttestationVerdict":"%s","serverVerifiedTrustLevel":"%s","serverAttestationVerifiedAt":"%s","transportSessionHash":"%s","counter":13,"amount":"2.10000000"}
-                """.formatted(DEVICE_ATTESTATION_ID, DEVICE_ATTESTATION_VERDICT, SERVER_VERIFIED_TRUST_LEVEL, SERVER_ATTESTATION_VERIFIED_AT, transportSessionHash).trim();
+                {"voucherId":"voucher-local-evidence-verified","direction":"RECEIVE","deviceId":"receiver-device","senderDeviceId":"sender-device","receiverDeviceId":"receiver-device","prevHash":"prev-local-evidence-verified","nonce":"nonce-local-evidence-verified","deviceAttestationId":"%s","deviceAttestationVerdict":"%s","serverVerifiedTrustLevel":"%s","serverAttestationVerifiedAt":"%s","transportSessionHash":"%s","transportTranscriptSource":"%s","counter":13,"amount":"2.10000000"}
+                """.formatted(DEVICE_ATTESTATION_ID, DEVICE_ATTESTATION_VERDICT, SERVER_VERIFIED_TRUST_LEVEL, SERVER_ATTESTATION_VERIFIED_AT, transportSessionHash, TRANSPORT_TRANSCRIPT_SOURCE).trim();
         Signature signer = Signature.getInstance("SHA256withECDSA");
         signer.initSign(receiverKeyPair.getPrivate());
         signer.update(canonicalPayload.getBytes(StandardCharsets.UTF_8));
@@ -1172,6 +1174,7 @@ class SettlementApplicationServiceTest {
                                 SERVER_VERIFIED_TRUST_LEVEL,
                                 SERVER_ATTESTATION_VERIFIED_AT,
                                 transportSessionHash,
+                                TRANSPORT_TRANSCRIPT_SOURCE,
                                 java.util.Map.of("receiverEvidenceBlock", true)
                         ))
                 )
@@ -1192,14 +1195,100 @@ class SettlementApplicationServiceTest {
     }
 
     @Test
+    void ingestLocalEvidenceRejectsAppGeneratedTransportCorrelationHash() throws Exception {
+        KeyPairGenerator generator = KeyPairGenerator.getInstance("EC");
+        generator.initialize(256);
+        KeyPair receiverKeyPair = generator.generateKeyPair();
+        String transportSessionHash = "e".repeat(64);
+        String invalidSource = "APP_CORRELATION_HASH_V1";
+        String canonicalPayload = """
+                {"voucherId":"voucher-local-evidence-app-correlation","direction":"RECEIVE","deviceId":"receiver-device","senderDeviceId":"sender-device","receiverDeviceId":"receiver-device","prevHash":"prev-local-evidence-app-correlation","nonce":"nonce-local-evidence-app-correlation","deviceAttestationId":"%s","deviceAttestationVerdict":"%s","serverVerifiedTrustLevel":"%s","serverAttestationVerifiedAt":"%s","transportSessionHash":"%s","transportTranscriptSource":"%s","counter":16,"amount":"2.10000000"}
+                """.formatted(DEVICE_ATTESTATION_ID, DEVICE_ATTESTATION_VERDICT, SERVER_VERIFIED_TRUST_LEVEL, SERVER_ATTESTATION_VERIFIED_AT, transportSessionHash, invalidSource).trim();
+        Signature signer = Signature.getInstance("SHA256withECDSA");
+        signer.initSign(receiverKeyPair.getPrivate());
+        signer.update(canonicalPayload.getBytes(StandardCharsets.UTF_8));
+        String signature = Base64.getEncoder().encodeToString(signer.sign());
+        String receiverPublicKey = Base64.getEncoder().encodeToString(receiverKeyPair.getPublic().getEncoded());
+        Device receiverDevice = new Device(
+                "receiver-row-app-correlation",
+                "receiver-device",
+                1L,
+                receiverPublicKey,
+                1,
+                DeviceStatus.ACTIVE,
+                VERIFIED_DEVICE_METADATA,
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        when(deviceRepository.findByDeviceId("receiver-device")).thenReturn(Optional.of(receiverDevice));
+
+        SettlementApplicationService.LocalEvidenceIngestResult result = service.ingestLocalEvidence(
+                new SettlementApplicationService.LocalEvidenceIngestCommand(
+                        SettlementApplicationService.UploaderType.RECEIVER,
+                        "receiver-device",
+                        "idempotency-local-evidence-app-correlation",
+                        java.util.List.of(new SettlementApplicationService.LocalEvidenceSubmission(
+                                "voucher-local-evidence-app-correlation",
+                                "req-local-evidence-app-correlation",
+                                "RECEIVE",
+                                "sender-device",
+                                "receiver-device",
+                                new BigDecimal("2.10000000"),
+                                16L,
+                                "prev-local-evidence-app-correlation",
+                                sha256Hex(canonicalPayload),
+                                "nonce-local-evidence-app-correlation",
+                                signature,
+                                canonicalPayload,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                "1",
+                                "1",
+                                "SHA-256",
+                                "SHA256withECDSA",
+                                "device:receiver-device:v1",
+                                sha256Hex(receiverPublicKey),
+                                null,
+                                DEVICE_ATTESTATION_ID,
+                                DEVICE_ATTESTATION_VERDICT,
+                                SERVER_VERIFIED_TRUST_LEVEL,
+                                SERVER_ATTESTATION_VERIFIED_AT,
+                                transportSessionHash,
+                                invalidSource,
+                                java.util.Map.of("receiverEvidenceBlock", true)
+                        ))
+                )
+        );
+
+        assertEquals(1, result.requested());
+        assertEquals(0, result.stored());
+        assertEquals(1, result.skipped());
+        verify(localEvidenceRepository).save(argThat(evidence ->
+                "FAILED".equals(evidence.verificationStatus())
+                        && evidence.verificationDetail().contains("transport transcript source invalid")
+        ));
+        verifyNoInteractions(batchRepository, settlementRepository);
+    }
+
+    @Test
     void ingestLocalEvidenceRejectsMismatchedRegisteredPublicKeyFingerprint() throws Exception {
         KeyPairGenerator generator = KeyPairGenerator.getInstance("EC");
         generator.initialize(256);
         KeyPair receiverKeyPair = generator.generateKeyPair();
         String transportSessionHash = "c".repeat(64);
         String canonicalPayload = """
-                {"voucherId":"voucher-local-evidence-fingerprint","direction":"RECEIVE","deviceId":"receiver-device","senderDeviceId":"sender-device","receiverDeviceId":"receiver-device","prevHash":"prev-local-evidence-fingerprint","nonce":"nonce-local-evidence-fingerprint","deviceAttestationId":"%s","deviceAttestationVerdict":"%s","serverVerifiedTrustLevel":"%s","serverAttestationVerifiedAt":"%s","transportSessionHash":"%s","counter":15,"amount":"2.10000000"}
-                """.formatted(DEVICE_ATTESTATION_ID, DEVICE_ATTESTATION_VERDICT, SERVER_VERIFIED_TRUST_LEVEL, SERVER_ATTESTATION_VERIFIED_AT, transportSessionHash).trim();
+                {"voucherId":"voucher-local-evidence-fingerprint","direction":"RECEIVE","deviceId":"receiver-device","senderDeviceId":"sender-device","receiverDeviceId":"receiver-device","prevHash":"prev-local-evidence-fingerprint","nonce":"nonce-local-evidence-fingerprint","deviceAttestationId":"%s","deviceAttestationVerdict":"%s","serverVerifiedTrustLevel":"%s","serverAttestationVerifiedAt":"%s","transportSessionHash":"%s","transportTranscriptSource":"%s","counter":15,"amount":"2.10000000"}
+                """.formatted(DEVICE_ATTESTATION_ID, DEVICE_ATTESTATION_VERDICT, SERVER_VERIFIED_TRUST_LEVEL, SERVER_ATTESTATION_VERIFIED_AT, transportSessionHash, TRANSPORT_TRANSCRIPT_SOURCE).trim();
         Signature signer = Signature.getInstance("SHA256withECDSA");
         signer.initSign(receiverKeyPair.getPrivate());
         signer.update(canonicalPayload.getBytes(StandardCharsets.UTF_8));
@@ -1259,6 +1348,7 @@ class SettlementApplicationServiceTest {
                                 SERVER_VERIFIED_TRUST_LEVEL,
                                 SERVER_ATTESTATION_VERIFIED_AT,
                                 transportSessionHash,
+                                TRANSPORT_TRANSCRIPT_SOURCE,
                                 java.util.Map.of("receiverEvidenceBlock", true)
                         ))
                 )
@@ -1280,8 +1370,8 @@ class SettlementApplicationServiceTest {
         KeyPair receiverKeyPair = generator.generateKeyPair();
         String transportSessionHash = "d".repeat(64);
         String canonicalPayload = """
-                {"voucherId":"voucher-local-evidence-wake","direction":"RECEIVE","deviceId":"receiver-device","senderDeviceId":"sender-device","receiverDeviceId":"receiver-device","prevHash":"prev-local-evidence-wake","nonce":"nonce-local-evidence-wake","deviceAttestationId":"%s","deviceAttestationVerdict":"%s","serverVerifiedTrustLevel":"%s","serverAttestationVerifiedAt":"%s","transportSessionHash":"%s","counter":14,"amount":"2.10000000"}
-                """.formatted(DEVICE_ATTESTATION_ID, DEVICE_ATTESTATION_VERDICT, SERVER_VERIFIED_TRUST_LEVEL, SERVER_ATTESTATION_VERIFIED_AT, transportSessionHash).trim();
+                {"voucherId":"voucher-local-evidence-wake","direction":"RECEIVE","deviceId":"receiver-device","senderDeviceId":"sender-device","receiverDeviceId":"receiver-device","prevHash":"prev-local-evidence-wake","nonce":"nonce-local-evidence-wake","deviceAttestationId":"%s","deviceAttestationVerdict":"%s","serverVerifiedTrustLevel":"%s","serverAttestationVerifiedAt":"%s","transportSessionHash":"%s","transportTranscriptSource":"%s","counter":14,"amount":"2.10000000"}
+                """.formatted(DEVICE_ATTESTATION_ID, DEVICE_ATTESTATION_VERDICT, SERVER_VERIFIED_TRUST_LEVEL, SERVER_ATTESTATION_VERIFIED_AT, transportSessionHash, TRANSPORT_TRANSCRIPT_SOURCE).trim();
         Signature signer = Signature.getInstance("SHA256withECDSA");
         signer.initSign(receiverKeyPair.getPrivate());
         signer.update(canonicalPayload.getBytes(StandardCharsets.UTF_8));
@@ -1397,6 +1487,7 @@ class SettlementApplicationServiceTest {
                                 SERVER_VERIFIED_TRUST_LEVEL,
                                 SERVER_ATTESTATION_VERIFIED_AT,
                                 transportSessionHash,
+                                TRANSPORT_TRANSCRIPT_SOURCE,
                                 java.util.Map.of("receiverEvidenceBlock", true)
                         ))
                 )

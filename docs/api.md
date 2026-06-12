@@ -989,6 +989,7 @@ components:
         - keyId
         - publicKeyFingerprint
         - transportSessionHash
+        - transportTranscriptSource
         - payload
       properties:
         voucherId:
@@ -1122,7 +1123,15 @@ components:
         transportSessionHash:
           type: string
           pattern: '^[0-9a-fA-F]{64}$'
-          description: Required SHA-256 hash of the BLE/NFC/QR transport transcript. This must also be included in the signed canonicalPayload and is not the settlement clock.
+          description: Required SHA-256 hash produced by the native BLE/NFC/QR transport transcript producer. This must also be included in the signed canonicalPayload and is not the settlement clock. App-level correlation hashes are not accepted as local evidence.
+        transportTranscriptSource:
+          type: string
+          enum:
+            - NATIVE_BLE_SEND_TRANSCRIPT_V1
+            - NATIVE_BLE_RECEIVE_TRANSCRIPT_V1
+            - NATIVE_NFC_BRIDGE_TRANSCRIPT_V1
+            - NATIVE_QR_SCAN_TRANSCRIPT_V1
+          description: Required native transport transcript producer id. Must match the signed canonicalPayload and one of the server-approved native transcript sources.
         payload:
           type: object
           additionalProperties: true

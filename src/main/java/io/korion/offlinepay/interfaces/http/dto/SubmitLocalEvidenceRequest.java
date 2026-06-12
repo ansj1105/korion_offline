@@ -59,6 +59,7 @@ public record SubmitLocalEvidenceRequest(
                                 evidence.serverVerifiedTrustLevel(),
                                 evidence.serverAttestationVerifiedAt(),
                                 evidence.transportSessionHash(),
+                                evidence.transportTranscriptSource(),
                                 evidence.payload()
                         ))
                         .toList()
@@ -102,6 +103,7 @@ public record SubmitLocalEvidenceRequest(
             @NotBlank String serverVerifiedTrustLevel,
             @NotBlank String serverAttestationVerifiedAt,
             @NotBlank String transportSessionHash,
+            @NotBlank String transportTranscriptSource,
             @NotNull Map<String, Object> payload
     ) {}
 }

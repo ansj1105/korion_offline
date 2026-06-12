@@ -58,6 +58,7 @@ class OfflineLedgerServiceTest {
         assertEquals(1, response.receivedItems().size());
         assertEquals("Offline Receive", response.receivedItems().get(0).transactionType());
         assertEquals("CONFIRMED", response.receivedItems().get(0).statusCode());
+        assertTrue(response.receivedItems().stream().noneMatch(item -> "COMPLETED".equals(item.statusCode())));
         assertEquals("47ba2d8b-5b95-4510-8b23-007957e4fe46", response.receivedItems().get(0).walletAddress());
         assertEquals("0.999000", response.receivedItems().get(0).unsettledAmount());
         assertEquals("0", response.receivedItems().get(0).settledAmount());
