@@ -213,34 +213,26 @@ public class JdbcOfflinePayLocalEvidenceRepository implements OfflinePayLocalEvi
     }
 
     @Override
-    public List<OfflinePayLocalEvidence> findVerifiedSenderEvidenceWithMatchingReceiverEvidence(int limit) {
+    public List<OfflinePayLocalEvidence> findVerifiedSenderEvidenceAwaitingCarrier(int limit) {
         String sql = """
                 SELECT s.*
                 FROM offline_pay_local_evidence s
-                WHERE s.direction = 'SEND'
-                  AND s.verification_status = 'VERIFIED'
+                WHERE s.verification_status = 'VERIFIED'
                   AND s.matched_proof_id IS NULL
                   AND NOT EXISTS (
                       SELECT 1
                       FROM offline_payment_proofs p
                       WHERE p.voucher_id = s.voucher_id
                   )
-                  AND EXISTS (
-                      SELECT 1
-                      FROM offline_pay_local_evidence r
-                      WHERE r.direction = 'RECEIVE'
-                        AND r.verification_status = 'VERIFIED'
-                        AND r.voucher_id = s.voucher_id
-                        AND r.sender_device_id = s.sender_device_id
-                        AND r.receiver_device_id = s.receiver_device_id
-                        AND r.amount = s.amount
-                        AND (
-                            r.raw_payload ->> 'receiverEvidenceBlockSenderProofNewHash' = s.hash_chain_head
-                            AND r.raw_payload ->> 'receiverEvidenceBlockSenderProofPrevHash' = s.previous_hash
-                            AND r.raw_payload ->> 'receiverEvidenceBlockSenderProofNonce' = s.nonce
-                            AND r.raw_payload ->> 'receiverEvidenceBlockSenderProofSignature' = s.signature
-                            AND r.raw_payload ->> 'receiverEvidenceBlockSenderProofCounter' = s.counter::text
-                        )
+                  AND (
+                      s.direction = 'SEND'
+                      OR (
+                          s.direction = 'RECEIVE'
+                          AND COALESCE(s.raw_payload ->> 'senderProofCanonicalPayload', s.raw_payload ->> 'receiverEvidenceBlockSenderProofCanonicalPayload', '') <> ''
+                          AND COALESCE(s.raw_payload ->> 'senderProofSignature', s.raw_payload ->> 'receiverEvidenceBlockSenderProofSignature', '') <> ''
+                          AND COALESCE(s.raw_payload ->> 'senderProofNewHash', s.raw_payload ->> 'receiverEvidenceBlockSenderProofNewHash', '') <> ''
+                          AND COALESCE(s.raw_payload ->> 'senderProofNonce', s.raw_payload ->> 'receiverEvidenceBlockSenderProofNonce', '') <> ''
+                      )
                   )
                 ORDER BY s.created_at ASC
                 LIMIT :limit

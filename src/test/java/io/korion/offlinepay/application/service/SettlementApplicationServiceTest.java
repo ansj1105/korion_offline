@@ -13,6 +13,7 @@ import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -1552,7 +1553,6 @@ class SettlementApplicationServiceTest {
         when(deviceRepository.findByDeviceId("receiver-device")).thenReturn(Optional.of(receiverDevice));
         when(proofRepository.findByVoucherId("voucher-local-evidence-wake")).thenReturn(Optional.of(proof));
         when(settlementRepository.findLatestByProofId("proof-local-evidence-wake")).thenReturn(Optional.of(request));
-        when(localEvidenceRepository.existsMatchingReceiverEvidence(proof)).thenReturn(true);
         when(proofRepository.findById("proof-local-evidence-wake")).thenReturn(Optional.of(proof));
         when(collateralRepository.findById("collateral-local-evidence-wake")).thenReturn(Optional.of(collateral));
 
@@ -1609,7 +1609,7 @@ class SettlementApplicationServiceTest {
         assertEquals(1, result.stored());
         assertEquals(1, result.matched());
         assertEquals(0, result.awaitingCarrier());
-        verify(localEvidenceRepository).existsMatchingReceiverEvidence(proof);
+        verify(localEvidenceRepository).markMatchingEvidence(proof);
         verify(localEvidenceRepository).markMatchingReceiverEvidence(proof);
         verify(proofRepository).updateLifecycle(
                 eq("proof-local-evidence-wake"),
@@ -1707,7 +1707,6 @@ class SettlementApplicationServiceTest {
         when(deviceRepository.findByDeviceId("sender-device")).thenReturn(Optional.of(senderDevice));
         when(proofRepository.findByVoucherId("voucher-local-evidence-sender-wake")).thenReturn(Optional.of(proof));
         when(settlementRepository.findLatestByProofId("proof-local-evidence-sender-wake")).thenReturn(Optional.of(request));
-        when(localEvidenceRepository.existsMatchingReceiverEvidence(proof)).thenReturn(true);
         when(proofRepository.findById("proof-local-evidence-sender-wake")).thenReturn(Optional.of(proof));
         when(collateralRepository.findById("collateral-local-evidence-sender-wake")).thenReturn(Optional.of(collateral));
 
@@ -1764,7 +1763,7 @@ class SettlementApplicationServiceTest {
         assertEquals(1, result.stored());
         assertEquals(1, result.matched());
         assertEquals(0, result.awaitingCarrier());
-        verify(localEvidenceRepository).existsMatchingReceiverEvidence(proof);
+        verify(localEvidenceRepository).markMatchingEvidence(proof);
         verify(localEvidenceRepository).markMatchingReceiverEvidence(proof);
         verify(proofRepository).updateLifecycle(
                 eq("proof-local-evidence-sender-wake"),
@@ -1810,7 +1809,7 @@ class SettlementApplicationServiceTest {
     }
 
     @Test
-    void senderLocalBlockWaitsForReceiverEvidenceBeforeFinalCollateralSettlement() {
+    void senderLocalBlockCanProceedWithoutReceiverEvidenceAfterSingleSideVerificationPolicy() {
         SettlementRequest request = new SettlementRequest(
                 "settlement-sender-wait",
                 "batch-sender-wait",
@@ -1883,20 +1882,20 @@ class SettlementApplicationServiceTest {
         SettlementRequest result = service.finalizeSettlement("settlement-sender-wait");
 
         assertEquals(SettlementStatus.PENDING, result.status());
-        verify(settlementRepository).update(
+        verify(settlementRepository, never()).update(
                 eq("settlement-sender-wait"),
                 eq(SettlementStatus.PENDING),
                 isNull(),
                 eq(false),
                 argThat(payload -> payload.contains("RECEIVER_EVIDENCE_REQUIRED"))
         );
-        verify(offlineSagaService).markProcessing(
+        verify(offlineSagaService, never()).markProcessing(
                 eq(OfflineSagaType.SETTLEMENT),
                 eq("settlement-sender-wait"),
                 eq("AWAITING_RECEIVER_EVIDENCE"),
                 any()
         );
-        verify(proofRepository, never()).updateLifecycle(
+        verify(proofRepository, atLeastOnce()).updateLifecycle(
                 anyString(),
                 any(OfflineProofStatus.class),
                 any(),
@@ -1916,7 +1915,7 @@ class SettlementApplicationServiceTest {
     }
 
     @Test
-    void reconcileDirectLocalEvidenceCreatesSettlementCarrierFromMatchedSenderAndReceiverEvidence() {
+    void reconcileDirectLocalEvidenceCreatesSettlementCarrierFromVerifiedSenderEvidence() {
         long now = System.currentTimeMillis();
         java.util.Map<String, Object> payload = new java.util.LinkedHashMap<>();
         payload.put("collateralId", "11111111-1111-1111-1111-111111111111");
@@ -2029,7 +2028,7 @@ class SettlementApplicationServiceTest {
                 OffsetDateTime.now()
         );
 
-        when(localEvidenceRepository.findVerifiedSenderEvidenceWithMatchingReceiverEvidence(25))
+        when(localEvidenceRepository.findVerifiedSenderEvidenceAwaitingCarrier(25))
                 .thenReturn(java.util.List.of(evidence));
         when(batchRepository.findByIdempotencyKey("direct-local-evidence:voucher-direct-reconcile"))
                 .thenReturn(Optional.empty());
@@ -2194,7 +2193,7 @@ class SettlementApplicationServiceTest {
                 OffsetDateTime.now()
         );
 
-        when(localEvidenceRepository.findVerifiedSenderEvidenceWithMatchingReceiverEvidence(25))
+        when(localEvidenceRepository.findVerifiedSenderEvidenceAwaitingCarrier(25))
                 .thenReturn(java.util.List.of(evidence));
         when(proofRepository.findByVoucherId("voucher-existing-carrier"))
                 .thenReturn(Optional.of(proof));

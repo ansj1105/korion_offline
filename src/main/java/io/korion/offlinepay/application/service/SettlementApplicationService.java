@@ -255,7 +255,7 @@ public class SettlementApplicationService {
     @Transactional
     public DirectLocalEvidenceReconcileResult reconcileDirectLocalEvidence(int limit) {
         List<OfflinePayLocalEvidence> candidates =
-                localEvidenceRepository.findVerifiedSenderEvidenceWithMatchingReceiverEvidence(Math.max(1, limit));
+                localEvidenceRepository.findVerifiedSenderEvidenceAwaitingCarrier(Math.max(1, limit));
         int created = 0;
         int reused = 0;
         int finalized = 0;
@@ -276,7 +276,6 @@ public class SettlementApplicationService {
                     skipped++;
                     continue;
                 }
-                localEvidenceRepository.markMatchingEvidence(existingProof.get());
                 SettlementEvaluation evaluation = processSettlementRequest(request.get(), true);
                 settlementIds.add(request.get().id());
                 reused++;
@@ -309,7 +308,6 @@ public class SettlementApplicationService {
                 skipped++;
                 continue;
             }
-            localEvidenceRepository.markMatchingEvidence(proof.get());
             SettlementEvaluation evaluation = processSettlementRequest(request.get(), true);
             settlementIds.add(request.get().id());
             if (evaluation.status() == SettlementStatus.SETTLED) {
@@ -381,26 +379,72 @@ public class SettlementApplicationService {
         if (evidence.rawPayload() != null) {
             payload.putAll(evidence.rawPayload());
         }
-        String collateralId = firstText(payload, "collateralId", "senderLocalBlockCollateralId", "localBlockCollateralId");
-        Integer keyVersion = firstPositiveInteger(payload, "keyVersion", "senderLocalBlockKeyVersion", "localBlockKeyVersion");
-        Integer policyVersion = firstPositiveInteger(payload, "policyVersion", "senderLocalBlockPolicyVersion", "localBlockPolicyVersion");
-        Long timestampMs = firstPositiveLong(payload, "timestampMs", "senderLocalBlockTimestampMs", "localBlockTimestampMs", "timestamp");
-        Long expiresAtMs = firstEpochLong(payload, "expiresAtMs", "senderLocalBlockExpiresAtMs", "localBlockExpiresAtMs", "expiresAt");
+        boolean receiverEvidence = "RECEIVE".equalsIgnoreCase(evidence.direction());
+        String collateralId = firstText(payload,
+                receiverEvidence ? "senderProofCollateralId" : "collateralId",
+                receiverEvidence ? "receiverEvidenceBlockSenderProofCollateralId" : "senderLocalBlockCollateralId",
+                "collateralId",
+                "senderLocalBlockCollateralId",
+                "localBlockCollateralId");
+        Integer keyVersion = firstPositiveInteger(payload,
+                receiverEvidence ? "senderProofKeyVersion" : "keyVersion",
+                receiverEvidence ? "receiverEvidenceBlockSenderProofKeyVersion" : "senderLocalBlockKeyVersion",
+                "keyVersion",
+                "senderLocalBlockKeyVersion",
+                "localBlockKeyVersion");
+        Integer policyVersion = firstPositiveInteger(payload,
+                receiverEvidence ? "senderProofPolicyVersion" : "policyVersion",
+                receiverEvidence ? "receiverEvidenceBlockSenderProofPolicyVersion" : "senderLocalBlockPolicyVersion",
+                "policyVersion",
+                "senderLocalBlockPolicyVersion",
+                "localBlockPolicyVersion");
+        Long timestampMs = firstPositiveLong(payload,
+                receiverEvidence ? "senderProofTimestampMs" : "timestampMs",
+                receiverEvidence ? "receiverEvidenceBlockSenderProofTimestampMs" : "senderLocalBlockTimestampMs",
+                "timestampMs",
+                "senderLocalBlockTimestampMs",
+                "localBlockTimestampMs",
+                "timestamp");
+        Long expiresAtMs = firstEpochLong(payload,
+                receiverEvidence ? "senderProofExpiresAtMs" : "expiresAtMs",
+                receiverEvidence ? "receiverEvidenceBlockSenderProofExpiresAtMs" : "senderLocalBlockExpiresAtMs",
+                "expiresAtMs",
+                "senderLocalBlockExpiresAtMs",
+                "localBlockExpiresAtMs",
+                "expiresAt");
+        Long counter = receiverEvidence
+                ? firstPositiveLong(payload, "senderProofCounter", "receiverEvidenceBlockSenderProofCounter")
+                : evidence.counter();
+        String previousHash = receiverEvidence
+                ? firstText(payload, "senderProofPrevHash", "receiverEvidenceBlockSenderProofPrevHash")
+                : evidence.previousHash();
+        String hashChainHead = receiverEvidence
+                ? firstText(payload, "senderProofNewHash", "receiverEvidenceBlockSenderProofNewHash")
+                : evidence.hashChainHead();
+        String nonce = receiverEvidence
+                ? firstText(payload, "senderProofNonce", "receiverEvidenceBlockSenderProofNonce")
+                : evidence.nonce();
+        String signature = receiverEvidence
+                ? firstText(payload, "senderProofSignature", "receiverEvidenceBlockSenderProofSignature")
+                : evidence.signature();
+        String canonicalPayload = receiverEvidence
+                ? firstText(payload, "senderProofCanonicalPayload", "receiverEvidenceBlockSenderProofCanonicalPayload")
+                : evidence.canonicalPayload();
         if (collateralId.isBlank()
                 || keyVersion == null
                 || policyVersion == null
                 || timestampMs == null
                 || expiresAtMs == null
-                || evidence.counter() == null
+                || counter == null
                 || evidence.amount() == null
-                || evidence.hashChainHead() == null
-                || evidence.hashChainHead().isBlank()
-                || evidence.signature() == null
-                || evidence.signature().isBlank()
-                || evidence.nonce() == null
-                || evidence.nonce().isBlank()
-                || evidence.canonicalPayload() == null
-                || evidence.canonicalPayload().isBlank()) {
+                || hashChainHead == null
+                || hashChainHead.isBlank()
+                || signature == null
+                || signature.isBlank()
+                || nonce == null
+                || nonce.isBlank()
+                || canonicalPayload == null
+                || canonicalPayload.isBlank()) {
             return Optional.empty();
         }
 
@@ -411,12 +455,12 @@ public class SettlementApplicationService {
         payload.putIfAbsent("senderLocalBlockAmount", evidence.amount().toPlainString());
         payload.putIfAbsent("senderLocalBlockSenderDeviceId", evidence.senderDeviceId());
         payload.putIfAbsent("senderLocalBlockReceiverDeviceId", evidence.receiverDeviceId());
-        payload.putIfAbsent("senderLocalBlockCounter", evidence.counter());
-        payload.putIfAbsent("senderLocalBlockPrevHash", evidence.previousHash());
-        payload.putIfAbsent("senderLocalBlockNewHash", evidence.hashChainHead());
-        payload.putIfAbsent("senderLocalBlockNonce", evidence.nonce());
-        payload.putIfAbsent("senderLocalBlockSignature", evidence.signature());
-        payload.putIfAbsent("senderLocalBlockCanonicalPayload", evidence.canonicalPayload());
+        payload.putIfAbsent("senderLocalBlockCounter", counter);
+        payload.putIfAbsent("senderLocalBlockPrevHash", previousHash);
+        payload.putIfAbsent("senderLocalBlockNewHash", hashChainHead);
+        payload.putIfAbsent("senderLocalBlockNonce", nonce);
+        payload.putIfAbsent("senderLocalBlockSignature", signature);
+        payload.putIfAbsent("senderLocalBlockCanonicalPayload", canonicalPayload);
         payload.putIfAbsent("senderLocalBlockTimestampMs", timestampMs);
         payload.putIfAbsent("senderLocalBlockExpiresAtMs", expiresAtMs);
 
@@ -427,15 +471,15 @@ public class SettlementApplicationService {
                 evidence.receiverDeviceId(),
                 keyVersion,
                 policyVersion,
-                evidence.counter(),
-                evidence.nonce(),
-                evidence.hashChainHead(),
-                evidence.previousHash(),
-                evidence.signature(),
+                counter,
+                nonce,
+                hashChainHead,
+                previousHash,
+                signature,
                 evidence.amount(),
                 timestampMs,
                 expiresAtMs,
-                evidence.canonicalPayload(),
+                canonicalPayload,
                 payload
         ));
     }
@@ -617,12 +661,8 @@ public class SettlementApplicationService {
                 .map(entry -> {
                     SettlementRequest request = entry.getValue();
                     if (request.status() == SettlementStatus.PENDING || request.status() == SettlementStatus.VALIDATING) {
-                        OfflinePaymentProof proof = entry.getKey();
-                        if (requiresReceiverEvidenceBeforeFinalSettlement(proof)
-                                && localEvidenceRepository.existsMatchingReceiverEvidence(proof)) {
-                            processSettlementRequest(request, true);
-                            return true;
-                        }
+                        processSettlementRequest(request, true);
+                        return true;
                     }
                     return false;
                 })
@@ -1523,44 +1563,7 @@ public class SettlementApplicationService {
                 )
         );
 
-        if (requiresReceiverEvidenceBeforeFinalSettlement(proof) && !hasMatchingReceiverEvidence(proof, receiverEvidenceMatched)) {
-            settlementRepository.update(
-                    request.id(),
-                    SettlementStatus.PENDING,
-                    null,
-                    false,
-                    jsonService.write(Map.of(
-                            "voucherId", proof.voucherId(),
-                            "reasonCode", OfflinePayReasonCode.RECEIVER_EVIDENCE_REQUIRED,
-                            "detail", "sender proof is waiting for matching receiver local block"
-                    ))
-            );
-            offlineSagaService.markProcessing(
-                    OfflineSagaType.SETTLEMENT,
-                    request.id(),
-                    "AWAITING_RECEIVER_EVIDENCE",
-                    Map.of(
-                            "settlementId", request.id(),
-                            "batchId", request.batchId(),
-                            "proofId", proof.id(),
-                            "collateralId", collateral.id(),
-                            "voucherId", proof.voucherId(),
-                            "reasonCode", OfflinePayReasonCode.RECEIVER_EVIDENCE_REQUIRED
-                    )
-            );
-            return new SettlementEvaluation(
-                    SettlementStatus.PENDING,
-                    false,
-                    OfflinePayReasonCode.RECEIVER_EVIDENCE_REQUIRED,
-                    jsonService.write(Map.of(
-                            "voucherId", proof.voucherId(),
-                            "reasonCode", OfflinePayReasonCode.RECEIVER_EVIDENCE_REQUIRED,
-                            "detail", "sender proof is waiting for matching receiver local block"
-                    )),
-                    BigDecimal.ZERO,
-                    "HOLD"
-            );
-        }
+        markVerifiedEvidenceForProof(proof, receiverEvidenceMatched);
 
         proofRepository.updateLifecycle(proof.id(), OfflineProofStatus.CONSUMED_PENDING_SETTLEMENT, null, true, false, false);
         CollateralLock settlementCollateralScope = resolveSettlementCollateralScope(collateral, proof);
@@ -1643,20 +1646,11 @@ public class SettlementApplicationService {
         return evaluation;
     }
 
-    private boolean requiresReceiverEvidenceBeforeFinalSettlement(OfflinePaymentProof proof) {
-        if (!"SENDER".equalsIgnoreCase(proof.uploaderType())) {
-            return false;
-        }
-        JsonNode payload = jsonService.readTree(proof.rawPayloadJson());
-        return payload.path("senderLocalBlock").asBoolean(false);
-    }
-
-    private boolean hasMatchingReceiverEvidence(OfflinePaymentProof proof, boolean receiverEvidenceMatched) {
+    private void markVerifiedEvidenceForProof(OfflinePaymentProof proof, boolean receiverEvidenceMatched) {
+        localEvidenceRepository.markMatchingEvidence(proof);
         if (receiverEvidenceMatched || localEvidenceRepository.existsMatchingReceiverEvidence(proof)) {
             localEvidenceRepository.markMatchingReceiverEvidence(proof);
-            return true;
         }
-        return false;
     }
 
     private int currentAttemptCount(String summaryJson) {

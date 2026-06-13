@@ -15,7 +15,7 @@ public interface OfflinePayLocalEvidenceRepository {
 
     void markMatchingEvidence(OfflinePaymentProof proof);
 
-    List<OfflinePayLocalEvidence> findVerifiedSenderEvidenceWithMatchingReceiverEvidence(int limit);
+    List<OfflinePayLocalEvidence> findVerifiedSenderEvidenceAwaitingCarrier(int limit);
 
     LocalEvidenceStatus summarizeStatus(String voucherId, String sessionId, OffsetDateTime staleCutoff);
 
