@@ -800,6 +800,112 @@ class SettlementApplicationServiceTest {
     }
 
     @Test
+    void confirmReceivedSettlementsClosesUnsettledMarkerWhenReceiverHistoryAlreadySynced() {
+        long now = System.currentTimeMillis();
+        OfflinePaymentProof proof = new OfflinePaymentProof(
+                "proof-receiver-history-synced",
+                "batch-receiver-history-synced",
+                "voucher-receiver-history-synced",
+                "collateral-receiver-history-synced",
+                "sender-device",
+                "receiver-device",
+                1,
+                1,
+                12L,
+                "nonce-receiver-history-synced",
+                "hash-receiver-history-synced",
+                "prev-receiver-history-synced",
+                "signature-receiver-history-synced",
+                new BigDecimal("2.00000000"),
+                now,
+                now + 60_000,
+                "{}",
+                "RECEIVER",
+                "BLE",
+                OfflineProofStatus.SETTLED,
+                "SETTLED",
+                new BigDecimal("1.99800000"),
+                BigDecimal.ZERO,
+                null,
+                null,
+                null,
+                "{\"requestId\":\"req-receiver-history-synced\"}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now(),
+                OffsetDateTime.now(),
+                OffsetDateTime.now(),
+                OffsetDateTime.now(),
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        SettlementRequest request = new SettlementRequest(
+                "settlement-receiver-history-synced",
+                "batch-receiver-history-synced",
+                "collateral-receiver-history-synced",
+                "proof-receiver-history-synced",
+                SettlementStatus.SETTLED,
+                "SETTLED",
+                false,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        Device receiverDevice = new Device(
+                "row-receiver-history-synced",
+                "receiver-device",
+                88L,
+                "receiver-public-key",
+                1,
+                DeviceStatus.ACTIVE,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        OfflineSaga saga = new OfflineSaga(
+                "saga-receiver-history-synced",
+                OfflineSagaType.SETTLEMENT,
+                "settlement-receiver-history-synced",
+                OfflineSagaStatus.COMPLETED,
+                "RECEIVER_HISTORY_SYNCED",
+                "SETTLED",
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+
+        when(proofRepository.findById("proof-receiver-history-synced")).thenReturn(Optional.of(proof));
+        when(deviceRepository.findByDeviceId("receiver-device")).thenReturn(Optional.of(receiverDevice));
+        when(settlementRepository.findLatestByProofId("proof-receiver-history-synced")).thenReturn(Optional.of(request));
+        when(offlineSagaRepository.findBySagaTypeAndReferenceId(
+                OfflineSagaType.SETTLEMENT,
+                "settlement-receiver-history-synced"
+        )).thenReturn(Optional.of(saga));
+
+        SettlementApplicationService.ReceiverSettlementConfirmationResult result =
+                service.confirmReceivedSettlements(new SettlementApplicationService.ConfirmReceivedSettlementsCommand(
+                        88L,
+                        java.util.List.of("proof-receiver-history-synced")
+                ));
+
+        assertEquals(1, result.requested());
+        assertEquals(1, result.confirmed());
+        assertEquals(0, result.skipped());
+        verify(proofRepository).markReceivedCollateralSettled(
+                eq(java.util.List.of("proof-receiver-history-synced")),
+                isNull(),
+                eq("wallet:settlement-receiver-history-synced")
+        );
+        verify(eventBus, never()).publishExternalSyncRequested(
+                eq("RECEIVER_HISTORY_SYNC_REQUESTED"),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString()
+        );
+    }
+
+    @Test
     void submitBatchRejectsMismatchedReceiverLocalBlockBeforeCreatingBatch() {
         long now = System.currentTimeMillis();
         SettlementApplicationService.ProofSubmission submission = new SettlementApplicationService.ProofSubmission(

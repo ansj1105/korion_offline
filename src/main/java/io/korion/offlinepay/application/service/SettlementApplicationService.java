@@ -1326,6 +1326,13 @@ public class SettlementApplicationService {
                 .findBySagaTypeAndReferenceId(OfflineSagaType.SETTLEMENT, request.id())
                 .orElse(null);
         if (saga != null && shouldIgnoreLateReceiverConfirmation(saga)) {
+            if (hasReceiverHistorySynced(saga) && hasReceivedUnsettledAmount(proof)) {
+                proofRepository.markReceivedCollateralSettled(
+                        List.of(proof.id()),
+                        null,
+                        "wallet:" + request.id()
+                );
+            }
             return;
         }
         Device receiverDevice = deviceIdentifierResolver.resolve(proof.receiverDeviceId()).orElse(null);
@@ -1386,13 +1393,22 @@ public class SettlementApplicationService {
     }
 
     private boolean shouldIgnoreLateReceiverConfirmation(OfflineSaga saga) {
-        if ("RECEIVER_HISTORY_SYNCED".equals(saga.currentStep())) {
+        if (hasReceiverHistorySynced(saga)) {
             return true;
         }
         return saga.status() == OfflineSagaStatus.COMPENSATION_REQUIRED
                 || saga.status() == OfflineSagaStatus.COMPENSATING
                 || saga.status() == OfflineSagaStatus.COMPENSATED
                 || OfflinePayReasonCode.RECEIVER_CONFIRMATION_EXPIRED.equals(saga.lastReasonCode());
+    }
+
+    private boolean hasReceiverHistorySynced(OfflineSaga saga) {
+        return saga != null && "RECEIVER_HISTORY_SYNCED".equals(saga.currentStep());
+    }
+
+    private boolean hasReceivedUnsettledAmount(OfflinePaymentProof proof) {
+        return proof.receivedUnsettledAmount() != null
+                && proof.receivedUnsettledAmount().compareTo(BigDecimal.ZERO) > 0;
     }
 
     @Transactional
