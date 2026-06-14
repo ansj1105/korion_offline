@@ -70,4 +70,22 @@ public class CircuitBreakingCoinManageCollateralAdapter implements CoinManageCol
             throw exception;
         }
     }
+
+    @Override
+    public BalanceSnapshot getBalanceSnapshot(long userId, String assetCode) {
+        try {
+            circuitBreaker.assertCallable();
+            BalanceSnapshot result = delegate.getBalanceSnapshot(userId, assetCode);
+            if (circuitBreaker.onSuccess()) {
+                alertService.notifyCircuitRecovered("offline_pay -> coin_manage collateral");
+            }
+            return result;
+        } catch (RuntimeException exception) {
+            boolean opened = circuitBreaker.onFailure();
+            if (opened) {
+                alertService.notifyCircuitOpened("offline_pay -> coin_manage collateral", exception.getMessage());
+            }
+            throw exception;
+        }
+    }
 }

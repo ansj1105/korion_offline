@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.korion.offlinepay.application.port.CoinManageCollateralPort;
 import io.korion.offlinepay.contracts.internal.CoinManageLockCollateralContract;
 import io.korion.offlinepay.contracts.internal.CoinManageLockCollateralResponseContract;
+import io.korion.offlinepay.contracts.internal.CoinManagePendingBalanceResponseContract;
 import io.korion.offlinepay.contracts.internal.CoinManageReleaseCollateralContract;
 import io.korion.offlinepay.contracts.internal.CoinManageReleaseCollateralResponseContract;
 import java.nio.charset.StandardCharsets;
@@ -72,6 +73,29 @@ public class CoinManageCollateralAdapter implements CoinManageCollateralPort {
             throw new IllegalStateException("coin_manage release response is empty");
         }
         return new ReleaseCollateralResult(response.releaseId(), response.status());
+    }
+
+    @Override
+    public BalanceSnapshot getBalanceSnapshot(long userId, String assetCode) {
+        CoinManagePendingBalanceResponseContract response = parseResponse(
+                restClient.get()
+                        .uri(uriBuilder -> uriBuilder
+                                .path("/api/internal/offline-pay/users/{userId}/pending-balance")
+                                .queryParam("assetCode", assetCode)
+                                .build(String.valueOf(userId)))
+                        .header("x-internal-api-key", apiKey)
+                        .exchange((request, clientResponse) -> readResponseBody(clientResponse.getStatusCode(), clientResponse.getBody())),
+                CoinManagePendingBalanceResponseContract.class,
+                "balance-snapshot"
+        );
+        if (response == null) {
+            throw new IllegalStateException("coin_manage balance snapshot response is empty");
+        }
+        return new BalanceSnapshot(
+                response.availableBalance(),
+                response.lockedBalance(),
+                response.offlinePayPendingBalance()
+        );
     }
 
     private String formatAmount(BigDecimal amount) {

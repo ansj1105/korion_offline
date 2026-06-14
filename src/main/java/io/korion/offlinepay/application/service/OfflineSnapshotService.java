@@ -1,6 +1,7 @@
 package io.korion.offlinepay.application.service;
 
 import io.korion.offlinepay.application.port.CollateralRepository;
+import io.korion.offlinepay.application.port.CoinManageCollateralPort;
 import io.korion.offlinepay.application.port.DeviceRepository;
 import io.korion.offlinepay.application.port.FoxCoinWalletSnapshotPort;
 import io.korion.offlinepay.application.port.IssuedOfflineProofRepository;
@@ -25,6 +26,7 @@ public class OfflineSnapshotService {
     private final CollateralRepository collateralRepository;
     private final IssuedOfflineProofRepository issuedOfflineProofRepository;
     private final FoxCoinWalletSnapshotPort foxCoinWalletSnapshotPort;
+    private final CoinManageCollateralPort coinManageCollateralPort;
     private final AppProperties properties;
     private final JsonService jsonService;
     private final JsonPayloadCanonicalizationService jsonPayloadCanonicalizationService;
@@ -35,6 +37,7 @@ public class OfflineSnapshotService {
             CollateralRepository collateralRepository,
             IssuedOfflineProofRepository issuedOfflineProofRepository,
             FoxCoinWalletSnapshotPort foxCoinWalletSnapshotPort,
+            CoinManageCollateralPort coinManageCollateralPort,
             AppProperties properties,
             JsonService jsonService,
             JsonPayloadCanonicalizationService jsonPayloadCanonicalizationService,
@@ -44,6 +47,7 @@ public class OfflineSnapshotService {
         this.collateralRepository = collateralRepository;
         this.issuedOfflineProofRepository = issuedOfflineProofRepository;
         this.foxCoinWalletSnapshotPort = foxCoinWalletSnapshotPort;
+        this.coinManageCollateralPort = coinManageCollateralPort;
         this.properties = properties;
         this.jsonService = jsonService;
         this.jsonPayloadCanonicalizationService = jsonPayloadCanonicalizationService;
@@ -298,6 +302,12 @@ public class OfflineSnapshotService {
                             snapshot,
                             currentCollateralAmount
                     );
+            CoinManageCollateralPort.BalanceSnapshot ledgerSnapshot =
+                    coinManageCollateralPort.getBalanceSnapshot(userId, assetCode);
+            java.math.BigDecimal ledgerAvailableAmount = parsePositiveAmount(ledgerSnapshot.availableBalance());
+            if (ledgerAvailableAmount.compareTo(additionalCollateralAvailableAmount) < 0) {
+                additionalCollateralAvailableAmount = ledgerAvailableAmount;
+            }
             return new WalletSnapshot(
                     snapshot.userId(),
                     snapshot.assetCode(),
@@ -309,6 +319,17 @@ public class OfflineSnapshotService {
             );
         } catch (Exception ignored) {
             return null;
+        }
+    }
+
+    private java.math.BigDecimal parsePositiveAmount(String value) {
+        if (value == null || value.isBlank()) {
+            return java.math.BigDecimal.ZERO;
+        }
+        try {
+            return new java.math.BigDecimal(value).max(java.math.BigDecimal.ZERO);
+        } catch (NumberFormatException exception) {
+            return java.math.BigDecimal.ZERO;
         }
     }
 

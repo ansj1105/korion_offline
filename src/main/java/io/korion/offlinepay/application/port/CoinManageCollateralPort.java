@@ -8,7 +8,11 @@ public interface CoinManageCollateralPort {
 
     ReleaseCollateralResult releaseCollateral(long userId, String deviceId, String collateralId, String assetCode, BigDecimal amount, String referenceId);
 
+    BalanceSnapshot getBalanceSnapshot(long userId, String assetCode);
+
     record LockCollateralResult(String lockId, String status) {}
 
     record ReleaseCollateralResult(String releaseId, String status) {}
+
+    record BalanceSnapshot(String availableBalance, String lockedBalance, String offlinePayPendingBalance) {}
 }
