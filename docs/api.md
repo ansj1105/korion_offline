@@ -1449,6 +1449,12 @@ components:
           type: string
         detail:
           type: string
+          description: |
+            Machine-readable diagnostic detail serialized as a JSON string when available.
+            Trust contract fields such as `contractRequirements`, `requiredServerTrust`,
+            `deviceTrustLevel`, `deviceAttestationVerdict`, `serverVerifiedTrustLevel`,
+            `trustContractMet`, and `serverTrustVerified` are diagnostic at the current
+            policy level and do not by themselves reject settlement.
 
     FinalizeSettlementResponse:
       type: object

@@ -122,7 +122,7 @@ class SettlementPolicyEvaluatorTest {
     }
 
     @Test
-    void rejectsWhenTrustCenterAttestationIsNotServerVerified() {
+    void recordsTrustCenterAttestationGapsWithoutRejectingSettlement() {
         String payload = """
                 {
                   "network": "TRC-20",
@@ -148,8 +148,17 @@ class SettlementPolicyEvaluatorTest {
                 device()
         );
 
-        assertEquals(SettlementStatus.REJECTED, result.status());
-        assertEquals(OfflinePayReasonCode.TRUST_CONTRACT_NOT_MET, result.reasonCode());
+        assertEquals(SettlementStatus.SETTLED, result.status());
+        assertEquals(null, result.reasonCode());
+        var detail = jsonService.readTree(result.resultJson());
+        assertEquals(OfflinePayReasonCode.SETTLED, detail.path("reasonCode").asText());
+        assertEquals("HARDWARE_BACKED_VERIFIED", detail.path("contractRequirements").asText());
+        assertEquals("SERVER_VERIFIED", detail.path("requiredServerTrust").asText());
+        assertEquals("MIRROR_ONLY", detail.path("deviceTrustLevel").asText());
+        assertEquals("MIRROR_ONLY", detail.path("deviceAttestationVerdict").asText());
+        assertEquals("LOCAL_ONLY", detail.path("serverVerifiedTrustLevel").asText());
+        assertEquals(false, detail.path("trustContractMet").asBoolean());
+        assertEquals(false, detail.path("serverTrustVerified").asBoolean());
     }
 
     private OfflinePaymentProof proof(String rawPayload, String canonicalPayload) {

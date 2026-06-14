@@ -55,9 +55,6 @@ public class SettlementPolicyEvaluator {
         if (proof.keyVersion() != device.keyVersion()) {
             return rejected(OfflinePayReasonCode.KEY_VERSION_MISMATCH);
         }
-        if (!trustContractMet || !serverTrustVerified) {
-            return rejected(OfflinePayReasonCode.TRUST_CONTRACT_NOT_MET);
-        }
         if (uiMode == null) {
             return rejected(OfflinePayReasonCode.PAYMENT_MODE_REQUIRED);
         }
@@ -119,6 +116,7 @@ public class SettlementPolicyEvaluator {
         resultJson.put("trustContractMet", trustContractMet);
         resultJson.put("serverTrustVerified", serverTrustVerified);
         resultJson.put("contractRequirements", DeviceTrustContract.MINIMUM_ATTESTATION_VERDICT);
+        resultJson.put("requiredServerTrust", DeviceTrustContract.SERVER_VERIFIED);
         return new SettlementEvaluation(
                 SettlementStatus.SETTLED,
                 false,
