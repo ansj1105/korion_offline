@@ -10,8 +10,11 @@ import io.korion.offlinepay.application.port.CollateralRepository;
 import io.korion.offlinepay.application.port.DeviceRepository;
 import io.korion.offlinepay.application.port.OfflinePaymentProofRepository;
 import io.korion.offlinepay.config.AppProperties;
+import io.korion.offlinepay.domain.model.CollateralOperation;
 import io.korion.offlinepay.domain.model.Device;
 import io.korion.offlinepay.domain.model.OfflinePaymentProof;
+import io.korion.offlinepay.domain.status.CollateralOperationStatus;
+import io.korion.offlinepay.domain.status.CollateralOperationType;
 import io.korion.offlinepay.domain.status.DeviceStatus;
 import io.korion.offlinepay.domain.status.OfflineProofStatus;
 import io.korion.offlinepay.application.service.settlement.OfflinePaySettlementFeeCalculator;
@@ -65,6 +68,34 @@ class OfflineLedgerServiceTest {
         assertTrue(response.receivedItems().get(0).receivedSettlementRequired());
         assertEquals("UNSETTLED", response.receivedItems().get(0).receivedSettlementState());
         assertEquals("c97ec0ca-c5a0-474d-9798-60d68017ee04", response.receivedItems().get(0).receivedSettlementProofId());
+    }
+
+    @Test
+    void usesNestedCollateralOperationWalletAddressForLedgerItem() {
+        CollateralOperation operation = new CollateralOperation(
+                "operation-1",
+                null,
+                1761L,
+                "device-1",
+                "KORI",
+                CollateralOperationType.TOPUP,
+                new BigDecimal("2.000000"),
+                CollateralOperationStatus.FAILED,
+                "topup:device-1:test",
+                "INSUFFICIENT_BALANCE",
+                "{\"metadata\":{\"walletAddress\":\"T2J39DJ111111111111111111111111\"}}",
+                OffsetDateTime.parse("2026-06-14T17:14:05Z"),
+                OffsetDateTime.parse("2026-06-14T17:14:05Z")
+        );
+        when(collateralOperationRepository.findRecentByUserIdAndAssetCode(1761L, "KORI", 31)).thenReturn(List.of(operation));
+        when(proofRepository.findRecentByUserIdAndAssetCode(1761L, "KORI", 31)).thenReturn(List.of());
+        when(collateralRepository.findAggregateByUserIdAndAssetCode(1761L, "KORI")).thenReturn(Optional.empty());
+
+        OfflineLedgerService.LedgerHistoryResponse response = service.getLedgerHistory(1761L, "KORI", 30);
+
+        assertEquals(1, response.sentItems().size());
+        assertEquals("T2J39DJ111111111111111111111111", response.sentItems().get(0).walletAddress());
+        assertEquals("FAILED", response.sentItems().get(0).statusCode());
     }
 
     @Test

@@ -287,6 +287,10 @@ public class OfflineLedgerService {
         if (memo.isBlank()) {
             memo = operation.operationType().name().equals("RELEASE") ? "오프라인 담보 해제 요청" : "오프라인 담보 충전 요청";
         }
+        String walletAddress = firstNonBlank(
+                readMetadataText(operation.metadataJson(), "walletAddress"),
+                operation.deviceId()
+        );
 
         return new LedgerEvent(
                 "collateral:" + operation.id(),
@@ -298,7 +302,7 @@ public class OfflineLedgerService {
                 statusLabel(statusCode),
                 "mainnet",
                 operation.assetCode(),
-                operation.deviceId(),
+                walletAddress,
                 operation.updatedAt() != null ? operation.updatedAt() : operation.createdAt(),
                 operation.operationType().name().equals("RELEASE") ? "Collateral Release" : "Collateral Charge",
                 "Online",
@@ -577,6 +581,9 @@ public class OfflineLedgerService {
         try {
             JsonNode root = jsonService.readTree(metadataJson);
             JsonNode node = root.path(fieldName);
+            if ((node.isMissingNode() || node.isNull()) && root.has("metadata")) {
+                node = root.path("metadata").path(fieldName);
+            }
             if (node.isMissingNode() || node.isNull()) {
                 return "";
             }
