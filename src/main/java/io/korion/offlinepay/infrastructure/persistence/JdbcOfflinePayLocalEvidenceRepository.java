@@ -88,7 +88,7 @@ public class JdbcOfflinePayLocalEvidenceRepository implements OfflinePayLocalEvi
                     :verificationStatus,
                     :verificationDetail,
                     :matchedProofId,
-                    CASE WHEN :matchedProofId IS NULL THEN NULL ELSE NOW() END
+                    CASE WHEN CAST(:matchedProofId AS uuid) IS NULL THEN NULL ELSE NOW() END
                 )
                 ON CONFLICT (voucher_id, direction, uploader_device_id, nonce)
                 DO UPDATE SET
