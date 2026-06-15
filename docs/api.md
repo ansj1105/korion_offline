@@ -462,6 +462,108 @@ paths:
               schema:
                 $ref: '#/components/schemas/LedgerHistoryResponse'
 
+  /api/offline-pay/client-events/batch:
+    post:
+      tags: [OfflinePayHub]
+      summary: 클라이언트 로컬 오프라인페이 이벤트 batch 업로드
+      description: |
+        앱 local DB에 저장된 이벤트를 서버로 업로드한다.
+        `eventId`는 클라이언트 idempotency key이며, 서버는 이미 수신한 eventId를 중복 처리하지 않는다.
+        proof 또는 local evidence가 포함된 이벤트는 기존 settlement/local-evidence saga 진입점으로 전달된다.
+        이 응답은 서버 처리 접수 결과이며 최종 정산 성공을 의미하지 않는다.
+      operationId: submitOfflinePayClientEventBatch
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClientEventBatchRequest'
+      responses:
+        '202':
+          description: 이벤트 batch 접수 결과
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientEventBatchResponse'
+
+  /api/offline-pay/hub/projection:
+    get:
+      tags: [OfflinePayHub]
+      summary: 오프라인페이 Hub Sent/Received projection 조회
+      description: |
+        앱이 local queue 전체를 직접 projection하지 않도록 서버 기준 Hub history를 탭별로 제공한다.
+        deviceId로 등록 기기를 조회하고, 서버는 해당 기기의 userId 기준 ledger/proof projection을 반환한다.
+      operationId: getOfflinePayHubProjection
+      parameters:
+        - in: query
+          name: deviceId
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: tab
+          required: false
+          schema:
+            type: string
+            enum: [SENT, RECEIVED]
+            default: SENT
+        - in: query
+          name: assetCode
+          required: false
+          schema:
+            type: string
+            default: KORI
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 30
+            default: 30
+        - in: query
+          name: page
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: Hub 탭별 projection
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HubProjectionResponse'
+
+  /api/offline-pay/hub/summary:
+    get:
+      tags: [OfflinePayHub]
+      summary: 오프라인페이 Hub 요약 조회
+      description: |
+        서버 기준 수취 미정산 금액, 오프라인 결제 가능 금액, 총 담보금, 실패/대기 건수를 반환한다.
+        실패/거절/만료 row는 수취 미정산 금액에서 제외된다.
+      operationId: getOfflinePayHubSummary
+      parameters:
+        - in: query
+          name: deviceId
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: assetCode
+          required: false
+          schema:
+            type: string
+            default: KORI
+      responses:
+        '200':
+          description: Hub summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HubSummaryResponse'
+
   /api/admin/conflicts:
     get:
       tags: [Admin]
@@ -812,6 +914,244 @@ components:
         settledAmount:
           type: string
           description: 거래별 담보 반영 완료 금액. 추후 레퍼럴 정산 기준으로 사용할 수 있는 확정 금액.
+
+    ClientEventBatchRequest:
+      type: object
+      required: [deviceId, events]
+      properties:
+        deviceId:
+          type: string
+          description: 현재 로그인 사용자의 등록 기기 ID. 서버가 userId를 이 deviceId에서 해석한다.
+        assetCode:
+          type: string
+          default: KORI
+        events:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/ClientEventRequest'
+
+    ClientEventRequest:
+      type: object
+      required: [eventId, type]
+      properties:
+        eventId:
+          type: string
+          description: 클라이언트가 생성한 idempotency key.
+        sessionId:
+          type: string
+        requestId:
+          type: string
+        settlementId:
+          type: string
+        direction:
+          type: string
+          enum: [SEND, RECEIVE]
+        type:
+          type: string
+          description: OfflineEventType enum name. Unknown values are rejected per event.
+          enum:
+            - REQUEST_SENT
+            - REQUEST_RECEIVED
+            - REQUEST_APPROVED
+            - REQUEST_REJECTED
+            - REQUEST_CANCELLED
+            - NFC_CONNECT_FAIL
+            - BLE_SCAN_FAIL
+            - BLE_PAIR_FAIL
+            - QR_PARSE_FAIL
+            - AUTH_BIOMETRIC_FAIL
+            - AUTH_PIN_FAIL
+            - AUTH_CANCELLED
+            - PROOF_NOT_FOUND
+            - PROOF_EXPIRED
+            - PROOF_TAMPERED
+            - PAYLOAD_BUILD_FAIL
+            - SEND_TIMEOUT
+            - SEND_INTERRUPTED
+            - RECEIVE_REJECTED
+            - LOCAL_QUEUE_SAVE_FAIL
+            - BATCH_SYNC_FAIL
+            - LEDGER_SYNC_FAIL
+            - HISTORY_SYNC_FAIL
+            - LEDGER_CIRCUIT_OPEN
+            - HISTORY_CIRCUIT_OPEN
+            - SERVER_VALIDATION_FAIL
+            - SETTLEMENT_FAIL
+            - SYNC_FAILED
+            - SETTLEMENT_FAILED
+            - TRANSPORT_FAILED
+        status:
+          type: string
+          enum: [PENDING, ACKNOWLEDGED, FAILED, SUCCESS, SERVER_FINAL_SUCCESS, SERVER_FINAL_FAILED]
+        assetCode:
+          type: string
+        networkCode:
+          type: string
+        amount:
+          type: string
+        counterpartyDeviceId:
+          type: string
+        counterpartyActor:
+          type: string
+        reasonCode:
+          type: string
+          description: Required when status is FAILED or type is a failure type.
+        message:
+          type: string
+        uploaderType:
+          type: string
+          enum: [SENDER, RECEIVER, SERVER]
+        uploaderDeviceId:
+          type: string
+        proof:
+          nullable: true
+          $ref: '#/components/schemas/ClientEventProof'
+        evidence:
+          nullable: true
+          $ref: '#/components/schemas/ClientEventEvidence'
+        payload:
+          type: object
+          additionalProperties: true
+
+    ClientEventProof:
+      type: object
+      required: [voucherId, collateralId, issuerDeviceId, receiverDeviceId, newHash, prevHash, signature, amount, keyVersion, policyVersion, counter, nonce, timestamp, expiresAt, payload]
+      properties:
+        voucherId: { type: string }
+        collateralId: { type: string }
+        issuerDeviceId: { type: string }
+        receiverDeviceId: { type: string }
+        newHash: { type: string }
+        prevHash: { type: string }
+        signature: { type: string }
+        amount: { type: string }
+        keyVersion: { type: integer, format: int64 }
+        policyVersion: { type: integer, format: int64 }
+        counter: { type: integer, format: int64 }
+        nonce: { type: string }
+        timestamp: { type: integer, format: int64 }
+        expiresAt: { type: integer, format: int64 }
+        canonicalPayload: { type: string }
+        payload:
+          type: object
+          additionalProperties: true
+
+    ClientEventEvidence:
+      type: object
+      required: [voucherId, direction, senderDeviceId, receiverDeviceId, amount, counter, newHash, nonce, signature, canonicalPayload, keyId, publicKeyFingerprint, deviceAttestationId, deviceAttestationVerdict, serverVerifiedTrustLevel, serverAttestationVerifiedAt, transportSessionHash, transportTranscriptSource, payload]
+      properties:
+        voucherId: { type: string }
+        sessionId: { type: string }
+        direction: { type: string, enum: [SEND, RECEIVE] }
+        senderDeviceId: { type: string }
+        receiverDeviceId: { type: string }
+        amount: { type: string }
+        counter: { type: integer, format: int64 }
+        prevHash: { type: string }
+        newHash: { type: string }
+        nonce: { type: string }
+        signature: { type: string }
+        canonicalPayload: { type: string }
+        merchantId: { type: string }
+        partnerId: { type: string }
+        leaderId: { type: string }
+        countryCode: { type: string }
+        storeId: { type: string }
+        orderId: { type: string }
+        paymentIntentId: { type: string }
+        invoiceId: { type: string }
+        fiatAmount: { type: string }
+        fiatCurrency: { type: string }
+        exchangeRate: { type: string }
+        rateTimestamp: { type: string }
+        schemaVersion: { type: string }
+        protocolVersion: { type: string }
+        hashAlgorithm: { type: string }
+        signatureAlgorithm: { type: string }
+        keyId: { type: string }
+        publicKeyFingerprint: { type: string }
+        appVersion: { type: string }
+        deviceAttestationId: { type: string }
+        deviceAttestationVerdict: { type: string }
+        serverVerifiedTrustLevel: { type: string }
+        serverAttestationVerifiedAt: { type: string }
+        transportSessionHash: { type: string }
+        transportTranscriptSource: { type: string }
+        transportTranscript: { type: string }
+        transportTranscriptEncoding: { type: string }
+        payload:
+          type: object
+          additionalProperties: true
+
+    ClientEventBatchResponse:
+      type: object
+      required: [deviceId, userId, requested, accepted, duplicated, failed, receivedAt, results]
+      properties:
+        deviceId: { type: string }
+        userId: { type: integer, format: int64 }
+        requested: { type: integer }
+        accepted: { type: integer }
+        duplicated: { type: integer }
+        failed: { type: integer }
+        receivedAt: { type: string, format: date-time }
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClientEventResult'
+
+    ClientEventResult:
+      type: object
+      required: [eventId, status]
+      properties:
+        eventId: { type: string }
+        status:
+          type: string
+          enum: [ACCEPTED, DUPLICATE, FAILED]
+        reasonCode: { type: string }
+        eventLogId: { type: string }
+        settlementBatchId: { type: string }
+        localEvidenceStatus: { type: string }
+
+    HubProjectionResponse:
+      type: object
+      required: [deviceId, userId, assetCode, tab, items, hasNext, refreshedAt, page, size]
+      properties:
+        deviceId: { type: string }
+        userId: { type: integer, format: int64 }
+        assetCode: { type: string }
+        tab:
+          type: string
+          enum: [SENT, RECEIVED]
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/LedgerHistoryItem'
+        hasNext: { type: boolean }
+        totalReceivedAmount: { type: string }
+        refreshedAt: { type: string, format: date-time }
+        page: { type: integer, minimum: 0 }
+        size: { type: integer, minimum: 1, maximum: 30 }
+
+    HubSummaryResponse:
+      type: object
+      required: [deviceId, userId, assetCode, unsettledReceivedAmount, offlineAvailableAmount, totalCollateralAmount, failedCount, pendingCount, refreshedAt]
+      properties:
+        deviceId: { type: string }
+        userId: { type: integer, format: int64 }
+        assetCode: { type: string }
+        unsettledReceivedAmount:
+          type: string
+          description: 서버 기준 수취 미정산 금액. 실패/거절/만료 row는 제외된다.
+        offlineAvailableAmount:
+          type: string
+          description: 서버 승인 담보 중 현재 오프라인 결제 가능 금액.
+        totalCollateralAmount:
+          type: string
+          description: 서버 승인 총 담보금.
+        failedCount: { type: integer }
+        pendingCount: { type: integer }
+        refreshedAt: { type: string, format: date-time }
 
     RegisterDeviceRequest:
       type: object

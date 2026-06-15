@@ -36,6 +36,8 @@ public interface OfflineEventLogRepository {
 
     int expirePendingOlderThan(OffsetDateTime cutoff, String reasonCode);
 
+    boolean existsByClientEventId(String eventId);
+
     List<OfflineEventLog> findRecent(
             int size,
             OfflineEventType eventType,

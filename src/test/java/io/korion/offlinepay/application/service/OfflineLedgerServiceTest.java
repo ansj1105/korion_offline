@@ -227,6 +227,37 @@ class OfflineLedgerServiceTest {
         assertEquals("0", response.totalReceivedAmount());
     }
 
+    @Test
+    void hubProjectionResolvesUserFromDeviceIdAndReturnsRequestedTabOnly() {
+        Device senderDevice = device("device-1", 1L);
+        OfflinePaymentProof proof = settledSentProofWithHybridTime(
+                "proof-1",
+                "voucher-1",
+                "nonce-1",
+                "2026-06-11T03:02:03Z",
+                1
+        );
+        when(deviceRepository.findByDeviceId("device-1")).thenReturn(Optional.of(senderDevice));
+        when(deviceRepository.findActiveByUserId(1L)).thenReturn(List.of(senderDevice));
+        when(deviceRepository.findByDeviceId("device-2")).thenReturn(Optional.empty());
+        when(proofRepository.findRecentByUserIdAndAssetCode(1L, "KORI", 31)).thenReturn(List.of(proof));
+        when(collateralOperationRepository.findRecentByUserIdAndAssetCode(1L, "KORI", 31)).thenReturn(List.of());
+        when(collateralRepository.findAggregateByUserIdAndAssetCode(1L, "KORI")).thenReturn(Optional.empty());
+
+        OfflineLedgerService.HubProjectionResponse response = service.getHubProjection(
+                "device-1",
+                "SENT",
+                "KORI",
+                30,
+                0
+        );
+
+        assertEquals(1L, response.userId());
+        assertEquals("SENT", response.tab());
+        assertEquals(1, response.items().size());
+        assertEquals("proof-1", response.items().get(0).proofId());
+    }
+
     private Device device(String deviceId, long userId) {
         OffsetDateTime now = OffsetDateTime.parse("2026-05-19T04:45:04Z");
         return new Device(

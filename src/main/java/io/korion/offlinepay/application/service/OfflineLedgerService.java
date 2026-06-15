@@ -140,6 +140,111 @@ public class OfflineLedgerService {
         );
     }
 
+    @Transactional(readOnly = true)
+    public HubProjectionResponse getHubProjection(
+            String deviceId,
+            String tab,
+            String assetCode,
+            Integer limit,
+            Integer page
+    ) {
+        Device device = resolveRegisteredDevice(deviceId);
+        LedgerHistoryResponse history = getLedgerHistory(device.userId(), assetCode, limit, page);
+        String normalizedTab = normalizeTab(tab);
+        List<LedgerHistoryItem> items = "RECEIVED".equals(normalizedTab)
+                ? history.receivedItems()
+                : history.sentItems();
+        boolean hasNext = "RECEIVED".equals(normalizedTab)
+                ? history.receivedHasNext()
+                : history.sentHasNext();
+        return new HubProjectionResponse(
+                device.deviceId(),
+                device.userId(),
+                history.assetCode(),
+                normalizedTab,
+                items,
+                hasNext,
+                history.totalReceivedAmount(),
+                history.refreshedAt(),
+                history.page(),
+                history.size()
+        );
+    }
+
+    @Transactional(readOnly = true)
+    public HubSummaryResponse getHubSummary(String deviceId, String assetCode) {
+        Device device = resolveRegisteredDevice(deviceId);
+        String normalizedAssetCode = assetCode == null || assetCode.isBlank()
+                ? properties.assetCode()
+                : assetCode.trim().toUpperCase();
+        Set<String> activeDeviceIds = loadActiveDeviceIds(device.userId());
+        List<OfflinePaymentProof> proofs = offlinePaymentProofRepository
+                .findRecentByUserIdAndAssetCode(device.userId(), normalizedAssetCode, LEDGER_HISTORY_MAX_FETCH_SIZE);
+        List<CollateralOperation> operations = collateralOperationRepository
+                .findRecentByUserIdAndAssetCode(device.userId(), normalizedAssetCode, LEDGER_HISTORY_MAX_FETCH_SIZE);
+        CollateralLock collateral = collateralRepository
+                .findAggregateByUserIdAndAssetCode(device.userId(), normalizedAssetCode)
+                .orElse(null);
+
+        BigDecimal unsettledReceivedAmount = BigDecimal.ZERO;
+        int failedCount = 0;
+        int pendingCount = 0;
+
+        for (OfflinePaymentProof proof : proofs) {
+            LedgerEvent event = toProofEvent(proof, device.userId(), activeDeviceIds);
+            if (event == null) {
+                continue;
+            }
+            if (event.statusCode() == PublicLedgerStatus.FAILED
+                    || event.statusCode() == PublicLedgerStatus.EXPIRED
+                    || event.statusCode() == PublicLedgerStatus.REJECTED) {
+                failedCount++;
+                continue;
+            }
+            if (event.statusCode() == PublicLedgerStatus.PENDING
+                    || event.statusCode() == PublicLedgerStatus.CONFIRMED) {
+                pendingCount++;
+            }
+            if (event.direction() == LedgerDirection.RECEIVE) {
+                unsettledReceivedAmount = unsettledReceivedAmount.add(event.unsettledAmount());
+            }
+        }
+
+        for (CollateralOperation operation : operations) {
+            LedgerEvent event = toCollateralEvent(operation);
+            if (event.statusCode() == PublicLedgerStatus.FAILED) {
+                failedCount++;
+            } else if (event.statusCode() == PublicLedgerStatus.PENDING) {
+                pendingCount++;
+            }
+        }
+
+        return new HubSummaryResponse(
+                device.deviceId(),
+                device.userId(),
+                normalizedAssetCode,
+                unsettledReceivedAmount.max(BigDecimal.ZERO).toPlainString(),
+                collateral == null ? "0" : normalizeAmount(collateral.remainingAmount()).toPlainString(),
+                collateral == null ? "0" : normalizeAmount(collateral.lockedAmount()).toPlainString(),
+                failedCount,
+                pendingCount,
+                OffsetDateTime.now().toString()
+        );
+    }
+
+    private Device resolveRegisteredDevice(String deviceId) {
+        if (deviceId == null || deviceId.isBlank()) {
+            throw new IllegalArgumentException("deviceId is required");
+        }
+        return deviceRepository.findByDeviceId(deviceId.trim())
+                .orElseThrow(() -> new IllegalArgumentException("device not registered: " + deviceId));
+    }
+
+    private String normalizeTab(String tab) {
+        String normalized = tab == null ? "SENT" : tab.trim().toUpperCase();
+        return "RECEIVED".equals(normalized) ? "RECEIVED" : "SENT";
+    }
+
     private List<LedgerHistoryItem> sliceLedgerPage(List<LedgerHistoryItem> items, int offset, int size) {
         if (offset >= items.size()) {
             return List.of();
@@ -654,6 +759,31 @@ public class OfflineLedgerService {
             boolean receivedSettlementRequired,
             String receivedSettlementState,
             String receivedSettlementProofId
+    ) {}
+
+    public record HubProjectionResponse(
+            String deviceId,
+            long userId,
+            String assetCode,
+            String tab,
+            List<LedgerHistoryItem> items,
+            boolean hasNext,
+            String totalReceivedAmount,
+            String refreshedAt,
+            int page,
+            int size
+    ) {}
+
+    public record HubSummaryResponse(
+            String deviceId,
+            long userId,
+            String assetCode,
+            String unsettledReceivedAmount,
+            String offlineAvailableAmount,
+            String totalCollateralAmount,
+            int failedCount,
+            int pendingCount,
+            String refreshedAt
     ) {}
 
     private record LedgerEvent(

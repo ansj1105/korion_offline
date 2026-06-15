@@ -192,6 +192,24 @@ public class JdbcOfflineEventLogRepository implements OfflineEventLogRepository 
     }
 
     @Override
+    public boolean existsByClientEventId(String eventId) {
+        if (eventId == null || eventId.isBlank()) {
+            return false;
+        }
+        String sql = """
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM offline_event_logs
+                    WHERE metadata ->> 'eventId' = :eventId
+                )
+                """;
+        return Boolean.TRUE.equals(jdbcClient.sql(sql)
+                .param("eventId", eventId.trim())
+                .query(Boolean.class)
+                .single());
+    }
+
+    @Override
     public List<OfflineEventLog> findRecent(
             int size,
             OfflineEventType eventType,
