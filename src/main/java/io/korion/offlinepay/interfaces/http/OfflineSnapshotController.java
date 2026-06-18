@@ -86,6 +86,14 @@ public class OfflineSnapshotController {
         ));
     }
 
+    @GetMapping("/checkpoint")
+    public OfflineSnapshotService.TrustedCheckpoint checkpoint(
+            @RequestParam String deviceId,
+            @RequestParam(required = false) String assetCode
+    ) {
+        return offlineSnapshotService.generateCheckpoint(deviceId, assetCode);
+    }
+
     public record WalletRefreshRequest(
             long userId,
             String assetCode,

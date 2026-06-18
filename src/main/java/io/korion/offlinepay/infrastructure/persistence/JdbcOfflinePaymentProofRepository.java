@@ -377,6 +377,23 @@ public class JdbcOfflinePaymentProofRepository implements OfflinePaymentProofRep
                 .update();
     }
 
+    @Override
+    public java.util.Optional<OfflinePaymentProof> findLatestSettledBySenderDeviceId(String senderDeviceId) {
+        String sql = """
+                SELECT offline_payment_proofs.*
+                FROM offline_payment_proofs
+                WHERE offline_payment_proofs.sender_device_id = :senderDeviceId
+                  AND offline_payment_proofs.status = 'SETTLED'
+                ORDER BY offline_payment_proofs.counter DESC,
+                         offline_payment_proofs.created_at DESC
+                LIMIT 1
+                """;
+        return jdbcClient.sql(sql)
+                .param("senderDeviceId", senderDeviceId)
+                .query(offlinePaymentProofRowMapper)
+                .optional();
+    }
+
     private String normalizeReasonCode(OfflineProofStatus status, String reasonCode) {
         return switch (status) {
             case SETTLED -> reasonCode == null || reasonCode.isBlank() ? OfflinePayReasonCode.SETTLED : reasonCode;

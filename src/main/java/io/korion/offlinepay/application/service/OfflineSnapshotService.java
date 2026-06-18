@@ -5,6 +5,7 @@ import io.korion.offlinepay.application.port.CoinManageCollateralPort;
 import io.korion.offlinepay.application.port.DeviceRepository;
 import io.korion.offlinepay.application.port.FoxCoinWalletSnapshotPort;
 import io.korion.offlinepay.application.port.IssuedOfflineProofRepository;
+import io.korion.offlinepay.application.port.OfflinePaymentProofRepository;
 import io.korion.offlinepay.config.AppProperties;
 import io.korion.offlinepay.domain.model.CollateralLock;
 import io.korion.offlinepay.domain.model.Device;
@@ -25,6 +26,7 @@ public class OfflineSnapshotService {
     private final DeviceRepository deviceRepository;
     private final CollateralRepository collateralRepository;
     private final IssuedOfflineProofRepository issuedOfflineProofRepository;
+    private final OfflinePaymentProofRepository proofRepository;
     private final FoxCoinWalletSnapshotPort foxCoinWalletSnapshotPort;
     private final CoinManageCollateralPort coinManageCollateralPort;
     private final AppProperties properties;
@@ -36,6 +38,7 @@ public class OfflineSnapshotService {
             DeviceRepository deviceRepository,
             CollateralRepository collateralRepository,
             IssuedOfflineProofRepository issuedOfflineProofRepository,
+            OfflinePaymentProofRepository proofRepository,
             FoxCoinWalletSnapshotPort foxCoinWalletSnapshotPort,
             CoinManageCollateralPort coinManageCollateralPort,
             AppProperties properties,
@@ -46,6 +49,7 @@ public class OfflineSnapshotService {
         this.deviceRepository = deviceRepository;
         this.collateralRepository = collateralRepository;
         this.issuedOfflineProofRepository = issuedOfflineProofRepository;
+        this.proofRepository = proofRepository;
         this.foxCoinWalletSnapshotPort = foxCoinWalletSnapshotPort;
         this.coinManageCollateralPort = coinManageCollateralPort;
         this.properties = properties;
@@ -345,4 +349,39 @@ public class OfflineSnapshotService {
             return "";
         }
     }
+
+    // Checkpoint validity window — client should refresh on every server sync.
+    private static final long CHECKPOINT_EXPIRY_MS = 7L * 24 * 60 * 60 * 1000;
+
+    @Transactional(readOnly = true)
+    public TrustedCheckpoint generateCheckpoint(String senderDeviceId, String assetCode) {
+        var latestProof = proofRepository.findLatestSettledBySenderDeviceId(senderDeviceId);
+        String stateHash = latestProof.map(io.korion.offlinepay.domain.model.OfflinePaymentProof::hashChainHead).orElse("GENESIS");
+        long counter = latestProof.map(io.korion.offlinepay.domain.model.OfflinePaymentProof::counter).orElse(0L);
+        String normalizedAsset = assetCode == null || assetCode.isBlank() ? "KORI" : assetCode.trim().toUpperCase();
+        long issuedAtMs = System.currentTimeMillis();
+        long expiresAtMs = issuedAtMs + CHECKPOINT_EXPIRY_MS;
+        String signingPayload = "CHECKPOINT_V1|" + senderDeviceId + "|" + normalizedAsset
+                + "|" + stateHash + "|" + counter + "|" + issuedAtMs + "|" + expiresAtMs;
+        String signature = proofIssuerSignatureService.sign(signingPayload);
+        return new TrustedCheckpoint(
+                senderDeviceId, normalizedAsset, stateHash, counter,
+                issuedAtMs, expiresAtMs,
+                proofIssuerSignatureService.keyId(),
+                proofIssuerSignatureService.publicKey(),
+                signature
+        );
+    }
+
+    public record TrustedCheckpoint(
+            String deviceId,
+            String assetCode,
+            String stateHash,
+            long counter,
+            long issuedAtMs,
+            long expiresAtMs,
+            String issuerKeyId,
+            String issuerPublicKey,
+            String signature
+    ) {}
 }

@@ -42,6 +42,8 @@ public interface OfflinePaymentProofRepository {
 
     java.util.Optional<OfflinePaymentProof> findBySenderOfflineTxSequence(String senderDeviceId, long offlineTxSequence);
 
+    java.util.Optional<OfflinePaymentProof> findLatestSettledBySenderDeviceId(String senderDeviceId);
+
     java.util.List<OfflinePaymentProof> findByCollateralId(String collateralId);
 
     java.util.List<OfflinePaymentProof> findBySenderDeviceUserAndAsset(String senderDeviceId, long userId, String assetCode);
