@@ -552,8 +552,20 @@ public class SettlementApplicationService {
         if (securityBindingError != null) {
             return new LocalEvidenceVerification("FAILED", securityBindingError);
         }
-        DeviceSignatureVerificationService.VerificationResult signatureVerification =
-                deviceSignatureVerificationService.verifyPayload(device, canonicalPayload, evidence.signature());
+        String sigAlgorithm = canonical.path("signatureAlgorithm").asText("");
+        DeviceSignatureVerificationService.VerificationResult signatureVerification;
+        if ("MANIFEST_V1".equals(sigAlgorithm)) {
+            // submittedHash == sha256Hex(canonicalPayload) was verified above — reuse it.
+            signatureVerification = deviceSignatureVerificationService.verifyManifestV1(
+                    device, submittedHash,
+                    canonical.path("amount").asText(""),
+                    evidence.counter(),
+                    expectedDeviceId, evidence.sessionId(),
+                    canonical.path("nonce").asText(""),
+                    canonical.path("createdAt").asText(""), evidence.signature());
+        } else {
+            signatureVerification = deviceSignatureVerificationService.verifyPayload(device, canonicalPayload, evidence.signature());
+        }
         if (!signatureVerification.verified()) {
             return new LocalEvidenceVerification("FAILED", "local evidence signature invalid: " + signatureVerification.detail());
         }

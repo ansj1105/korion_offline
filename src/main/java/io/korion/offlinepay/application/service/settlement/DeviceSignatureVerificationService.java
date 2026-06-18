@@ -81,6 +81,50 @@ public class DeviceSignatureVerificationService {
         }
     }
 
+    /**
+     * Verifies a MANIFEST_V1 signature.
+     * The client signs: "MANIFEST_V1|{sha256hex(canonicalPayload)}|amount|counter|deviceId|sessionId|nonce|createdAt"
+     * payloadHash is sha256hex(canonicalPayload), which the caller has already computed.
+     */
+    public VerificationResult verifyManifestV1(
+            Device device,
+            String payloadHash,
+            String amount,
+            Long counter,
+            String deviceId,
+            String sessionId,
+            String nonce,
+            String createdAt,
+            String signature
+    ) {
+        if (signature == null || signature.isBlank()) {
+            return VerificationResult.invalidResult("missing signature");
+        }
+        if (device.publicKey() == null || device.publicKey().isBlank()) {
+            return VerificationResult.unsupportedResult("device public key missing");
+        }
+        try {
+            // Reconstruct the manifest signing payload exactly as the client built it.
+            String manifestPayload = "MANIFEST_V1|" + safe(payloadHash) + "|"
+                    + safe(amount) + "|" + (counter == null ? "" : counter) + "|"
+                    + safe(deviceId) + "|" + safe(sessionId) + "|"
+                    + safe(nonce) + "|" + safe(createdAt);
+            PublicKey publicKey = parseEcPublicKey(device.publicKey());
+            Signature verifier = Signature.getInstance("SHA256withECDSA");
+            verifier.initVerify(publicKey);
+            verifier.update(manifestPayload.getBytes(StandardCharsets.UTF_8));
+            boolean verified = verifier.verify(Base64.getDecoder().decode(normalizeBase64(signature)));
+            return verified
+                    ? VerificationResult.verifiedResult()
+                    : VerificationResult.invalidResult(
+                            "manifest_v1 signature mismatch; manifestHash=" + signingPayloadHashForVerification(manifestPayload));
+        } catch (IllegalArgumentException exception) {
+            return VerificationResult.invalidResult("invalid signature encoding");
+        } catch (Exception exception) {
+            return VerificationResult.unsupportedResult(exception.getMessage());
+        }
+    }
+
     private PublicKey parseEcPublicKey(String encodedPublicKey) throws Exception {
         byte[] bytes = Base64.getDecoder().decode(normalizeBase64(stripPem(encodedPublicKey)));
         X509EncodedKeySpec keySpec = new X509EncodedKeySpec(bytes);
