@@ -73,6 +73,34 @@ public class IssuedProofApplicationService {
         );
         CollateralLock collateral = selectPrimaryCollateral(collaterals)
                 .orElseThrow(() -> new IllegalArgumentException("collateral expired for asset: " + normalizedAssetCode));
+        Optional<IssuedOfflineProof> existingActive = issuedOfflineProofRepository
+                .findLatestActiveByUserIdAndDeviceIdAndAssetCode(command.userId(), command.deviceId(), normalizedAssetCode);
+        if (existingActive.isPresent()) {
+            IssuedOfflineProof existing = existingActive.get();
+            if (collaterals.stream().anyMatch(c -> c.id().equals(existing.collateralId()))) {
+                List<String> currentCollateralLockIds = collaterals.stream()
+                        .map(CollateralLock::id)
+                        .toList();
+                return new IssuedProofEnvelope(
+                        existing.id(),
+                        existing.userId(),
+                        existing.deviceId(),
+                        existing.collateralId(),
+                        existing.assetCode(),
+                        existing.usableAmount().toPlainString(),
+                        existing.proofNonce(),
+                        existing.issuerKeyId(),
+                        existing.issuerPublicKey(),
+                        existing.issuerSignature(),
+                        existing.issuedPayloadJson(),
+                        existing.status().name(),
+                        existing.expiresAt().toString(),
+                        existing.createdAt().toString(),
+                        currentCollateralLockIds
+                );
+            }
+        }
+
         BigDecimal usableAmount = collaterals.stream()
                 .map(CollateralLock::remainingAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
