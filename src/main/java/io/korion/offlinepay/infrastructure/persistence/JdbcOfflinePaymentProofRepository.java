@@ -368,6 +368,7 @@ public class JdbcOfflinePaymentProofRepository implements OfflinePaymentProofRep
                 .set("received_collateral_settled_at", "COALESCE(received_collateral_settled_at, NOW())")
                 .touchUpdatedAt()
                 .where("id", QueryBuilder.Op.IN, "(:proofIds)")
+                .where("status", QueryBuilder.Op.EQ, "'SETTLED'")
                 .where("received_unsettled_amount", QueryBuilder.Op.GT, "0")
                 .build();
         return jdbcClient.sql(sql)
