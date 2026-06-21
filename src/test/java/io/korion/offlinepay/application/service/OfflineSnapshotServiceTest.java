@@ -12,6 +12,7 @@ import io.korion.offlinepay.application.port.CoinManageCollateralPort;
 import io.korion.offlinepay.application.port.DeviceRepository;
 import io.korion.offlinepay.application.port.FoxCoinWalletSnapshotPort;
 import io.korion.offlinepay.application.port.IssuedOfflineProofRepository;
+import io.korion.offlinepay.application.port.OfflinePaymentProofRepository;
 import io.korion.offlinepay.config.AppProperties;
 import io.korion.offlinepay.domain.model.CollateralLock;
 import io.korion.offlinepay.domain.model.Device;
@@ -71,6 +72,7 @@ class OfflineSnapshotServiceTest {
                 deviceRepository,
                 collateralRepository,
                 issuedOfflineProofRepository,
+                mock(OfflinePaymentProofRepository.class),
                 foxCoinWalletSnapshotPort,
                 coinManageCollateralPort,
                 new AppProperties(
@@ -169,6 +171,7 @@ class OfflineSnapshotServiceTest {
                 deviceRepository,
                 collateralRepository,
                 issuedOfflineProofRepository,
+                mock(OfflinePaymentProofRepository.class),
                 foxCoinWalletSnapshotPort,
                 coinManageCollateralPort,
                 new AppProperties(
@@ -297,6 +300,7 @@ class OfflineSnapshotServiceTest {
                 deviceRepository,
                 collateralRepository,
                 issuedOfflineProofRepository,
+                mock(OfflinePaymentProofRepository.class),
                 foxCoinWalletSnapshotPort,
                 coinManageCollateralPort,
                 new AppProperties(

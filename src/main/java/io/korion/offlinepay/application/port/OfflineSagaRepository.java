@@ -32,4 +32,6 @@ public interface OfflineSagaRepository {
     List<OfflineSaga> findRecent(int limit, OfflineSagaType sagaType, OfflineSagaStatus status);
 
     List<OfflineSaga> findReceiverHistoryPendingDue(OffsetDateTime referenceTime, OffsetDateTime fallbackCutoff, int limit);
+
+    List<OfflineSaga> findReceiverHistoryPendingStale(OffsetDateTime updatedBefore, int limit);
 }

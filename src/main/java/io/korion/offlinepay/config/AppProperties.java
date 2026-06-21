@@ -26,7 +26,8 @@ public record AppProperties(
                     envInt("SETTLEMENT_WORKER_MAX_ATTEMPTS", 3),
                     envLong("RECEIVER_HISTORY_PENDING_TIMEOUT_MS", 86_400_000L),
                     envInt("RECEIVER_HISTORY_PENDING_SCAN_LIMIT", 20),
-                    envInt("LOCAL_EVIDENCE_RECONCILIATION_LIMIT", 20)
+                    envInt("LOCAL_EVIDENCE_RECONCILIATION_LIMIT", 20),
+                    envLong("RECEIVER_HISTORY_AUTO_CONFIRM_DELAY_MS", 300_000L)
             );
         }
     }
@@ -82,16 +83,18 @@ public record AppProperties(
             int maxAttempts,
             long receiverHistoryPendingTimeoutMs,
             int receiverHistoryPendingScanLimit,
-            int localEvidenceReconciliationLimit
+            int localEvidenceReconciliationLimit,
+            long receiverHistoryAutoConfirmDelayMs
     ) {
         public Worker(boolean enabled, String consumerName, int claimIdleMs, int maxAttempts) {
-            this(enabled, consumerName, claimIdleMs, maxAttempts, 86_400_000L, 20, 20);
+            this(enabled, consumerName, claimIdleMs, maxAttempts, 86_400_000L, 20, 20, 300_000L);
         }
 
         public Worker {
             receiverHistoryPendingTimeoutMs = receiverHistoryPendingTimeoutMs <= 0 ? 86_400_000L : receiverHistoryPendingTimeoutMs;
             receiverHistoryPendingScanLimit = receiverHistoryPendingScanLimit <= 0 ? 20 : receiverHistoryPendingScanLimit;
             localEvidenceReconciliationLimit = localEvidenceReconciliationLimit <= 0 ? 20 : localEvidenceReconciliationLimit;
+            receiverHistoryAutoConfirmDelayMs = receiverHistoryAutoConfirmDelayMs <= 0 ? 300_000L : receiverHistoryAutoConfirmDelayMs;
         }
     }
 

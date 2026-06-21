@@ -136,4 +136,28 @@ public class JdbcOfflineSagaRepository implements OfflineSagaRepository {
                 .query(rowMapper)
                 .list();
     }
+
+    @Override
+    public List<OfflineSaga> findReceiverHistoryPendingStale(OffsetDateTime updatedBefore, int limit) {
+        String sql = """
+                SELECT offline_sagas.*
+                FROM offline_sagas
+                WHERE offline_sagas.saga_type = :sagaType
+                  AND offline_sagas.status = :status
+                  AND offline_sagas.current_step = :currentStep
+                  AND offline_sagas.payload_json @> CAST(:pendingPayload AS jsonb)
+                  AND offline_sagas.updated_at < :updatedBefore
+                ORDER BY offline_sagas.updated_at ASC
+                LIMIT :limit
+                """;
+        return jdbcClient.sql(sql)
+                .param("sagaType", OfflineSagaType.SETTLEMENT.name())
+                .param("status", OfflineSagaStatus.PARTIALLY_APPLIED.name())
+                .param("currentStep", "HISTORY_SYNCED")
+                .param("pendingPayload", "{\"receiverHistoryPending\":true}")
+                .param("updatedBefore", updatedBefore)
+                .param("limit", Math.max(1, limit))
+                .query(rowMapper)
+                .list();
+    }
 }

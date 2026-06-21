@@ -321,6 +321,39 @@ public class SettlementApplicationService {
         return new DirectLocalEvidenceReconcileResult(candidates.size(), created, reused, finalized, rejected, skipped, batchIds, settlementIds);
     }
 
+    @Transactional
+    public AutoConfirmPendingReceiverHistoryResult autoConfirmStalePendingReceiverHistory(
+            List<OfflineSaga> staleSagas
+    ) {
+        int attempted = 0;
+        int confirmed = 0;
+        int skipped = 0;
+        for (OfflineSaga saga : staleSagas) {
+            String settlementId = saga.referenceId();
+            SettlementRequest request = settlementRepository.findById(settlementId).orElse(null);
+            if (request == null || request.status() != SettlementStatus.SETTLED) {
+                skipped++;
+                continue;
+            }
+            OfflinePaymentProof proof = proofRepository.findById(request.proofId()).orElse(null);
+            if (proof == null || proof.receiverDeviceId() == null || proof.receiverDeviceId().isBlank()) {
+                skipped++;
+                continue;
+            }
+            attempted++;
+            handleReceiverOnlineConfirmation(proof, request);
+            confirmed++;
+        }
+        return new AutoConfirmPendingReceiverHistoryResult(staleSagas.size(), attempted, confirmed, skipped);
+    }
+
+    public record AutoConfirmPendingReceiverHistoryResult(
+            int candidates,
+            int attempted,
+            int confirmed,
+            int skipped
+    ) {}
+
     @Transactional(readOnly = true)
     public LocalEvidenceStatusResult getLocalEvidenceStatus(String voucherId, String sessionId) {
         return getLocalEvidenceStatus(voucherId, sessionId, 24);

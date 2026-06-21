@@ -55,3 +55,4 @@ offline-pay:
     receiver-history-pending-scan-limit: ${RECEIVER_HISTORY_PENDING_SCAN_LIMIT:20}
     local-evidence-reconciliation-delay-ms: ${LOCAL_EVIDENCE_RECONCILIATION_DELAY_MS:15000}
     local-evidence-reconciliation-limit: ${LOCAL_EVIDENCE_RECONCILIATION_LIMIT:20}
+    receiver-history-auto-confirm-delay-ms: ${RECEIVER_HISTORY_AUTO_CONFIRM_DELAY_MS:300000}

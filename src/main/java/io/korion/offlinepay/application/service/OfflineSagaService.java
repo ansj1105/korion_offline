@@ -122,4 +122,8 @@ public class OfflineSagaService {
     public List<OfflineSaga> findReceiverHistoryPendingDue(OffsetDateTime referenceTime, OffsetDateTime fallbackCutoff, int limit) {
         return offlineSagaRepository.findReceiverHistoryPendingDue(referenceTime, fallbackCutoff, limit);
     }
+
+    public List<OfflineSaga> findReceiverHistoryPendingStale(OffsetDateTime updatedBefore, int limit) {
+        return offlineSagaRepository.findReceiverHistoryPendingStale(updatedBefore, limit);
+    }
 }

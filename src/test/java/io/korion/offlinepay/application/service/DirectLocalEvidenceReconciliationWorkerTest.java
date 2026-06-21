@@ -1,5 +1,7 @@
 package io.korion.offlinepay.application.service;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -12,15 +14,19 @@ import org.mockito.Mockito;
 class DirectLocalEvidenceReconciliationWorkerTest {
 
     private final SettlementApplicationService settlementApplicationService = Mockito.mock(SettlementApplicationService.class);
+    private final OfflineSagaService offlineSagaService = Mockito.mock(OfflineSagaService.class);
 
     @Test
     void pollReconcilesDirectLocalEvidenceWhenWorkerEnabled() {
         DirectLocalEvidenceReconciliationWorker worker = new DirectLocalEvidenceReconciliationWorker(
                 settlementApplicationService,
+                offlineSagaService,
                 properties(true, 7)
         );
         when(settlementApplicationService.reconcileDirectLocalEvidence(7))
                 .thenReturn(new SettlementApplicationService.DirectLocalEvidenceReconcileResult(1, 1, 0, 1, 0, 0, List.of("batch-1"), List.of("settlement-1")));
+        when(offlineSagaService.findReceiverHistoryPendingStale(any(), anyInt()))
+                .thenReturn(List.of());
 
         worker.poll();
 
@@ -31,12 +37,14 @@ class DirectLocalEvidenceReconciliationWorkerTest {
     void pollSkipsWhenWorkerDisabled() {
         DirectLocalEvidenceReconciliationWorker worker = new DirectLocalEvidenceReconciliationWorker(
                 settlementApplicationService,
+                offlineSagaService,
                 properties(false, 7)
         );
 
         worker.poll();
 
         verify(settlementApplicationService, never()).reconcileDirectLocalEvidence(7);
+        verify(offlineSagaService, never()).findReceiverHistoryPendingStale(any(), anyInt());
     }
 
     private AppProperties properties(boolean enabled, int localEvidenceReconciliationLimit) {
@@ -69,7 +77,8 @@ class DirectLocalEvidenceReconciliationWorkerTest {
                         3,
                         86_400_000L,
                         20,
-                        localEvidenceReconciliationLimit
+                        localEvidenceReconciliationLimit,
+                        300_000L
                 )
         );
     }
