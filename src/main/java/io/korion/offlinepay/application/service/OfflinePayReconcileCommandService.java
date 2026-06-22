@@ -11,6 +11,7 @@ import java.time.Clock;
 import java.time.OffsetDateTime;
 import java.util.Map;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,6 +27,7 @@ public class OfflinePayReconcileCommandService {
     private final ProofIssuerSignatureService signatureService;
     private final Clock clock;
 
+    @Autowired
     public OfflinePayReconcileCommandService(
             DeviceRepository deviceRepository,
             OfflineLedgerService offlineLedgerService,
