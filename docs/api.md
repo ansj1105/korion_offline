@@ -12,6 +12,7 @@ tags:
   - name: Device
   - name: Collateral
   - name: Settlement
+  - name: OfflinePayHub
   - name: Time
   - name: ClientTrace
   - name: Admin
@@ -589,6 +590,63 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HubSummaryResponse'
+
+  /api/offline-pay/reconcile/commands/poll:
+    post:
+      tags: [OfflinePayHub]
+      summary: user-scope 로컬 표시 원장 reconcile command poll
+      description: |
+        앱이 보고한 local ledger/outbox summary와 서버 Hub projection summary 사이에 gap이 있거나,
+        서버가 이미 생성한 runnable command가 있으면 signed reconcile command를 반환한다.
+        대상 scope는 userId + assetCode이며, deviceId는 ACTIVE 등록 보안 디바이스 실행 권한 검증에만 사용한다.
+        앱은 command 수신 후 pending outbox worker 실행, 서버 projection 전체 page fetch, local ledger dry-run/apply, summary report 순서로 처리한다.
+      operationId: pollOfflinePayReconcileCommand
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PollReconcileCommandRequest'
+      responses:
+        '200':
+          description: reconcile command 또는 no-op 응답
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PollReconcileCommandResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/offline-pay/reconcile/commands/{commandId}/report:
+    post:
+      tags: [OfflinePayHub]
+      summary: reconcile command 실행 결과 보고
+      description: |
+        앱은 nonce/expiry/signature 검증 후 local ledger reconcile dry-run/apply 결과와 local summary를 보고한다.
+        서버는 command의 userId와 요청 deviceId의 ACTIVE 등록 userId가 일치하는지 검증한다.
+      operationId: reportOfflinePayReconcileCommand
+      parameters:
+        - in: path
+          name: commandId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReportReconcileCommandRequest'
+      responses:
+        '200':
+          description: reconcile command report 반영 결과
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportReconcileCommandResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
 
   /api/admin/conflicts:
     get:
@@ -1198,6 +1256,105 @@ components:
         failedCount: { type: integer }
         pendingCount: { type: integer }
         refreshedAt: { type: string, format: date-time }
+
+    PollReconcileCommandRequest:
+      type: object
+      required: [deviceId]
+      properties:
+        deviceId:
+          type: string
+          description: ACTIVE 등록 보안 디바이스 검증용 ID. reconcile target scope는 이 디바이스의 userId 기준이다.
+        assetCode:
+          type: string
+          default: KORI
+        localSummary:
+          type: object
+          additionalProperties: true
+          description: 앱 로컬 ledger/outbox summary. 서버는 이 값과 Hub summary gap이 있을 때 command를 생성할 수 있다.
+
+    PollReconcileCommandResponse:
+      type: object
+      required: [deviceId, userId, assetCode, hasCommand, reasonCode]
+      properties:
+        deviceId: { type: string }
+        userId: { type: integer, format: int64 }
+        assetCode: { type: string }
+        hasCommand: { type: boolean }
+        reasonCode:
+          type: string
+          enum:
+            - NO_RECONCILE_REQUIRED
+            - RECONCILE_COMMAND_AVAILABLE
+        command:
+          nullable: true
+          $ref: '#/components/schemas/SignedReconcileCommand'
+
+    SignedReconcileCommand:
+      type: object
+      required: [id, userId, assetCode, reasonCode, projectionVersion, expiresAt, nonce, status, signingPayload, signature, signingKeyId, signingPublicKey, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        userId: { type: integer, format: int64 }
+        assetCode: { type: string }
+        reasonCode:
+          type: string
+          enum:
+            - LOCAL_OUTBOX_PENDING
+            - LOCAL_PENDING_SERVER_PROJECTION_GAP
+            - LOCAL_UNSETTLED_SERVER_PROJECTION_GAP
+            - LOCAL_COLLATERAL_SERVER_PROJECTION_GAP
+            - OFFLINE_COLLATERAL_PENDING_MISMATCH
+        projectionVersion: { type: string }
+        expiresAt: { type: string, format: date-time }
+        nonce: { type: string }
+        status:
+          type: string
+          enum: [PENDING, DELIVERED, APPLIED, FAILED, EXPIRED]
+        signingPayload:
+          type: string
+          description: RECONCILE_COMMAND_V1 canonical payload. 앱은 이 payload와 signature를 검증한다.
+        signature: { type: string }
+        signingKeyId: { type: string }
+        signingPublicKey: { type: string }
+        createdAt: { type: string, format: date-time }
+
+    ReportReconcileCommandRequest:
+      type: object
+      required: [deviceId, nonce, status]
+      properties:
+        deviceId:
+          type: string
+          description: ACTIVE 등록 보안 디바이스 검증용 ID.
+        nonce:
+          type: string
+          description: poll 응답 command nonce. 재사용/만료 검증 대상.
+        status:
+          type: string
+          enum: [APPLIED, FAILED]
+        dryRunSummary:
+          type: object
+          additionalProperties: true
+        applySummary:
+          type: object
+          additionalProperties: true
+        localSummary:
+          type: object
+          additionalProperties: true
+        errorMessage:
+          type: string
+
+    ReportReconcileCommandResponse:
+      type: object
+      required: [commandId, deviceId, userId, assetCode, status, updatedAt]
+      properties:
+        commandId: { type: string, format: uuid }
+        deviceId: { type: string }
+        userId: { type: integer, format: int64 }
+        assetCode: { type: string }
+        status:
+          type: string
+          enum: [APPLIED, FAILED, EXPIRED]
+        updatedAt: { type: string, format: date-time }
 
     RegisterDeviceRequest:
       type: object

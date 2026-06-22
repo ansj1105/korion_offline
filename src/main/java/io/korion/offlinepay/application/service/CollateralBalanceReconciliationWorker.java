@@ -2,12 +2,14 @@ package io.korion.offlinepay.application.service;
 
 import io.korion.offlinepay.application.port.CoinManageSettlementPort;
 import io.korion.offlinepay.application.port.CollateralRepository;
+import io.korion.offlinepay.application.port.OfflinePayReconcileCommandRepository;
 import io.korion.offlinepay.application.port.ReconciliationCaseRepository;
 import io.korion.offlinepay.config.AppProperties;
 import io.korion.offlinepay.domain.status.ReconciliationCaseStatus;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.Map;
+import java.util.UUID;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -16,10 +18,12 @@ public class CollateralBalanceReconciliationWorker {
 
     private static final String CASE_TYPE = "COLLATERAL_PENDING_MISMATCH";
     private static final String REASON_CODE = "OFFLINE_COLLATERAL_PENDING_MISMATCH";
+    private static final long RECONCILE_COMMAND_TTL_HOURS = 24;
 
     private final CollateralRepository collateralRepository;
     private final CoinManageSettlementPort coinManageSettlementPort;
     private final ReconciliationCaseRepository reconciliationCaseRepository;
+    private final OfflinePayReconcileCommandRepository reconcileCommandRepository;
     private final TelegramAlertService telegramAlertService;
     private final JsonService jsonService;
     private final AppProperties properties;
@@ -28,6 +32,7 @@ public class CollateralBalanceReconciliationWorker {
             CollateralRepository collateralRepository,
             CoinManageSettlementPort coinManageSettlementPort,
             ReconciliationCaseRepository reconciliationCaseRepository,
+            OfflinePayReconcileCommandRepository reconcileCommandRepository,
             TelegramAlertService telegramAlertService,
             JsonService jsonService,
             AppProperties properties
@@ -35,6 +40,7 @@ public class CollateralBalanceReconciliationWorker {
         this.collateralRepository = collateralRepository;
         this.coinManageSettlementPort = coinManageSettlementPort;
         this.reconciliationCaseRepository = reconciliationCaseRepository;
+        this.reconcileCommandRepository = reconcileCommandRepository;
         this.telegramAlertService = telegramAlertService;
         this.jsonService = jsonService;
         this.properties = properties;
@@ -69,11 +75,13 @@ public class CollateralBalanceReconciliationWorker {
             return;
         }
 
+        BigDecimal delta = coinManagePending.subtract(offlineRemaining);
         if (reconciliationCaseRepository.findOpenBySettlementIdAndCaseType(syntheticSettlementId, CASE_TYPE).isPresent()) {
+            ensureReconcileCommand(summary, offlineRemaining, coinManagePending, delta);
             return;
         }
 
-        BigDecimal delta = coinManagePending.subtract(offlineRemaining);
+        ensureReconcileCommand(summary, offlineRemaining, coinManagePending, delta);
         reconciliationCaseRepository.save(
                 syntheticSettlementId,
                 "",
@@ -102,6 +110,38 @@ public class CollateralBalanceReconciliationWorker {
                         + ", offlineRemaining=" + offlineRemaining.toPlainString()
                         + ", coinManagePending=" + coinManagePending.toPlainString()
                         + ", delta=" + delta.toPlainString()
+        );
+    }
+
+    private void ensureReconcileCommand(
+            CollateralRepository.CollateralBalanceSummary summary,
+            BigDecimal offlineRemaining,
+            BigDecimal coinManagePending,
+            BigDecimal delta
+    ) {
+        OffsetDateTime now = OffsetDateTime.now();
+        if (reconcileCommandRepository
+                .findRunnableByUserIdAndAssetCode(summary.userId(), summary.assetCode(), now)
+                .isPresent()) {
+            return;
+        }
+        reconcileCommandRepository.create(
+                summary.userId(),
+                summary.assetCode(),
+                REASON_CODE,
+                "collateral-balance:" + summary.assetCode() + ":" + now,
+                UUID.randomUUID().toString(),
+                now.plusHours(RECONCILE_COMMAND_TTL_HOURS),
+                Map.ofEntries(
+                        Map.entry("source", "COLLATERAL_BALANCE_RECONCILIATION_WORKER"),
+                        Map.entry("userId", summary.userId()),
+                        Map.entry("assetCode", summary.assetCode()),
+                        Map.entry("offlineRemainingAmount", offlineRemaining.toPlainString()),
+                        Map.entry("coinManageOfflinePayPendingBalance", coinManagePending.toPlainString()),
+                        Map.entry("deltaAmount", delta.toPlainString()),
+                        Map.entry("lockedAmount", summary.lockedAmount().toPlainString()),
+                        Map.entry("detectedAt", now.toString())
+                )
         );
     }
 
