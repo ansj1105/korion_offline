@@ -662,6 +662,7 @@ public class SettlementExternalSyncWorker {
                 requireText(node, "deviceId"),
                 node.hasNonNull("receiverUserId") ? node.path("receiverUserId").asLong() : null,
                 node.hasNonNull("receiverDeviceId") ? node.path("receiverDeviceId").asText() : null,
+                node.path("receiverWalletSettlementRequested").asBoolean(false),
                 requireText(node, "assetCode"),
                 node.path("amount").decimalValue(),
                 node.hasNonNull("feeAmount") ? node.path("feeAmount").decimalValue() : BigDecimal.ZERO,

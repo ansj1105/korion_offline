@@ -32,7 +32,8 @@ public class SettlementSyncCommandFactory {
             String settlementStatus,
             String releaseAction,
             boolean conflictDetected,
-            Device receiverDevice
+            Device receiverDevice,
+            boolean receiverWalletSettlementRequested
     ) {
         String senderDeviceId = proof.senderDeviceId();
         String proofFingerprint = proofFingerprintService.computeFingerprint(
@@ -56,6 +57,7 @@ public class SettlementSyncCommandFactory {
                 senderDeviceId,
                 receiverDevice == null ? null : receiverDevice.userId(),
                 receiverDevice == null ? null : receiverDevice.deviceId(),
+                receiverWalletSettlementRequested,
                 collateral.assetCode(),
                 amount,
                 settlementFeeAmount(collateral.assetCode(), amount, settlementStatus, releaseAction),

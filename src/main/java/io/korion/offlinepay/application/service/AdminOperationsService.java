@@ -292,7 +292,8 @@ public class AdminOperationsService {
                 "SETTLED",
                 "RELEASE",
                 false,
-                null
+                null,
+                false
         );
         settlementBatchEventBus.publishExternalSyncRequested(
                 OfflineWorkflowEventType.LEDGER_COMPENSATION_REQUESTED.name(),

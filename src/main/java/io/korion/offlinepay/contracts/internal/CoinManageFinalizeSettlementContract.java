@@ -12,6 +12,7 @@ public record CoinManageFinalizeSettlementContract(
         String deviceId,
         String receiverUserId,
         String receiverDeviceId,
+        boolean receiverWalletSettlementRequested,
         String assetCode,
         String amount,
         String feeAmount,
