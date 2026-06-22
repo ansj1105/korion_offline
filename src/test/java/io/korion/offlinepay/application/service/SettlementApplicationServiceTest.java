@@ -777,6 +777,20 @@ class SettlementApplicationServiceTest {
                 .thenReturn(Optional.empty());
         when(deviceRepository.findByDeviceId("receiver-device")).thenReturn(Optional.of(receiverDevice));
         when(collateralRepository.findById("collateral-receiver-auto-confirm")).thenReturn(Optional.of(collateral));
+        when(coinManageSettlementPort.finalizeSettlement(any(CoinManageSettlementPort.SettlementLedgerCommand.class)))
+                .thenReturn(new CoinManageSettlementPort.SettlementLedgerResult(
+                        "settlement-receiver-auto-confirm",
+                        "FINALIZED",
+                        "RELEASE",
+                        true,
+                        "SENDER",
+                        "LEDGER_AND_EXTERNAL_HISTORY_SYNC",
+                        "SENDER_LEDGER_PLUS_RECEIVER_LEDGER_AND_HISTORY",
+                        "OFFLINE_PAY_SAGA",
+                        new BigDecimal("0.000000"),
+                        new BigDecimal("0.000000"),
+                        new BigDecimal("0.000000")
+                ));
 
         SettlementBatch result = service.submitBatch(new SettlementApplicationService.SubmitSettlementBatchCommand(
                 SettlementApplicationService.UploaderType.RECEIVER,
@@ -788,12 +802,18 @@ class SettlementApplicationServiceTest {
 
         assertEquals(SettlementBatchStatus.SETTLED, result.status());
         verify(proofRepository).ensureReceivedUnsettledAmount("proof-receiver-auto-confirm", new BigDecimal("5.294700"));
+        verify(coinManageSettlementPort).finalizeSettlement(argThat(command ->
+                command.receiverWalletSettlementRequested()
+                        && Long.valueOf(88L).equals(command.receiverUserId())
+                        && "receiver-device".equals(command.receiverDeviceId())
+        ));
         verify(eventBus).publishExternalSyncRequested(
                 eq("RECEIVER_HISTORY_SYNC_REQUESTED"),
                 eq("settlement-receiver-auto-confirm"),
                 eq("batch-existing-receiver-auto-confirm"),
                 eq("proof-receiver-auto-confirm"),
                 argThat(payload -> payload.contains("\"receiverHistoryCommand\"")
+                        && payload.contains("\"receiverWalletSettlementRequested\":true")
                         && payload.contains("\"receiverOnlineConfirmedAt\"")),
                 anyString()
         );

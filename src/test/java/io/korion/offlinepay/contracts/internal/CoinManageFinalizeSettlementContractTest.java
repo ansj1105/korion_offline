@@ -25,6 +25,7 @@ class CoinManageFinalizeSettlementContractTest {
                 "sender-device-1",
                 null,
                 null,
+                false,
                 "KORI",
                 new BigDecimal("1.000000").toPlainString(),
                 new BigDecimal("0.001000").toPlainString(),
@@ -56,6 +57,7 @@ class CoinManageFinalizeSettlementContractTest {
                 "sender-device-1",
                 "39",
                 "receiver-device-1",
+                true,
                 "KORI",
                 new BigDecimal("1.000000").toPlainString(),
                 new BigDecimal("0.001000").toPlainString(),
@@ -74,5 +76,6 @@ class CoinManageFinalizeSettlementContractTest {
 
         assertTrue(json.contains("\"receiverUserId\":\"39\""));
         assertTrue(json.contains("\"receiverDeviceId\":\"receiver-device-1\""));
+        assertTrue(json.contains("\"receiverWalletSettlementRequested\":true"));
     }
 }

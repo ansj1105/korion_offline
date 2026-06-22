@@ -85,6 +85,7 @@ public class SettlementApplicationService {
     private final SettlementConflictRepository settlementConflictRepository;
     private final SettlementBatchEventBus eventBus;
     private final OfflineSagaService offlineSagaService;
+    private final CoinManageSettlementPort coinManageSettlementPort;
     private final JsonService jsonService;
     private final SettlementBatchFactory settlementBatchFactory;
     private final SettlementRequestFactory settlementRequestFactory;
@@ -146,6 +147,7 @@ public class SettlementApplicationService {
         this.settlementConflictRepository = settlementConflictRepository;
         this.eventBus = eventBus;
         this.offlineSagaService = offlineSagaService;
+        this.coinManageSettlementPort = coinManageSettlementPort;
         this.jsonService = jsonService;
         this.settlementBatchFactory = settlementBatchFactory;
         this.settlementRequestFactory = settlementRequestFactory;
@@ -337,6 +339,10 @@ public class SettlementApplicationService {
             }
             OfflinePaymentProof proof = proofRepository.findById(request.proofId()).orElse(null);
             if (proof == null || proof.receiverDeviceId() == null || proof.receiverDeviceId().isBlank()) {
+                skipped++;
+                continue;
+            }
+            if (!shouldAutoConfirmReceiverSettlement(proof)) {
                 skipped++;
                 continue;
             }
@@ -1386,6 +1392,19 @@ public class SettlementApplicationService {
         }
         CollateralLock collateral = collateralRepository.findById(request.collateralId())
                 .orElseThrow(() -> new IllegalStateException("collateral not found for settlement: " + request.id()));
+        CoinManageSettlementPort.SettlementLedgerCommand receiverLedgerCommand = settlementSyncCommandFactory.createLedgerCommand(
+                collateral,
+                proof,
+                proof.amount(),
+                request,
+                request.status().name(),
+                "RELEASE",
+                false,
+                receiverDevice,
+                true
+        );
+        CoinManageSettlementPort.SettlementLedgerResult receiverLedgerResult =
+                coinManageSettlementPort.finalizeSettlement(receiverLedgerCommand);
         FoxCoinHistoryPort.SettlementHistoryCommand receiverHistoryCommand = settlementSyncCommandFactory.createReceiverHistoryCommand(
                 collateral,
                 proof.id(),
@@ -1404,6 +1423,9 @@ public class SettlementApplicationService {
                         "settlementId", request.id(),
                         "batchId", request.batchId(),
                         "proofId", proof.id(),
+                        "receiverWalletSettlementRequested", true,
+                        "receiverLedgerOutcome", receiverLedgerResult.ledgerOutcome(),
+                        "receiverSettlementMode", receiverLedgerResult.receiverSettlementMode(),
                         "receiverOnlineConfirmedAt", OffsetDateTime.now().toString(),
                         "receiverHistoryCommand", Map.ofEntries(
                                 Map.entry("settlementId", receiverHistoryCommand.settlementId()),
@@ -1432,7 +1454,8 @@ public class SettlementApplicationService {
                         "proofId", proof.id(),
                         "senderHistorySynced", true,
                         "receiverHistoryPending", true,
-                        "receiverOnlineConfirmed", true
+                        "receiverOnlineConfirmed", true,
+                        "receiverWalletSettlementRequested", true
                 )
         );
     }
@@ -1938,6 +1961,9 @@ public class SettlementApplicationService {
         if (evaluation.status() == SettlementStatus.SETTLED) {
             receiverDevice = deviceIdentifierResolver.resolve(proof.receiverDeviceId()).orElse(null);
         }
+        boolean receiverWalletSettlementRequested = receiverDevice != null
+                && "RECEIVER".equalsIgnoreCase(proof.uploaderType())
+                && shouldAutoConfirmReceiverSettlement(proof);
 
         CoinManageSettlementPort.SettlementLedgerCommand ledgerCommand = settlementSyncCommandFactory.createLedgerCommand(
                 collateral,
@@ -1947,7 +1973,8 @@ public class SettlementApplicationService {
                 evaluation.status().name(),
                 evaluation.releaseAction(),
                 evaluation.conflictDetected(),
-                receiverDevice
+                receiverDevice,
+                receiverWalletSettlementRequested
         );
         FoxCoinHistoryPort.SettlementHistoryCommand historyCommand = settlementSyncCommandFactory.createHistoryCommand(
                 collateral,
@@ -2016,6 +2043,7 @@ public class SettlementApplicationService {
         if (ledgerCommand.receiverDeviceId() != null) {
             ledgerCommandMap.put("receiverDeviceId", ledgerCommand.receiverDeviceId());
         }
+        ledgerCommandMap.put("receiverWalletSettlementRequested", ledgerCommand.receiverWalletSettlementRequested());
         ledgerCommandMap.put("assetCode", ledgerCommand.assetCode());
         ledgerCommandMap.put("amount", ledgerCommand.amount());
         ledgerCommandMap.put("feeAmount", ledgerCommand.feeAmount());

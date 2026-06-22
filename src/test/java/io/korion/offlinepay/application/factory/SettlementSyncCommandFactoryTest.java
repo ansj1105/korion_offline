@@ -38,7 +38,8 @@ class SettlementSyncCommandFactoryTest {
                 SettlementStatus.SETTLED.name(),
                 "RELEASE",
                 false,
-                receiverDevice
+                receiverDevice,
+                false
         );
         var historyCommand = factory.createHistoryCommand(
                 collateral,
@@ -53,6 +54,7 @@ class SettlementSyncCommandFactoryTest {
         assertEquals("current-sender-device", ledgerCommand.deviceId());
         assertEquals("current-sender-device", historyCommand.deviceId());
         assertEquals("receiver-device", ledgerCommand.receiverDeviceId());
+        assertEquals(false, ledgerCommand.receiverWalletSettlementRequested());
     }
 
     private CollateralLock collateral(String id, String deviceId) {

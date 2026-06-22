@@ -33,6 +33,7 @@ public class CoinManageSettlementAdapter implements CoinManageSettlementPort {
                         command.deviceId(),
                         command.receiverUserId() == null ? null : String.valueOf(command.receiverUserId()),
                         command.receiverDeviceId(),
+                        command.receiverWalletSettlementRequested(),
                         command.assetCode(),
                         command.amount().setScale(6, RoundingMode.HALF_UP).toPlainString(),
                         command.feeAmount().setScale(6, RoundingMode.HALF_UP).toPlainString(),
