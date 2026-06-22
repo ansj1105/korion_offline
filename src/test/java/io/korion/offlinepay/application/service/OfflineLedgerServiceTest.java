@@ -256,6 +256,7 @@ class OfflineLedgerServiceTest {
         assertEquals("SENT", response.tab());
         assertEquals(1, response.items().size());
         assertEquals("proof-1", response.items().get(0).proofId());
+        assertEquals("voucher-1", response.items().get(0).requestId());
     }
 
     private Device device(String deviceId, long userId) {

@@ -304,6 +304,9 @@ public class OfflineLedgerService {
                     event.settledAmount().toPlainString(),
                     event.proofId(),
                     event.voucherId(),
+                    event.settlementId(),
+                    event.authSessionId(),
+                    event.requestId(),
                     false,
                     "NONE",
                     null
@@ -368,6 +371,9 @@ public class OfflineLedgerService {
                     event.settledAmount().toPlainString(),
                     event.proofId(),
                     event.voucherId(),
+                    event.settlementId(),
+                    event.authSessionId(),
+                    event.requestId(),
                     receivedSettlementRequired,
                     receivedSettlementState,
                     receivedSettlementRequired ? event.proofId() : null
@@ -422,6 +428,9 @@ public class OfflineLedgerService {
                 BigDecimal.ZERO,
                 "",
                 "",
+                "",
+                "",
+                "",
                 0L
         );
     }
@@ -449,6 +458,13 @@ public class OfflineLedgerService {
         String category = normalizeCategory(payload.path("category").asText(""));
         String paymentMethod = resolvePaymentMethod(payload, proof.channelType());
         String network = firstNonBlank(payload.path("network").asText(""), "mainnet");
+        String requestId = firstNonBlank(
+                payload.path("requestId").asText(""),
+                payload.path("sessionId").asText(""),
+                payload.path("requestIntentId").asText("")
+        );
+        String authSessionId = payload.path("authSessionId").asText("");
+        String settlementId = payload.path("settlementId").asText("");
         long offlineTxSequence = Math.max(0L, payload.path("offlineTxSequence").asLong(0L));
         LedgerDirection direction = senderOwned ? LedgerDirection.SEND : LedgerDirection.RECEIVE;
         boolean receiverSettled = direction == LedgerDirection.RECEIVE
@@ -486,6 +502,9 @@ public class OfflineLedgerService {
                 senderOwned ? BigDecimal.ZERO : resolveReceivedSettledAmount(proof, payload),
                 proof.id(),
                 proof.voucherId(),
+                settlementId,
+                authSessionId,
+                requestId,
                 offlineTxSequence
         );
     }
@@ -525,6 +544,9 @@ public class OfflineLedgerService {
                 BigDecimal.ZERO,
                 proof.id(),
                 proof.voucherId(),
+                receiveEvent.settlementId(),
+                receiveEvent.authSessionId(),
+                receiveEvent.requestId(),
                 receiveEvent.offlineTxSequence()
         );
     }
@@ -756,6 +778,9 @@ public class OfflineLedgerService {
             String settledAmount,
             String proofId,
             String voucherId,
+            String settlementId,
+            String authSessionId,
+            String requestId,
             boolean receivedSettlementRequired,
             String receivedSettlementState,
             String receivedSettlementProofId
@@ -811,6 +836,9 @@ public class OfflineLedgerService {
             BigDecimal settledAmount,
             String proofId,
             String voucherId,
+            String settlementId,
+            String authSessionId,
+            String requestId,
             long offlineTxSequence
     ) {
         String date() {

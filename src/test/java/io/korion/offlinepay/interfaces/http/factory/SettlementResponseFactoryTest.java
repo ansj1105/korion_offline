@@ -8,15 +8,18 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.korion.offlinepay.application.service.AdminOperationsService;
 import io.korion.offlinepay.application.service.JsonService;
 import io.korion.offlinepay.application.service.SettlementApplicationService;
+import io.korion.offlinepay.domain.model.OfflinePaymentProof;
 import io.korion.offlinepay.domain.model.SettlementBatch;
 import io.korion.offlinepay.domain.model.OfflineSaga;
 import io.korion.offlinepay.domain.model.ReconciliationCase;
 import io.korion.offlinepay.domain.model.SettlementRequest;
+import io.korion.offlinepay.domain.status.OfflineProofStatus;
 import io.korion.offlinepay.domain.status.OfflineSagaStatus;
 import io.korion.offlinepay.domain.status.OfflineSagaType;
 import io.korion.offlinepay.domain.status.ReconciliationCaseStatus;
 import io.korion.offlinepay.domain.status.SettlementBatchStatus;
 import io.korion.offlinepay.domain.status.SettlementStatus;
+import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import org.junit.jupiter.api.Test;
 
@@ -350,9 +353,50 @@ class SettlementResponseFactoryTest {
         ));
         String json = new ObjectMapper().writeValueAsString(response);
 
-        assertEquals("SETTLED", response.status());
+        assertEquals("CONFIRMED", response.status());
         assertEquals("SETTLED", response.sagaStatus());
         assertFalse(json.contains("COMPLETED"));
+    }
+
+    @Test
+    void requestDetailMapsServerValidatedSettlementToConfirmedUntilReceiverWalletSettlement() {
+        SettlementRequest request = settledRequest();
+        OfflinePaymentProof proof = settledProofWithReceiverAmounts(new BigDecimal("1.00000000"), BigDecimal.ZERO, null);
+
+        var response = factory.toDetailResponse(new SettlementApplicationService.SettlementDetailView(
+                request,
+                null,
+                null,
+                proof,
+                null
+        ));
+
+        assertEquals("CONFIRMED", response.status());
+    }
+
+    @Test
+    void requestDetailMapsReceiverWalletSettledProofToSettled() {
+        SettlementRequest request = settledRequest();
+        OfflinePaymentProof proof = settledProofWithReceiverAmounts(
+                BigDecimal.ZERO,
+                new BigDecimal("1.00000000"),
+                OffsetDateTime.parse("2026-06-08T00:11:00Z")
+        );
+
+        var response = factory.toDetailResponse(new SettlementApplicationService.SettlementDetailView(
+                request,
+                null,
+                null,
+                proof,
+                null
+        ));
+
+        assertEquals("SETTLED", response.status());
+    }
+
+    @Test
+    void finalizeResponseMapsServerValidatedSettlementToConfirmed() {
+        assertEquals("CONFIRMED", factory.toFinalizeResponse(settledRequest()).status());
     }
 
     @Test
@@ -395,6 +439,65 @@ class SettlementResponseFactoryTest {
                 OffsetDateTime.parse("2026-06-08T00:00:00Z"),
                 OffsetDateTime.parse("2026-06-08T00:10:00Z")
         )).status());
+    }
+
+    private SettlementRequest settledRequest() {
+        return new SettlementRequest(
+                "settlement-1",
+                "batch-1",
+                "collateral-1",
+                "proof-1",
+                SettlementStatus.SETTLED,
+                "SETTLED",
+                false,
+                "{}",
+                OffsetDateTime.parse("2026-06-08T00:00:00Z"),
+                OffsetDateTime.parse("2026-06-08T00:10:00Z")
+        );
+    }
+
+    private OfflinePaymentProof settledProofWithReceiverAmounts(
+            BigDecimal receivedUnsettledAmount,
+            BigDecimal receivedSettledAmount,
+            OffsetDateTime receivedCollateralSettledAt
+    ) {
+        OffsetDateTime now = OffsetDateTime.parse("2026-06-08T00:00:00Z");
+        return new OfflinePaymentProof(
+                "proof-1",
+                "batch-1",
+                "voucher-1",
+                "collateral-1",
+                "sender-device",
+                "receiver-device",
+                1,
+                1,
+                1,
+                "nonce",
+                "hash",
+                "previous-hash",
+                "signature",
+                new BigDecimal("1.00000000"),
+                1780876800000L,
+                1780880400000L,
+                "{}",
+                "SENDER",
+                "MANUAL_SELECTION",
+                OfflineProofStatus.SETTLED,
+                "SETTLED",
+                receivedUnsettledAmount,
+                receivedSettledAmount,
+                receivedCollateralSettledAt == null ? null : "operation-1",
+                receivedCollateralSettledAt == null ? null : "received-wallet-settlement:proof-1",
+                receivedCollateralSettledAt,
+                "{\"paymentMethod\":\"BLE\",\"token\":\"KORI\"}",
+                now,
+                now,
+                null,
+                now,
+                now,
+                now,
+                now
+        );
     }
 
     @Test

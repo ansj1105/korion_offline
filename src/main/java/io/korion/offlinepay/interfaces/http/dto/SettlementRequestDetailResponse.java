@@ -5,8 +5,9 @@ import java.math.BigDecimal;
 public record SettlementRequestDetailResponse(
         String settlementId,
         String batchId,
-        // Public status projection. Settlement request detail currently exposes PENDING, SETTLED, or FAILED;
-        // ledger/history APIs may additionally expose CONFIRMED for server-verified but unsettled receive rows.
+        // Public status projection. PENDING=server validation incomplete, CONFIRMED=server validation
+        // succeeded but receiver wallet/history settlement is not finalized, SETTLED=receiver wallet/history
+        // settlement finalized, FAILED=terminal validation/settlement failure.
         // Internal saga statuses such as COMPLETED must not be exposed here.
         String status,
         String reasonCode,

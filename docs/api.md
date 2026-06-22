@@ -396,6 +396,32 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /api/settlements/requests/{settlementId}:
+    get:
+      tags: [Settlement]
+      summary: 정산 요청 상세 상태 조회
+      description: |
+        단일 settlement request의 공개 상태, saga/reconciliation 진행 상태, proof/collateral snapshot,
+        receiver confirmation 및 sender/receiver history 상태를 반환한다.
+        `status=CONFIRMED`는 서버 검증이 성공했지만 수취 wallet/history 정산이 아직 끝나지 않은 상태이고,
+        `status=SETTLED`는 수취 wallet/history 정산까지 끝난 상태다.
+      operationId: getSettlementRequestDetail
+      parameters:
+        - in: path
+          name: settlementId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 정산 요청 상세 조회 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SettlementRequestDetailResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
   /api/settlements/{settlementId}/finalize:
     post:
       tags: [Settlement]
@@ -914,6 +940,26 @@ components:
         settledAmount:
           type: string
           description: 거래별 담보 반영 완료 금액. 추후 레퍼럴 정산 기준으로 사용할 수 있는 확정 금액.
+        proofId:
+          type: string
+          nullable: true
+          description: 서버 검증 proof id. 로컬 pending 표시 row 정합화 alias로 사용한다.
+        voucherId:
+          type: string
+          nullable: true
+          description: 오프라인 voucher id. 로컬 pending 표시 row 정합화 alias로 사용한다.
+        settlementId:
+          type: string
+          nullable: true
+          description: 서버 settlement id 또는 payload settlement alias.
+        authSessionId:
+          type: string
+          nullable: true
+          description: 클라이언트 인증 세션 alias.
+        requestId:
+          type: string
+          nullable: true
+          description: 클라이언트 요청/session alias. 금액 매칭 없이 로컬 표시 row를 서버 projection과 정합화하는 데 사용한다.
 
     ClientEventBatchRequest:
       type: object
@@ -1804,11 +1850,121 @@ components:
           type: string
         status:
           type: string
-          enum: [PENDING, SETTLED, FAILED]
+          enum: [PENDING, CONFIRMED, FAILED]
           description: |
             Public settlement status projection. PENDING means server validation/finalization is still in progress,
-            SETTLED means final settlement completed, and FAILED covers rejected, conflicted, or expired internal states.
+            CONFIRMED means server validation completed but receiver wallet/history settlement is not finalized,
+            and FAILED covers rejected, conflicted, or expired internal states.
             Internal saga statuses such as COMPLETED must not be returned through this response.
+
+    SettlementRequestDetailResponse:
+      type: object
+      required: [settlementId, batchId, status, conflictDetected]
+      properties:
+        settlementId:
+          type: string
+        batchId:
+          type: string
+        status:
+          type: string
+          enum: [PENDING, CONFIRMED, SETTLED, FAILED]
+          description: |
+            Public settlement request detail status. PENDING means server validation is not complete.
+            CONFIRMED means server validation succeeded but receiver wallet/history settlement is not finalized.
+            SETTLED means receiver wallet/history settlement completed.
+            FAILED covers rejected, conflicted, or expired internal states.
+            Internal saga statuses such as COMPLETED must not be returned through this field.
+        reasonCode:
+          type: string
+          nullable: true
+        conflictDetected:
+          type: boolean
+        updatedAt:
+          type: string
+          nullable: true
+        sagaStatus:
+          type: string
+          nullable: true
+          enum: [PENDING, SETTLED, FAILED]
+          description: Public saga projection. Internal COMPLETED is projected to SETTLED here and must not be exposed.
+        sagaStep:
+          type: string
+          nullable: true
+        recoveryMode:
+          type: string
+          nullable: true
+        sagaReasonCode:
+          type: string
+          nullable: true
+        reconciliationCaseType:
+          type: string
+          nullable: true
+        reconciliationStatus:
+          type: string
+          nullable: true
+        reconciliationReasonCode:
+          type: string
+          nullable: true
+        senderDeviceId:
+          type: string
+          nullable: true
+        receiverDeviceId:
+          type: string
+          nullable: true
+        proofAmount:
+          type: string
+          nullable: true
+        channelType:
+          type: string
+          nullable: true
+        collateralLockedAmount:
+          type: string
+          nullable: true
+        collateralRemainingAmount:
+          type: string
+          nullable: true
+        ledgerOutcome:
+          type: string
+          nullable: true
+        accountingSide:
+          type: string
+          nullable: true
+        receiverSettlementMode:
+          type: string
+          nullable: true
+        settlementModel:
+          type: string
+          nullable: true
+        reconciliationTrackingOwner:
+          type: string
+          nullable: true
+        ledgerDuplicated:
+          type: boolean
+          nullable: true
+        postAvailableBalance:
+          type: string
+          nullable: true
+        postLockedBalance:
+          type: string
+          nullable: true
+        postOfflinePayPendingBalance:
+          type: string
+          nullable: true
+        receiverConfirmationDeadlineAt:
+          type: string
+          nullable: true
+        receiverConfirmationExpiredAt:
+          type: string
+          nullable: true
+        receiverConfirmationExpired:
+          type: boolean
+          nullable: true
+        senderHistoryStatus:
+          type: string
+          enum: [SYNCED, PENDING, N/A]
+        receiverHistoryStatus:
+          type: string
+          enum: [SYNCED, PENDING, N/A]
 
     ConflictListResponse:
       type: object

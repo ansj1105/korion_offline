@@ -197,7 +197,7 @@ public class SettlementResponseFactory {
         return new SettlementRequestDetailResponse(
                 settlementRequest.id(),
                 settlementRequest.batchId(),
-                normalizePublicSettlementStatus(settlementRequest.status()),
+                normalizePublicSettlementStatus(settlementRequest.status(), proof),
                 settlementRequest.reasonCode(),
                 settlementRequest.conflictDetected(),
                 settlementRequest.updatedAt() == null ? null : settlementRequest.updatedAt().toString(),
@@ -232,14 +232,25 @@ public class SettlementResponseFactory {
     }
 
     private String normalizePublicSettlementStatus(SettlementStatus status) {
+        return normalizePublicSettlementStatus(status, null);
+    }
+
+    private String normalizePublicSettlementStatus(SettlementStatus status, OfflinePaymentProof proof) {
         if (status == null) {
             return "PENDING";
         }
         return switch (status) {
             case PENDING, VALIDATING -> "PENDING";
-            case SETTLED -> "SETTLED";
+            case SETTLED -> isReceiverWalletSettled(proof) ? "SETTLED" : "CONFIRMED";
             case CONFLICT, REJECTED, EXPIRED -> "FAILED";
         };
+    }
+
+    private boolean isReceiverWalletSettled(OfflinePaymentProof proof) {
+        return proof != null
+                && (proof.receivedCollateralSettledAt() != null
+                || (proof.receivedSettledAmount() != null
+                && proof.receivedSettledAmount().compareTo(BigDecimal.ZERO) > 0));
     }
 
     private String normalizePublicSagaStatus(OfflineSagaStatus status) {
