@@ -74,8 +74,8 @@ public class OfflineLedgerService {
                 : Math.min(size, LEDGER_HISTORY_MAX_SIZE);
         int normalizedPage = page == null || page <= 0 ? 0 : page;
         long requestedOffset = (long) normalizedPage * normalizedSize;
-        int offset = requestedOffset > LEDGER_HISTORY_MAX_FETCH_SIZE
-                ? LEDGER_HISTORY_MAX_FETCH_SIZE
+        int offset = requestedOffset > Integer.MAX_VALUE
+                ? Integer.MAX_VALUE
                 : (int) requestedOffset;
         int fetchSize = Math.min(
                 LEDGER_HISTORY_MAX_FETCH_SIZE,
@@ -201,8 +201,7 @@ public class OfflineLedgerService {
                 failedCount++;
                 continue;
             }
-            if (event.statusCode() == PublicLedgerStatus.PENDING
-                    || event.statusCode() == PublicLedgerStatus.CONFIRMED) {
+            if (event.statusCode() == PublicLedgerStatus.PENDING) {
                 pendingCount++;
             }
             if (event.direction() == LedgerDirection.RECEIVE) {

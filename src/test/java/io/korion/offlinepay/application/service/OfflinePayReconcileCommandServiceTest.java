@@ -83,6 +83,38 @@ class OfflinePayReconcileCommandServiceTest {
     }
 
     @Test
+    void createsCommandWhenLocalPendingExceedsServerPendingProjection() {
+        OfflinePayReconcileCommand created = command(
+                "command-pending-gap",
+                OfflinePayReconcileCommandStatus.PENDING,
+                "LOCAL_PENDING_SERVER_PROJECTION_GAP"
+        );
+        OfflinePayReconcileCommand delivered = command(
+                "command-pending-gap",
+                OfflinePayReconcileCommandStatus.DELIVERED,
+                "LOCAL_PENDING_SERVER_PROJECTION_GAP"
+        );
+        when(offlineLedgerService.getHubSummary("device-1", "KORI"))
+                .thenReturn(summary("2.000000", "10.000000", 0));
+        when(commandRepository.findRunnableByUserIdAndAssetCode(eq(1L), eq("KORI"), any()))
+                .thenReturn(Optional.empty());
+        when(commandRepository.create(eq(1L), eq("KORI"), eq("LOCAL_PENDING_SERVER_PROJECTION_GAP"), any(), any(), any(), any()))
+                .thenReturn(created);
+        when(commandRepository.markDelivered("command-pending-gap", "device-1")).thenReturn(delivered);
+
+        OfflinePayReconcileCommandService.PollResponse response = service.poll(
+                new OfflinePayReconcileCommandService.PollCommand(
+                        "device-1",
+                        "KORI",
+                        Map.of("offlineAvailableAmount", "10.000000", "pendingCount", 1, "unsettledReceivedAmount", "2.000000")
+                )
+        );
+
+        assertTrue(response.hasCommand());
+        assertEquals("LOCAL_PENDING_SERVER_PROJECTION_GAP", response.command().reasonCode());
+    }
+
+    @Test
     void returnsNoopWhenNoGapAndNoExistingCommand() {
         when(commandRepository.findRunnableByUserIdAndAssetCode(eq(1L), eq("KORI"), any()))
                 .thenReturn(Optional.empty());
@@ -142,11 +174,15 @@ class OfflinePayReconcileCommandServiceTest {
     }
 
     private OfflinePayReconcileCommand command(String id, OfflinePayReconcileCommandStatus status) {
+        return command(id, status, "LOCAL_COLLATERAL_SERVER_PROJECTION_GAP");
+    }
+
+    private OfflinePayReconcileCommand command(String id, OfflinePayReconcileCommandStatus status, String reasonCode) {
         return new OfflinePayReconcileCommand(
                 id,
                 1L,
                 "KORI",
-                "LOCAL_COLLATERAL_SERVER_PROJECTION_GAP",
+                reasonCode,
                 "hub-summary:KORI:" + now,
                 "nonce-1",
                 status,

@@ -1,6 +1,7 @@
 package io.korion.offlinepay.application.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.when;
 
@@ -20,6 +21,7 @@ import io.korion.offlinepay.domain.status.OfflineProofStatus;
 import io.korion.offlinepay.application.service.settlement.OfflinePaySettlementFeeCalculator;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
@@ -68,6 +70,27 @@ class OfflineLedgerServiceTest {
         assertTrue(response.receivedItems().get(0).receivedSettlementRequired());
         assertEquals("UNSETTLED", response.receivedItems().get(0).receivedSettlementState());
         assertEquals("c97ec0ca-c5a0-474d-9798-60d68017ee04", response.receivedItems().get(0).receivedSettlementProofId());
+    }
+
+    @Test
+    void hubSummaryDoesNotCountConfirmedReceivedProofsAsPending() {
+        String receiverDeviceId = "98db6beb-4ae1-4027-b9ee-507ce7eaeaa7";
+        Device receiverDevice = device(receiverDeviceId, 39L);
+        OfflinePaymentProof proof = settledProof("app-suffix:e7eaeaa7");
+        when(deviceRepository.findByDeviceId(receiverDeviceId)).thenReturn(Optional.of(receiverDevice));
+        when(deviceRepository.findActiveByUserId(39L)).thenReturn(List.of(receiverDevice));
+        when(deviceRepository.findByDeviceId("47ba2d8b-5b95-4510-8b23-007957e4fe46")).thenReturn(Optional.empty());
+        when(deviceRepository.findByDeviceId("app-suffix:e7eaeaa7")).thenReturn(Optional.empty());
+        when(deviceRepository.findUniqueActiveByDeviceIdSuffix("e7eaeaa7")).thenReturn(Optional.of(receiverDevice));
+        when(proofRepository.findRecentByUserIdAndAssetCode(39L, "KORI", 300)).thenReturn(List.of(proof));
+        when(collateralOperationRepository.findRecentByUserIdAndAssetCode(39L, "KORI", 300)).thenReturn(List.of());
+        when(collateralRepository.findAggregateByUserIdAndAssetCode(39L, "KORI")).thenReturn(Optional.empty());
+
+        OfflineLedgerService.HubSummaryResponse response = service.getHubSummary(receiverDeviceId, "KORI");
+
+        assertEquals("0.999000", response.unsettledReceivedAmount());
+        assertEquals(0, response.pendingCount());
+        assertEquals(0, response.failedCount());
     }
 
     @Test
@@ -259,6 +282,33 @@ class OfflineLedgerServiceTest {
         assertEquals("voucher-1", response.items().get(0).requestId());
     }
 
+    @Test
+    void doesNotRepeatLedgerPageAfterFetchWindowCap() {
+        Device receiverDevice = device("receiver-device", 39L);
+        Device senderDevice = device("sender-device", 1L);
+        List<OfflinePaymentProof> proofs = new ArrayList<>();
+        for (int index = 0; index < 200; index++) {
+            proofs.add(settledReceivedProof(
+                    "proof-page-" + index,
+                    "receiver-device",
+                    OffsetDateTime.parse("2026-06-23T00:00:00Z").plusSeconds(index)
+            ));
+        }
+
+        when(deviceRepository.findByDeviceId("receiver-device")).thenReturn(Optional.of(receiverDevice));
+        when(deviceRepository.findByDeviceId("sender-device")).thenReturn(Optional.of(senderDevice));
+        when(deviceRepository.findActiveByUserId(39L)).thenReturn(List.of(receiverDevice));
+        when(proofRepository.findRecentByUserIdAndAssetCode(39L, "KORI", 300)).thenReturn(proofs);
+        when(collateralOperationRepository.findRecentByUserIdAndAssetCode(39L, "KORI", 300)).thenReturn(List.of());
+        when(collateralRepository.findAggregateByUserIdAndAssetCode(39L, "KORI")).thenReturn(Optional.empty());
+
+        OfflineLedgerService.LedgerHistoryResponse response = service.getLedgerHistory(39L, "KORI", 30, 14);
+
+        assertEquals(14, response.page());
+        assertEquals(0, response.receivedItems().size());
+        assertFalse(response.receivedHasNext());
+    }
+
     private Device device(String deviceId, long userId) {
         OffsetDateTime now = OffsetDateTime.parse("2026-05-19T04:45:04Z");
         return new Device(
@@ -402,6 +452,54 @@ class OfflineLedgerServiceTest {
                 now,
                 settledAt,
                 now
+        );
+    }
+
+    private OfflinePaymentProof settledReceivedProof(String proofId, String receiverDeviceId, OffsetDateTime proofTime) {
+        OffsetDateTime settledAt = proofTime.plusMinutes(1);
+        return new OfflinePaymentProof(
+                proofId,
+                "batch-" + proofId,
+                "voucher-" + proofId,
+                "collateral-id",
+                "sender-device",
+                receiverDeviceId,
+                1,
+                1,
+                1,
+                "nonce-" + proofId,
+                "hash-" + proofId,
+                "previous-hash",
+                "signature",
+                new BigDecimal("1.00000000"),
+                1779133504000L,
+                1779137104000L,
+                "{}",
+                "SENDER",
+                "MANUAL_SELECTION",
+                OfflineProofStatus.SETTLED,
+                "SETTLED",
+                BigDecimal.ZERO,
+                new BigDecimal("1.00000000"),
+                "operation-" + proofId,
+                "received-wallet-settlement:" + proofId,
+                settledAt,
+                """
+                {
+                  "paymentMethod": "BLE",
+                  "token": "KORI",
+                  "fee": "0.001000",
+                  "estimatedServerTime": "%s",
+                  "offlineTxSequence": 1
+                }
+                """.formatted(proofTime),
+                proofTime,
+                proofTime,
+                null,
+                proofTime,
+                proofTime,
+                settledAt,
+                proofTime
         );
     }
 
