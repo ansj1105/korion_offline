@@ -340,11 +340,11 @@ public class OfflineLedgerService {
             String formattedAmount = (event.isTopup() ? "+" : "-") + event.amount().toPlainString();
             boolean receivedSettlementRequired = event.direction() == LedgerDirection.RECEIVE
                     && event.unsettledAmount().compareTo(BigDecimal.ZERO) > 0;
+            boolean receivedSettlementClosed = event.statusCode() == PublicLedgerStatus.SETTLED
+                    || event.settledAmount().compareTo(BigDecimal.ZERO) > 0;
             String receivedSettlementState = receivedSettlementRequired
                     ? "UNSETTLED"
-                    : event.settledAmount().compareTo(BigDecimal.ZERO) > 0
-                        ? "SETTLED"
-                        : "NONE";
+                    : receivedSettlementClosed ? "SETTLED" : "NONE";
             items.add(new LedgerHistoryItem(
                     event.id(),
                     event.date(),
@@ -467,7 +467,7 @@ public class OfflineLedgerService {
         long offlineTxSequence = Math.max(0L, payload.path("offlineTxSequence").asLong(0L));
         LedgerDirection direction = senderOwned ? LedgerDirection.SEND : LedgerDirection.RECEIVE;
         boolean receiverSettled = direction == LedgerDirection.RECEIVE
-                && normalizeAmount(proof.receivedSettledAmount()).compareTo(BigDecimal.ZERO) > 0;
+                && isReceivedSettlementClosed(proof);
         PublicLedgerStatus statusCode = toPublicLedgerStatus(proof, receiverSettled);
         BigDecimal receivedUnsettledAmount = senderOwned
                 ? BigDecimal.ZERO
@@ -559,6 +559,16 @@ public class OfflineLedgerService {
             case SETTLED -> receiverSettled ? PublicLedgerStatus.SETTLED : PublicLedgerStatus.CONFIRMED;
             case ISSUED, UPLOADED, VALIDATING, VERIFIED_OFFLINE, CONSUMED_PENDING_SETTLEMENT -> PublicLedgerStatus.PENDING;
         };
+    }
+
+    private boolean isReceivedSettlementClosed(OfflinePaymentProof proof) {
+        if (proof.status() != OfflineProofStatus.SETTLED) {
+            return false;
+        }
+        if (normalizeAmount(proof.receivedSettledAmount()).compareTo(BigDecimal.ZERO) > 0) {
+            return true;
+        }
+        return normalizeAmount(proof.receivedUnsettledAmount()).compareTo(BigDecimal.ZERO) <= 0;
     }
 
     private PublicLedgerStatus toRejectedPublicLedgerStatus(String reasonCode) {
