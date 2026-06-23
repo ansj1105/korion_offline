@@ -56,6 +56,8 @@ public interface OfflinePaymentProofRepository {
 
     java.util.List<OfflinePaymentProof> findRecentByUserIdAndAssetCode(long userId, String assetCode, int size);
 
+    java.util.List<OfflinePaymentProof> findOrphanReceivedUnsettledCandidates(java.time.OffsetDateTime cutoff, int size);
+
     int markReceivedCollateralSettled(
             java.util.List<String> proofIds,
             String operationId,

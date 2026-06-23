@@ -56,3 +56,7 @@ offline-pay:
     local-evidence-reconciliation-delay-ms: ${LOCAL_EVIDENCE_RECONCILIATION_DELAY_MS:15000}
     local-evidence-reconciliation-limit: ${LOCAL_EVIDENCE_RECONCILIATION_LIMIT:20}
     receiver-history-auto-confirm-delay-ms: ${RECEIVER_HISTORY_AUTO_CONFIRM_DELAY_MS:300000}
+    orphan-received-unsettled-cleanup-cron: '${ORPHAN_RECEIVED_UNSETTLED_CLEANUP_CRON:0 20 4 * * *}'
+    orphan-received-unsettled-cleanup-zone: ${ORPHAN_RECEIVED_UNSETTLED_CLEANUP_ZONE:UTC}
+    orphan-received-unsettled-age-ms: ${ORPHAN_RECEIVED_UNSETTLED_AGE_MS:604800000}
+    orphan-received-unsettled-cleanup-limit: ${ORPHAN_RECEIVED_UNSETTLED_CLEANUP_LIMIT:50}

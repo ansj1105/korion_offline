@@ -344,6 +344,43 @@ public class JdbcOfflinePaymentProofRepository implements OfflinePaymentProofRep
     }
 
     @Override
+    public java.util.List<OfflinePaymentProof> findOrphanReceivedUnsettledCandidates(
+            java.time.OffsetDateTime cutoff,
+            int size
+    ) {
+        String sql = """
+                SELECT offline_payment_proofs.*
+                FROM offline_payment_proofs
+                LEFT JOIN settlement_requests
+                       ON settlement_requests.proof_id = offline_payment_proofs.id
+                LEFT JOIN devices receiver_device
+                       ON receiver_device.device_id = offline_payment_proofs.receiver_device_id
+                WHERE offline_payment_proofs.status = :status
+                  AND offline_payment_proofs.received_unsettled_amount > 0
+                  AND offline_payment_proofs.updated_at < :cutoff
+                  AND settlement_requests.id IS NULL
+                  AND (
+                    receiver_device.device_id IS NULL
+                    OR offline_payment_proofs.voucher_id LIKE 'seed-%'
+                    OR offline_payment_proofs.sender_device_id LIKE 'seed-%'
+                    OR offline_payment_proofs.receiver_device_id LIKE 'seed-%'
+                    OR offline_payment_proofs.voucher_id LIKE 'test-%'
+                    OR offline_payment_proofs.sender_device_id LIKE 'test-%'
+                    OR offline_payment_proofs.receiver_device_id LIKE 'test-%'
+                  )
+                ORDER BY offline_payment_proofs.updated_at ASC,
+                         offline_payment_proofs.created_at ASC
+                LIMIT :size
+                """;
+        return jdbcClient.sql(sql)
+                .param("status", OfflineProofStatus.SETTLED.name())
+                .param("cutoff", cutoff == null ? java.time.OffsetDateTime.now().minusDays(7) : cutoff)
+                .param("size", Math.max(1, size))
+                .query(offlinePaymentProofRowMapper)
+                .list();
+    }
+
+    @Override
     public int markReceivedCollateralSettled(
             java.util.List<String> proofIds,
             String operationId,
