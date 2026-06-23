@@ -197,6 +197,7 @@ public class SettlementResponseFactory {
         return new SettlementRequestDetailResponse(
                 settlementRequest.id(),
                 settlementRequest.batchId(),
+                settlementRequest.proofId(),
                 normalizePublicSettlementStatus(settlementRequest.status(), proof),
                 settlementRequest.reasonCode(),
                 settlementRequest.conflictDetected(),

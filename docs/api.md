@@ -2022,6 +2022,10 @@ components:
           type: string
         batchId:
           type: string
+        proofId:
+          type: string
+          nullable: true
+          description: Canonical `offline_payment_proofs.id` for server validation and received settlement confirmation. This is not the issued offline proof id.
         status:
           type: string
           enum: [PENDING, CONFIRMED, SETTLED, FAILED]

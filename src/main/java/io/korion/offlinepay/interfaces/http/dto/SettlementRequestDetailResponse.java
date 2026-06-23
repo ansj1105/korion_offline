@@ -5,6 +5,7 @@ import java.math.BigDecimal;
 public record SettlementRequestDetailResponse(
         String settlementId,
         String batchId,
+        String proofId,
         // Public status projection. PENDING=server validation incomplete, CONFIRMED=server validation
         // succeeded but receiver wallet/history settlement is not finalized, SETTLED=receiver wallet/history
         // settlement finalized, FAILED=terminal validation/settlement failure.

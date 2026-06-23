@@ -43,6 +43,10 @@ class LedgerHistoryStatusOpenApiContractTest {
         int statusIndex = api.indexOf("status:", schemaIndex);
         assertTrue(statusIndex >= 0, "SettlementRequestDetailResponse.status must be documented");
 
+        int proofIdIndex = api.indexOf("proofId:", schemaIndex);
+        assertTrue(proofIdIndex >= 0, "SettlementRequestDetailResponse.proofId must be documented");
+        assertTrue(proofIdIndex < statusIndex, "SettlementRequestDetailResponse.proofId must be documented before status");
+
         int enumIndex = api.indexOf("enum:", statusIndex);
         assertTrue(enumIndex >= 0, "SettlementRequestDetailResponse.status enum must be documented");
 
