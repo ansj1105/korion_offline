@@ -91,7 +91,7 @@ public class SettlementSyncCommandFactory {
     ) {
         return new FoxCoinHistoryPort.SettlementHistoryCommand(
                 request.id(),
-                request.id(), // transferRef = settlementId for sender
+                conflictDetected ? request.id() + ":X" : request.id(),
                 request.batchId(),
                 collateral.id(),
                 proof.id(),

@@ -3,6 +3,7 @@ package io.korion.offlinepay.infrastructure.adapter;
 import io.korion.offlinepay.application.port.FoxCoinHistoryPort;
 import io.korion.offlinepay.application.service.SimpleCircuitBreaker;
 import io.korion.offlinepay.application.service.TelegramAlertService;
+import org.springframework.web.client.HttpClientErrorException;
 
 public class CircuitBreakingFoxCoinHistoryAdapter implements FoxCoinHistoryPort {
 
@@ -29,11 +30,18 @@ public class CircuitBreakingFoxCoinHistoryAdapter implements FoxCoinHistoryPort 
                 alertService.notifyCircuitRecovered("offline_pay -> foxya");
             }
         } catch (RuntimeException exception) {
+            if (isClientContractFailure(exception)) {
+                throw exception;
+            }
             boolean opened = circuitBreaker.onFailure();
             if (opened) {
                 alertService.notifyCircuitOpened("offline_pay -> foxya", exception.getMessage());
             }
             throw exception;
         }
+    }
+
+    private boolean isClientContractFailure(RuntimeException exception) {
+        return exception instanceof HttpClientErrorException;
     }
 }

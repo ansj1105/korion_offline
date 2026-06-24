@@ -169,6 +169,113 @@ class IssuedProofApplicationServiceTest {
     }
 
     @Test
+    void reusesExistingProofOnlyWhenItMatchesCurrentAggregateBacking() {
+        when(properties.assetCode()).thenReturn("KORI");
+        when(deviceRepository.findByUserIdAndDeviceId(35L, "new-device"))
+                .thenReturn(Optional.of(device(35L, "new-device")));
+        when(collateralRepository.findActiveByUserIdAndAssetCode(35L, "KORI"))
+                .thenReturn(List.of(
+                        collateral("small-lock", 35L, "old-device", "10"),
+                        collateral("large-lock", 35L, "old-device", "90")
+                ));
+        when(issuedOfflineProofRepository.findLatestActiveByUserIdAndDeviceIdAndAssetCode(35L, "new-device", "KORI"))
+                .thenReturn(Optional.of(issuedProof(
+                        "existing-proof",
+                        "large-lock",
+                        "100",
+                        "[\"small-lock\",\"large-lock\"]"
+                )));
+
+        IssuedProofApplicationService.IssuedProofEnvelope envelope = service.issue(
+                new IssuedProofApplicationService.IssueCommand(35L, "new-device", "KORI")
+        );
+
+        assertThat(envelope.proofId()).isEqualTo("existing-proof");
+        assertThat(envelope.usableAmount()).isEqualTo("100");
+        verify(issuedOfflineProofRepository, never())
+                .revokeActiveByUserIdAndDeviceIdAndAssetCode(anyLong(), anyString(), anyString());
+        verify(issuedOfflineProofRepository, never()).save(
+                anyString(),
+                anyLong(),
+                anyString(),
+                anyString(),
+                anyString(),
+                any(BigDecimal.class),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString(),
+                any(IssuedProofStatus.class),
+                any(OffsetDateTime.class)
+        );
+    }
+
+    @Test
+    void revokesStaleActiveProofAndIssuesFreshWhenCurrentAggregateChanged() {
+        when(properties.assetCode()).thenReturn("KORI");
+        when(properties.defaultCollateralExpiryHours()).thenReturn(24);
+        when(proofIssuerSignatureService.keyId()).thenReturn("issuer-1");
+        when(proofIssuerSignatureService.publicKey()).thenReturn("issuer-public-key");
+        when(proofIssuerSignatureService.sign(anyString())).thenReturn("issuer-signature");
+        when(deviceRepository.findByUserIdAndDeviceId(35L, "new-device"))
+                .thenReturn(Optional.of(device(35L, "new-device")));
+        when(collateralRepository.findActiveByUserIdAndAssetCode(35L, "KORI"))
+                .thenReturn(List.of(
+                        collateral("small-lock", 35L, "old-device", "10"),
+                        collateral("large-lock", 35L, "old-device", "50")
+                ));
+        when(issuedOfflineProofRepository.findLatestActiveByUserIdAndDeviceIdAndAssetCode(35L, "new-device", "KORI"))
+                .thenReturn(Optional.of(issuedProof(
+                        "stale-proof",
+                        "large-lock",
+                        "64",
+                        "[\"small-lock\",\"large-lock\"]"
+                )));
+        when(issuedOfflineProofRepository.save(
+                anyString(),
+                anyLong(),
+                anyString(),
+                anyString(),
+                anyString(),
+                any(BigDecimal.class),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString(),
+                any(IssuedProofStatus.class),
+                any(OffsetDateTime.class)
+        )).thenAnswer(invocation -> new IssuedOfflineProof(
+                invocation.getArgument(0),
+                invocation.getArgument(1),
+                invocation.getArgument(2),
+                invocation.getArgument(3),
+                invocation.getArgument(4),
+                invocation.getArgument(5),
+                invocation.getArgument(6),
+                invocation.getArgument(7),
+                invocation.getArgument(8),
+                invocation.getArgument(9),
+                invocation.getArgument(10),
+                invocation.getArgument(11),
+                null,
+                invocation.getArgument(12),
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        ));
+
+        IssuedProofApplicationService.IssuedProofEnvelope envelope = service.issue(
+                new IssuedProofApplicationService.IssueCommand(35L, "new-device", "KORI")
+        );
+
+        assertThat(envelope.collateralLockId()).isEqualTo("large-lock");
+        assertThat(envelope.usableAmount()).isEqualTo("60");
+        verify(issuedOfflineProofRepository)
+                .revokeActiveByUserIdAndDeviceIdAndAssetCode(35L, "new-device", "KORI");
+    }
+
+    @Test
     void issuesProofForAggregateCurrentDeviceCollateral() {
         when(properties.assetCode()).thenReturn("KORI");
         when(properties.defaultCollateralExpiryHours()).thenReturn(24);
@@ -429,6 +536,35 @@ class IssuedProofApplicationServiceTest {
                 "external-lock",
                 expiresAt,
                 "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+    }
+
+    private static IssuedOfflineProof issuedProof(
+            String proofId,
+            String collateralId,
+            String usableAmount,
+            String collateralLockIdsJson
+    ) {
+        String payload = """
+                {"nonce":"proof_nonce","userId":35,"proofId":"%s","deviceId":"new-device","assetCode":"KORI","usableAmount":"%s","collateralLockId":"%s","collateralLockIds":%s}
+                """.formatted(proofId, usableAmount, collateralId, collateralLockIdsJson);
+        return new IssuedOfflineProof(
+                proofId,
+                35L,
+                "new-device",
+                collateralId,
+                "KORI",
+                new BigDecimal(usableAmount),
+                "proof_nonce",
+                "issuer-1",
+                "issuer-public-key",
+                "issuer-signature",
+                payload,
+                IssuedProofStatus.ACTIVE,
+                null,
+                OffsetDateTime.now().plusHours(1),
                 OffsetDateTime.now(),
                 OffsetDateTime.now()
         );

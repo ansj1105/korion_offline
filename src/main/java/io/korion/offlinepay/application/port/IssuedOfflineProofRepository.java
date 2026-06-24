@@ -31,4 +31,6 @@ public interface IssuedOfflineProofRepository {
     boolean existsActiveByCollateralId(String collateralId);
 
     void updateStatus(String proofId, IssuedProofStatus status, String consumedByProofId);
+
+    int revokeActiveByUserIdAndDeviceIdAndAssetCode(long userId, String deviceId, String assetCode);
 }

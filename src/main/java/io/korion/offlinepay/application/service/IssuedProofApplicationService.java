@@ -10,15 +10,18 @@ import io.korion.offlinepay.domain.model.Device;
 import io.korion.offlinepay.domain.model.IssuedOfflineProof;
 import io.korion.offlinepay.domain.status.CollateralStatus;
 import io.korion.offlinepay.domain.status.IssuedProofStatus;
+import com.fasterxml.jackson.databind.JsonNode;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.OffsetDateTime;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.math.BigDecimal;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -73,14 +76,17 @@ public class IssuedProofApplicationService {
         );
         CollateralLock collateral = selectPrimaryCollateral(collaterals)
                 .orElseThrow(() -> new IllegalArgumentException("collateral expired for asset: " + normalizedAssetCode));
+        BigDecimal usableAmount = collaterals.stream()
+                .map(CollateralLock::remainingAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        List<String> collateralLockIds = collaterals.stream()
+                .map(CollateralLock::id)
+                .toList();
         Optional<IssuedOfflineProof> existingActive = issuedOfflineProofRepository
                 .findLatestActiveByUserIdAndDeviceIdAndAssetCode(command.userId(), command.deviceId(), normalizedAssetCode);
         if (existingActive.isPresent()) {
             IssuedOfflineProof existing = existingActive.get();
-            if (collaterals.stream().anyMatch(c -> c.id().equals(existing.collateralId()))) {
-                List<String> currentCollateralLockIds = collaterals.stream()
-                        .map(CollateralLock::id)
-                        .toList();
+            if (isReusableForCurrentCollateral(existing, collateral.id(), collateralLockIds, usableAmount, issuedAt)) {
                 return new IssuedProofEnvelope(
                         existing.id(),
                         existing.userId(),
@@ -96,22 +102,20 @@ public class IssuedProofApplicationService {
                         existing.status().name(),
                         existing.expiresAt().toString(),
                         existing.createdAt().toString(),
-                        currentCollateralLockIds
+                        collateralLockIds
                 );
             }
+            issuedOfflineProofRepository.revokeActiveByUserIdAndDeviceIdAndAssetCode(
+                    command.userId(),
+                    command.deviceId(),
+                    normalizedAssetCode
+            );
         }
-
-        BigDecimal usableAmount = collaterals.stream()
-                .map(CollateralLock::remainingAmount)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
 
         OffsetDateTime expiresAt = resolveAggregateExpiresAt(collaterals, issuedAt)
                 .orElse(issuedAt.plusHours(properties.defaultCollateralExpiryHours()));
         String proofId = UUID.randomUUID().toString();
         String nonce = "proof_" + UUID.randomUUID().toString().replace("-", "");
-        List<String> collateralLockIds = collaterals.stream()
-                .map(CollateralLock::id)
-                .toList();
         Map<String, Object> payloadMap = new LinkedHashMap<>();
         payloadMap.put("proofId", proofId);
         payloadMap.put("userId", command.userId());
@@ -230,6 +234,49 @@ public class IssuedProofApplicationService {
     private Optional<CollateralLock> selectPrimaryCollateral(List<CollateralLock> collaterals) {
         return collaterals.stream()
                 .max(Comparator.comparing(CollateralLock::remainingAmount));
+    }
+
+    private boolean isReusableForCurrentCollateral(
+            IssuedOfflineProof existing,
+            String primaryCollateralId,
+            List<String> currentCollateralLockIds,
+            BigDecimal currentUsableAmount,
+            OffsetDateTime issuedAt
+    ) {
+        if (!existing.collateralId().equals(primaryCollateralId)) {
+            return false;
+        }
+        if (existing.usableAmount().compareTo(currentUsableAmount) != 0) {
+            return false;
+        }
+        if (existing.expiresAt() == null || !existing.expiresAt().isAfter(issuedAt)) {
+            return false;
+        }
+        return readIssuedProofCollateralLockIds(existing).equals(new LinkedHashSet<>(currentCollateralLockIds));
+    }
+
+    private Set<String> readIssuedProofCollateralLockIds(IssuedOfflineProof proof) {
+        JsonNode payload = jsonService.readTree(proof.issuedPayloadJson());
+        JsonNode lockIds = payload.path("collateralLockIds");
+        Set<String> result = new LinkedHashSet<>();
+        if (lockIds.isArray()) {
+            lockIds.forEach(node -> {
+                String id = node.asText("");
+                if (!id.isBlank()) {
+                    result.add(id);
+                }
+            });
+        }
+        if (result.isEmpty()) {
+            String legacyLockId = payload.path("collateralLockId").asText("");
+            if (!legacyLockId.isBlank()) {
+                result.add(legacyLockId);
+            }
+        }
+        if (result.isEmpty() && proof.collateralId() != null && !proof.collateralId().isBlank()) {
+            result.add(proof.collateralId());
+        }
+        return result;
     }
 
     private List<CollateralLock> filterUnexpiredCollaterals(List<CollateralLock> collaterals, OffsetDateTime issuedAt) {

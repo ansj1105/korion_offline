@@ -138,4 +138,23 @@ public class JdbcIssuedOfflineProofRepository implements IssuedOfflineProofRepos
         }
         spec.update();
     }
+
+    @Override
+    public int revokeActiveByUserIdAndDeviceIdAndAssetCode(long userId, String deviceId, String assetCode) {
+        String sql = QueryBuilder.update("issued_offline_proofs")
+                .set("status", ":revokedStatus")
+                .set("updated_at", "NOW()")
+                .where("user_id", QueryBuilder.Op.EQ, ":userId")
+                .where("device_id", QueryBuilder.Op.EQ, ":deviceId")
+                .where("asset_code", QueryBuilder.Op.EQ, ":assetCode")
+                .where("status", QueryBuilder.Op.EQ, ":activeStatus")
+                .build();
+        return jdbcClient.sql(sql)
+                .param("userId", userId)
+                .param("deviceId", deviceId)
+                .param("assetCode", assetCode)
+                .param("activeStatus", IssuedProofStatus.ACTIVE.name())
+                .param("revokedStatus", IssuedProofStatus.REVOKED.name())
+                .update();
+    }
 }

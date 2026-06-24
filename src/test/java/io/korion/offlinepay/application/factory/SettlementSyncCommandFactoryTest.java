@@ -57,6 +57,36 @@ class SettlementSyncCommandFactoryTest {
         assertEquals(false, ledgerCommand.receiverWalletSettlementRequested());
     }
 
+    @Test
+    void conflictHistoryUsesDistinctTransferRefFromSenderSettlement() {
+        CollateralLock collateral = collateral("collateral-1", "sender-device");
+        OfflinePaymentProof proof = proof("proof-1", collateral.id(), "sender-device");
+        SettlementRequest request = request("settlement-1", collateral.id(), proof.id());
+
+        var settledHistoryCommand = factory.createHistoryCommand(
+                collateral,
+                proof,
+                proof.amount(),
+                request,
+                SettlementStatus.SETTLED.name(),
+                "RELEASE",
+                false
+        );
+        var conflictHistoryCommand = factory.createHistoryCommand(
+                collateral,
+                proof,
+                proof.amount(),
+                request,
+                SettlementStatus.CONFLICT.name(),
+                "ADJUST",
+                true
+        );
+
+        assertEquals("settlement-1", settledHistoryCommand.transferRef());
+        assertEquals("settlement-1:X", conflictHistoryCommand.transferRef());
+        assertEquals("OFFLINE_PAY_CONFLICT", conflictHistoryCommand.historyType());
+    }
+
     private CollateralLock collateral(String id, String deviceId) {
         OffsetDateTime now = OffsetDateTime.now();
         return new CollateralLock(

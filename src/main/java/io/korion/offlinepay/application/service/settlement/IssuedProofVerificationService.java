@@ -1,18 +1,23 @@
 package io.korion.offlinepay.application.service.settlement;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import io.korion.offlinepay.application.port.CollateralRepository;
 import io.korion.offlinepay.application.port.IssuedOfflineProofRepository;
 import io.korion.offlinepay.application.service.IssuedProofApplicationService;
 import io.korion.offlinepay.application.service.JsonPayloadCanonicalizationService;
 import io.korion.offlinepay.application.service.JsonService;
 import io.korion.offlinepay.application.service.ProofIssuerSignatureService;
+import io.korion.offlinepay.domain.model.CollateralLock;
 import io.korion.offlinepay.domain.model.IssuedOfflineProof;
 import io.korion.offlinepay.domain.model.OfflinePaymentProof;
 import io.korion.offlinepay.domain.reason.OfflinePayReasonCode;
 import io.korion.offlinepay.domain.status.IssuedProofStatus;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -21,17 +26,20 @@ public class IssuedProofVerificationService {
     private final JsonService jsonService;
     private final JsonPayloadCanonicalizationService jsonPayloadCanonicalizationService;
     private final IssuedOfflineProofRepository issuedOfflineProofRepository;
+    private final CollateralRepository collateralRepository;
     private final ProofIssuerSignatureService proofIssuerSignatureService;
 
     public IssuedProofVerificationService(
             JsonService jsonService,
             JsonPayloadCanonicalizationService jsonPayloadCanonicalizationService,
             IssuedOfflineProofRepository issuedOfflineProofRepository,
+            CollateralRepository collateralRepository,
             ProofIssuerSignatureService proofIssuerSignatureService
     ) {
         this.jsonService = jsonService;
         this.jsonPayloadCanonicalizationService = jsonPayloadCanonicalizationService;
         this.issuedOfflineProofRepository = issuedOfflineProofRepository;
+        this.collateralRepository = collateralRepository;
         this.proofIssuerSignatureService = proofIssuerSignatureService;
     }
 
@@ -122,6 +130,10 @@ public class IssuedProofVerificationService {
         )) {
             return VerificationResult.invalid(OfflinePayReasonCode.ISSUED_PROOF_SIGNATURE_INVALID, "issued proof issuer signature invalid");
         }
+        Optional<VerificationResult> collateralBackingFailure = verifyCurrentCollateralBacking(issuedProof, issuedPayloadNode);
+        if (collateralBackingFailure.isPresent()) {
+            return collateralBackingFailure.get();
+        }
 
         return VerificationResult.valid(issuedProof);
     }
@@ -176,6 +188,63 @@ public class IssuedProofVerificationService {
             return null;
         }
         return Long.parseLong(text);
+    }
+
+    private Optional<VerificationResult> verifyCurrentCollateralBacking(
+            IssuedOfflineProof issuedProof,
+            JsonNode issuedPayloadNode
+    ) {
+        Set<String> proofCollateralIds = readCollateralLockIds(issuedPayloadNode, issuedProof.collateralId());
+        if (proofCollateralIds.isEmpty()) {
+            return Optional.of(VerificationResult.invalid(
+                    OfflinePayReasonCode.ISSUED_PROOF_PAYLOAD_MISMATCH,
+                    "issued proof collateral ids missing"
+            ));
+        }
+        List<CollateralLock> activeCollaterals = Optional.ofNullable(
+                collateralRepository.findActiveByUserIdAndAssetCode(issuedProof.userId(), issuedProof.assetCode())
+        ).orElse(List.of());
+        BigDecimal activeBackingRemaining = BigDecimal.ZERO;
+        for (String collateralId : proofCollateralIds) {
+            Optional<CollateralLock> matched = activeCollaterals.stream()
+                    .filter(collateral -> collateralId.equals(collateral.id()))
+                    .findFirst();
+            if (matched.isEmpty()) {
+                return Optional.of(VerificationResult.invalid(
+                        OfflinePayReasonCode.ISSUED_PROOF_STATUS_INVALID,
+                        "issued proof collateral is not active"
+                ));
+            }
+            activeBackingRemaining = activeBackingRemaining.add(matched.get().remainingAmount());
+        }
+        if (activeBackingRemaining.compareTo(issuedProof.usableAmount()) < 0) {
+            return Optional.of(VerificationResult.invalid(
+                    OfflinePayReasonCode.ISSUED_PROOF_AMOUNT_EXCEEDED,
+                    "issued proof usable amount exceeds active collateral"
+            ));
+        }
+        return Optional.empty();
+    }
+
+    private Set<String> readCollateralLockIds(JsonNode issuedPayloadNode, String fallbackCollateralId) {
+        Set<String> result = new LinkedHashSet<>();
+        JsonNode collateralLockIds = issuedPayloadNode.path("collateralLockIds");
+        if (collateralLockIds.isArray()) {
+            collateralLockIds.forEach(node -> {
+                String id = node.asText("");
+                if (!id.isBlank()) {
+                    result.add(id);
+                }
+            });
+        }
+        String legacyLockId = text(issuedPayloadNode, "collateralLockId");
+        if (result.isEmpty() && legacyLockId != null) {
+            result.add(legacyLockId);
+        }
+        if (result.isEmpty() && fallbackCollateralId != null && !fallbackCollateralId.isBlank()) {
+            result.add(fallbackCollateralId);
+        }
+        return result;
     }
 
     private boolean mismatch(String left, String right) {

@@ -131,6 +131,7 @@ public class JdbcCollateralRepository implements CollateralRepository {
                 .where("user_id", QueryBuilder.Op.EQ, ":userId")
                 .where("asset_code", QueryBuilder.Op.EQ, ":assetCode")
                 .where("remaining_amount", QueryBuilder.Op.GT, ":zero")
+                .where("status IN ('LOCKED', 'PARTIALLY_SETTLED')")
                 .orderBy("created_at ASC")
                 .build();
         return jdbcClient.sql(sql)

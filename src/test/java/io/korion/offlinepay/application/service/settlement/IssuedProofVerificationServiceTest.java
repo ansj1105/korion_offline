@@ -5,20 +5,24 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.korion.offlinepay.application.port.CollateralRepository;
 import io.korion.offlinepay.application.port.IssuedOfflineProofRepository;
 import io.korion.offlinepay.application.service.IssuedProofApplicationService;
 import io.korion.offlinepay.application.service.JsonPayloadCanonicalizationService;
 import io.korion.offlinepay.application.service.JsonService;
 import io.korion.offlinepay.application.service.ProofIssuerSignatureService;
 import io.korion.offlinepay.config.AppProperties;
+import io.korion.offlinepay.domain.model.CollateralLock;
 import io.korion.offlinepay.domain.model.IssuedOfflineProof;
 import io.korion.offlinepay.domain.model.OfflinePaymentProof;
 import io.korion.offlinepay.domain.reason.OfflinePayReasonCode;
+import io.korion.offlinepay.domain.status.CollateralStatus;
 import io.korion.offlinepay.domain.status.IssuedProofStatus;
 import io.korion.offlinepay.domain.status.OfflineProofStatus;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
@@ -44,10 +48,12 @@ class IssuedProofVerificationServiceTest {
             )
     );
     private final IssuedOfflineProofRepository issuedOfflineProofRepository = Mockito.mock(IssuedOfflineProofRepository.class);
+    private final CollateralRepository collateralRepository = Mockito.mock(CollateralRepository.class);
     private final IssuedProofVerificationService service = new IssuedProofVerificationService(
             jsonService,
             jsonPayloadCanonicalizationService,
             issuedOfflineProofRepository,
+            collateralRepository,
             proofIssuerSignatureService
     );
 
@@ -55,6 +61,7 @@ class IssuedProofVerificationServiceTest {
     void verifyAcceptsIssuedProofWithValidIssuerSignature() {
         IssuedOfflineProof issuedProof = buildIssuedProof(false);
         when(issuedOfflineProofRepository.findById("issued-proof-1")).thenReturn(Optional.of(issuedProof));
+        givenActiveCollateralBacking("collateral-1", "500.000000");
 
         IssuedProofVerificationService.VerificationResult result = service.verify(buildIncomingProof(issuedProof));
 
@@ -70,6 +77,7 @@ class IssuedProofVerificationServiceTest {
                 jsonService.readTree(fixture.signedPayload()).toPrettyString()
         );
         when(issuedOfflineProofRepository.findById("issued-proof-1")).thenReturn(Optional.of(normalizedStoredProof));
+        givenActiveCollateralBacking("collateral-1", "500.000000");
 
         IssuedProofVerificationService.VerificationResult result = service.verify(
                 buildIncomingProof(normalizedStoredProof, fixture.signedPayload())
@@ -92,6 +100,7 @@ class IssuedProofVerificationServiceTest {
         ).trim();
         IssuedOfflineProof normalizedStoredProof = withPersistedPayload(fixture.issuedProof(), reorderedPayload);
         when(issuedOfflineProofRepository.findById("issued-proof-1")).thenReturn(Optional.of(normalizedStoredProof));
+        givenActiveCollateralBacking("collateral-1", "500.000000");
 
         IssuedProofVerificationService.VerificationResult result = service.verify(
                 buildIncomingProof(normalizedStoredProof, reorderedPayload)
@@ -120,6 +129,28 @@ class IssuedProofVerificationServiceTest {
         IssuedProofVerificationService.VerificationResult result = service.verify(incoming);
 
         assertEquals(OfflinePayReasonCode.ISSUED_PROOF_PAYLOAD_MISMATCH, result.reasonCode());
+    }
+
+    @Test
+    void verifyRejectsIssuedProofWhenBackingCollateralIsNoLongerActive() {
+        IssuedOfflineProof issuedProof = buildIssuedProof(false);
+        when(issuedOfflineProofRepository.findById("issued-proof-1")).thenReturn(Optional.of(issuedProof));
+        when(collateralRepository.findActiveByUserIdAndAssetCode(77L, "USDT")).thenReturn(List.of());
+
+        IssuedProofVerificationService.VerificationResult result = service.verify(buildIncomingProof(issuedProof));
+
+        assertEquals(OfflinePayReasonCode.ISSUED_PROOF_STATUS_INVALID, result.reasonCode());
+    }
+
+    @Test
+    void verifyRejectsIssuedProofWhenBackingCollateralRemainingIsBelowIssuedAmount() {
+        IssuedOfflineProof issuedProof = buildIssuedProof(false);
+        when(issuedOfflineProofRepository.findById("issued-proof-1")).thenReturn(Optional.of(issuedProof));
+        givenActiveCollateralBacking("collateral-1", "499.999999");
+
+        IssuedProofVerificationService.VerificationResult result = service.verify(buildIncomingProof(issuedProof));
+
+        assertEquals(OfflinePayReasonCode.ISSUED_PROOF_AMOUNT_EXCEEDED, result.reasonCode());
     }
 
     private IssuedOfflineProof buildIssuedProof(boolean tamperSignature) {
@@ -263,6 +294,31 @@ class IssuedProofVerificationServiceTest {
                 issuedProof.expiresAt(),
                 issuedProof.createdAt(),
                 issuedProof.updatedAt()
+        );
+    }
+
+    private void givenActiveCollateralBacking(String collateralId, String remainingAmount) {
+        when(collateralRepository.findActiveByUserIdAndAssetCode(77L, "USDT"))
+                .thenReturn(List.of(activeCollateral(collateralId, remainingAmount)));
+    }
+
+    private CollateralLock activeCollateral(String collateralId, String remainingAmount) {
+        OffsetDateTime now = OffsetDateTime.now();
+        return new CollateralLock(
+                collateralId,
+                77L,
+                "device-1",
+                "USDT",
+                new BigDecimal(remainingAmount),
+                new BigDecimal(remainingAmount),
+                "state-root-1",
+                1,
+                CollateralStatus.LOCKED,
+                null,
+                now.plusHours(1),
+                "{}",
+                now,
+                now
         );
     }
 
