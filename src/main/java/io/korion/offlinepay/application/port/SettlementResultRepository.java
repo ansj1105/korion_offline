@@ -10,6 +10,8 @@ public interface SettlementResultRepository {
 
     boolean existsByVoucherId(String voucherId);
 
+    boolean existsByVoucherIdExcludingSettlementId(String voucherId, String settlementId);
+
     SettlementResultRecord save(
             String settlementId,
             String batchId,

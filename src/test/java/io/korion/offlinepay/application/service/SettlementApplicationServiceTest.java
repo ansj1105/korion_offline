@@ -2752,10 +2752,12 @@ class SettlementApplicationServiceTest {
         when(deviceRepository.findByDeviceId("device-1")).thenReturn(Optional.of(device));
         when(deviceRepository.findByDeviceId("app-suffix:e7eaeaa7")).thenReturn(Optional.empty());
         when(deviceRepository.findUniqueActiveByDeviceIdSuffix("e7eaeaa7")).thenReturn(Optional.of(receiverDevice));
-        when(settlementResultRepository.existsByVoucherId("voucher-1")).thenReturn(false);
+        when(settlementResultRepository.existsByVoucherIdExcludingSettlementId("voucher-1", "settlement-1"))
+                .thenReturn(false);
 
         SettlementRequest result = service.finalizeSettlement("settlement-1");
 
+        verify(settlementResultRepository).existsByVoucherIdExcludingSettlementId("voucher-1", "settlement-1");
         verify(eventBus).publishExternalSyncRequested(
                 eq("LEDGER_SYNC_REQUESTED"),
                 eq("settlement-1"),

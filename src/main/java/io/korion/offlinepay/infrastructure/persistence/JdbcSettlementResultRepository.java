@@ -35,6 +35,20 @@ public class JdbcSettlementResultRepository implements SettlementResultRepositor
     }
 
     @Override
+    public boolean existsByVoucherIdExcludingSettlementId(String voucherId, String settlementId) {
+        String sql = QueryBuilder.select("settlements", "COUNT(*)")
+                .where("voucher_id", QueryBuilder.Op.EQ, ":voucherId")
+                .where("settlement_id", QueryBuilder.Op.NE, ":settlementId")
+                .build();
+        Integer count = jdbcClient.sql(sql)
+                .param("voucherId", voucherId)
+                .param("settlementId", java.util.UUID.fromString(settlementId))
+                .query(Integer.class)
+                .single();
+        return count != null && count > 0;
+    }
+
+    @Override
     public SettlementResultRecord save(
             String settlementId,
             String batchId,

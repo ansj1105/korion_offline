@@ -1651,7 +1651,7 @@ public class SettlementApplicationService {
 
         proofRepository.updateLifecycle(proof.id(), OfflineProofStatus.CONSUMED_PENDING_SETTLEMENT, null, true, false, false);
         CollateralLock settlementCollateralScope = resolveSettlementCollateralScope(collateral, proof);
-        SettlementEvaluation evaluation = evaluateProof(proof, settlementCollateralScope);
+        SettlementEvaluation evaluation = evaluateProof(proof, settlementCollateralScope, request.id());
         String terminalReasonCode = normalizeSettlementReasonCode(evaluation.status(), evaluation.reasonCode(), evaluation.conflictDetected());
         proofRepository.updateLifecycle(
                 proof.id(),
@@ -1742,7 +1742,7 @@ public class SettlementApplicationService {
         return summaryNode.path("attemptCount").asInt(0);
     }
 
-    private SettlementEvaluation evaluateProof(OfflinePaymentProof proof, CollateralLock collateral) {
+    private SettlementEvaluation evaluateProof(OfflinePaymentProof proof, CollateralLock collateral, String settlementId) {
         try {
             proofSchemaValidator.validate(proof);
         } catch (IllegalArgumentException exception) {
@@ -1780,7 +1780,7 @@ public class SettlementApplicationService {
         if (hybridTimeRisk.riskDetected()) {
             return conflicted(hybridTimeRisk.reasonCode(), proof, hybridTimeRisk.detailJson());
         }
-        if (settlementResultRepository.existsByVoucherId(proof.voucherId())) {
+        if (settlementResultRepository.existsByVoucherIdExcludingSettlementId(proof.voucherId(), settlementId)) {
             return conflicted(
                     OfflinePayReasonCode.DUPLICATE_SETTLEMENT,
                     proof,
