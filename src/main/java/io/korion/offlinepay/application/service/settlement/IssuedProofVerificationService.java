@@ -130,7 +130,11 @@ public class IssuedProofVerificationService {
         )) {
             return VerificationResult.invalid(OfflinePayReasonCode.ISSUED_PROOF_SIGNATURE_INVALID, "issued proof issuer signature invalid");
         }
-        Optional<VerificationResult> collateralBackingFailure = verifyCurrentCollateralBacking(issuedProof, issuedPayloadNode);
+        Optional<VerificationResult> collateralBackingFailure = verifyCurrentCollateralBacking(
+                issuedProof,
+                issuedPayloadNode,
+                proof.amount()
+        );
         if (collateralBackingFailure.isPresent()) {
             return collateralBackingFailure.get();
         }
@@ -192,7 +196,8 @@ public class IssuedProofVerificationService {
 
     private Optional<VerificationResult> verifyCurrentCollateralBacking(
             IssuedOfflineProof issuedProof,
-            JsonNode issuedPayloadNode
+            JsonNode issuedPayloadNode,
+            BigDecimal paymentAmount
     ) {
         Set<String> proofCollateralIds = readCollateralLockIds(issuedPayloadNode, issuedProof.collateralId());
         if (proofCollateralIds.isEmpty()) {
@@ -217,10 +222,10 @@ public class IssuedProofVerificationService {
             }
             activeBackingRemaining = activeBackingRemaining.add(matched.get().remainingAmount());
         }
-        if (activeBackingRemaining.compareTo(issuedProof.usableAmount()) < 0) {
+        if (activeBackingRemaining.compareTo(paymentAmount) < 0) {
             return Optional.of(VerificationResult.invalid(
                     OfflinePayReasonCode.ISSUED_PROOF_AMOUNT_EXCEEDED,
-                    "issued proof usable amount exceeds active collateral"
+                    "payment amount exceeds active collateral"
             ));
         }
         return Optional.empty();

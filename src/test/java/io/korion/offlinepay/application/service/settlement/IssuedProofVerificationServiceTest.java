@@ -143,10 +143,21 @@ class IssuedProofVerificationServiceTest {
     }
 
     @Test
-    void verifyRejectsIssuedProofWhenBackingCollateralRemainingIsBelowIssuedAmount() {
+    void verifyAcceptsIssuedProofWhenBackingCollateralCoversPaymentAmount() {
         IssuedOfflineProof issuedProof = buildIssuedProof(false);
         when(issuedOfflineProofRepository.findById("issued-proof-1")).thenReturn(Optional.of(issuedProof));
         givenActiveCollateralBacking("collateral-1", "499.999999");
+
+        IssuedProofVerificationService.VerificationResult result = service.verify(buildIncomingProof(issuedProof));
+
+        assertTrue(result.valid());
+    }
+
+    @Test
+    void verifyRejectsIssuedProofWhenBackingCollateralIsBelowPaymentAmount() {
+        IssuedOfflineProof issuedProof = buildIssuedProof(false);
+        when(issuedOfflineProofRepository.findById("issued-proof-1")).thenReturn(Optional.of(issuedProof));
+        givenActiveCollateralBacking("collateral-1", "99.999999");
 
         IssuedProofVerificationService.VerificationResult result = service.verify(buildIncomingProof(issuedProof));
 
