@@ -309,7 +309,13 @@ public class OfflineSnapshotService {
             CoinManageCollateralPort.BalanceSnapshot ledgerSnapshot =
                     coinManageCollateralPort.getBalanceSnapshot(userId, assetCode);
             java.math.BigDecimal ledgerAvailableAmount = parsePositiveAmount(ledgerSnapshot.availableBalance());
-            if (ledgerAvailableAmount.compareTo(additionalCollateralAvailableAmount) < 0) {
+            java.math.BigDecimal ledgerLockedAmount = parsePositiveAmount(ledgerSnapshot.lockedBalance());
+            java.math.BigDecimal ledgerOfflinePayPendingAmount = parsePositiveAmount(ledgerSnapshot.offlinePayPendingBalance());
+            boolean ledgerHasOfflinePayFootprint = ledgerAvailableAmount.signum() > 0
+                    || ledgerLockedAmount.signum() > 0
+                    || ledgerOfflinePayPendingAmount.signum() > 0;
+            if (ledgerHasOfflinePayFootprint
+                    && ledgerAvailableAmount.compareTo(additionalCollateralAvailableAmount) < 0) {
                 additionalCollateralAvailableAmount = ledgerAvailableAmount;
             }
             return new WalletSnapshot(

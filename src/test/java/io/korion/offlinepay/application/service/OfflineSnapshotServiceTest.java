@@ -209,6 +209,62 @@ class OfflineSnapshotServiceTest {
     }
 
     @Test
+    void currentSnapshotKeepsFoxyaTopupAvailabilityWhenLedgerIsNotBootstrappedYet() {
+        DeviceRepository deviceRepository = mock(DeviceRepository.class);
+        CollateralRepository collateralRepository = mock(CollateralRepository.class);
+        IssuedOfflineProofRepository issuedOfflineProofRepository = mock(IssuedOfflineProofRepository.class);
+        FoxCoinWalletSnapshotPort foxCoinWalletSnapshotPort = mock(FoxCoinWalletSnapshotPort.class);
+        CoinManageCollateralPort coinManageCollateralPort = mock(CoinManageCollateralPort.class);
+
+        when(deviceRepository.findByUserIdAndDeviceId(1762L, "device-1762")).thenReturn(Optional.empty());
+        when(issuedOfflineProofRepository.findLatestActiveByUserIdAndDeviceIdAndAssetCode(1762L, "device-1762", "KORI"))
+                .thenReturn(Optional.empty());
+        when(collateralRepository.findAggregateByUserIdAndAssetCode(1762L, "KORI"))
+                .thenReturn(Optional.empty());
+        when(foxCoinWalletSnapshotPort.getCanonicalWalletSnapshot(1762L, "KORI"))
+                .thenReturn(new FoxCoinWalletSnapshotPort.WalletSnapshot(
+                        1762L,
+                        "KORI",
+                        new BigDecimal("300.000000"),
+                        BigDecimal.ZERO,
+                        "FOX_CLIENT_VISIBLE_AVAILABLE_KORI_EXCLUDING_OFFLINE_COLLATERAL",
+                        "2026-06-24T00:00:00Z"
+                ));
+        when(coinManageCollateralPort.getBalanceSnapshot(1762L, "KORI"))
+                .thenReturn(new CoinManageCollateralPort.BalanceSnapshot("0.000000", "0.000000", "0.000000"));
+
+        JsonService jsonService = new JsonService(new com.fasterxml.jackson.databind.ObjectMapper());
+        OfflineSnapshotService service = new OfflineSnapshotService(
+                deviceRepository,
+                collateralRepository,
+                issuedOfflineProofRepository,
+                mock(OfflinePaymentProofRepository.class),
+                foxCoinWalletSnapshotPort,
+                coinManageCollateralPort,
+                new AppProperties(
+                        "KORI",
+                        24,
+                        20,
+                        1000,
+                        null,
+                        new AppProperties.CoinManage("http://localhost:3000", "secret", 5000),
+                        new AppProperties.FoxCoin("http://localhost:8080", "secret", 5000),
+                        null,
+                        null,
+                        new AppProperties.Worker(false, "worker", 60000, 3)
+                ),
+                jsonService,
+                new JsonPayloadCanonicalizationService(jsonService),
+                mock(ProofIssuerSignatureService.class)
+        );
+
+        OfflineSnapshotService.CurrentSnapshot snapshot = service.getCurrentSnapshot(1762L, "device-1762", "KORI");
+
+        assertNotNull(snapshot.wallet());
+        assertEquals("300.000000", snapshot.wallet().additionalCollateralAvailableAmount());
+    }
+
+    @Test
     void currentSnapshotDoesNotExposeProofFromStaleCollateral() {
         DeviceRepository deviceRepository = mock(DeviceRepository.class);
         CollateralRepository collateralRepository = mock(CollateralRepository.class);
