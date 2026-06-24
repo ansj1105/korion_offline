@@ -3,6 +3,7 @@ package io.korion.offlinepay.infrastructure.adapter;
 import io.korion.offlinepay.application.port.CoinManageSettlementPort;
 import io.korion.offlinepay.application.service.SimpleCircuitBreaker;
 import io.korion.offlinepay.application.service.TelegramAlertService;
+import org.springframework.web.client.HttpClientErrorException;
 
 public class CircuitBreakingCoinManageSettlementAdapter implements CoinManageSettlementPort {
 
@@ -30,6 +31,9 @@ public class CircuitBreakingCoinManageSettlementAdapter implements CoinManageSet
             }
             return result;
         } catch (RuntimeException exception) {
+            if (isClientContractFailure(exception)) {
+                throw exception;
+            }
             boolean opened = circuitBreaker.onFailure();
             if (opened) {
                 alertService.notifyCircuitOpened("offline_pay -> coin_manage", exception.getMessage());
@@ -48,6 +52,9 @@ public class CircuitBreakingCoinManageSettlementAdapter implements CoinManageSet
             }
             return result;
         } catch (RuntimeException exception) {
+            if (isClientContractFailure(exception)) {
+                throw exception;
+            }
             boolean opened = circuitBreaker.onFailure();
             if (opened) {
                 alertService.notifyCircuitOpened("offline_pay -> coin_manage", exception.getMessage());
@@ -66,11 +73,18 @@ public class CircuitBreakingCoinManageSettlementAdapter implements CoinManageSet
             }
             return result;
         } catch (RuntimeException exception) {
+            if (isClientContractFailure(exception)) {
+                throw exception;
+            }
             boolean opened = circuitBreaker.onFailure();
             if (opened) {
                 alertService.notifyCircuitOpened("offline_pay -> coin_manage", exception.getMessage());
             }
             throw exception;
         }
+    }
+
+    private boolean isClientContractFailure(RuntimeException exception) {
+        return exception instanceof HttpClientErrorException;
     }
 }
