@@ -154,7 +154,7 @@ class OfflineLedgerServiceTest {
     }
 
     @Test
-    void emitsNegativeReceivedSettlementLedgerItemWhenReceivedAmountIsSettled() {
+    void emitsPositiveReceivedSettlementLedgerItemWhenReceivedAmountIsSettled() {
         String receiverDeviceId = "98db6beb-4ae1-4027-b9ee-507ce7eaeaa7";
         Device receiverDevice = device(receiverDeviceId, 39L);
         OfflinePaymentProof proof = settledReceivedProof("app-suffix:e7eaeaa7");
@@ -171,7 +171,7 @@ class OfflineLedgerServiceTest {
         assertEquals(2, response.receivedItems().size());
         assertEquals("Offline Receive Settlement", response.receivedItems().get(0).transactionType());
         assertEquals("SETTLED", response.receivedItems().get(0).statusCode());
-        assertEquals("-0.999000", response.receivedItems().get(0).amount());
+        assertEquals("+0.999000", response.receivedItems().get(0).amount());
         assertEquals("0", response.receivedItems().get(0).unsettledAmount());
         assertEquals("0", response.receivedItems().get(0).settledAmount());
         assertEquals("Offline Receive", response.receivedItems().get(1).transactionType());

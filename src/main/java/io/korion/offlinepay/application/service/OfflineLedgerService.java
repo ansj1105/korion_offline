@@ -337,7 +337,8 @@ public class OfflineLedgerService {
 
         for (LedgerEvent event : events) {
             BigDecimal cumulativeAmount = runningReceived.max(BigDecimal.ZERO);
-            String formattedAmount = (event.isTopup() ? "+" : "-") + event.amount().toPlainString();
+            String formattedAmount = (event.isTopup() || isReceivedSettlementMarker(event) ? "+" : "-")
+                    + event.amount().toPlainString();
             boolean receivedSettlementRequired = event.direction() == LedgerDirection.RECEIVE
                     && event.unsettledAmount().compareTo(BigDecimal.ZERO) > 0;
             boolean receivedSettlementClosed = event.statusCode() == PublicLedgerStatus.SETTLED
@@ -384,6 +385,10 @@ public class OfflineLedgerService {
             }
         }
         return items;
+    }
+
+    private boolean isReceivedSettlementMarker(LedgerEvent event) {
+        return "Offline Receive Settlement".equals(event.transactionType());
     }
 
     private LedgerEvent toCollateralEvent(CollateralOperation operation) {

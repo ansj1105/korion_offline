@@ -493,6 +493,7 @@ class SettlementApplicationServiceTest {
                         && "VERIFIED".equals(evidence.verificationStatus())
         ));
         verify(proofRepository).ensureReceivedUnsettledAmount("proof-receiver-confirm", new BigDecimal("5.294700"));
+        verify(coinManageSettlementPort, never()).finalizeSettlement(any(CoinManageSettlementPort.SettlementLedgerCommand.class));
         verify(eventBus, never()).publishExternalSyncRequested(
                 eq("RECEIVER_HISTORY_SYNC_REQUESTED"),
                 anyString(),
@@ -815,6 +816,133 @@ class SettlementApplicationServiceTest {
                 argThat(payload -> payload.contains("\"receiverHistoryCommand\"")
                         && payload.contains("\"receiverWalletSettlementRequested\":true")
                         && payload.contains("\"receiverOnlineConfirmedAt\"")),
+                anyString()
+        );
+    }
+
+    @Test
+    void confirmReceivedSettlementsRequestsReceiverWalletSettlementForManualRecovery() {
+        long now = System.currentTimeMillis();
+        OfflinePaymentProof proof = new OfflinePaymentProof(
+                "proof-receiver-manual-confirm",
+                "batch-receiver-manual-confirm",
+                "voucher-receiver-manual-confirm",
+                "collateral-receiver-manual-confirm",
+                "sender-device",
+                "receiver-device",
+                1,
+                1,
+                12L,
+                "nonce-receiver-manual-confirm",
+                "hash-receiver-manual-confirm",
+                "prev-receiver-manual-confirm",
+                "signature-receiver-manual-confirm",
+                new BigDecimal("2.00000000"),
+                now,
+                now + 60_000,
+                "{}",
+                "RECEIVER",
+                "BLE",
+                OfflineProofStatus.SETTLED,
+                "SETTLED",
+                new BigDecimal("1.99800000"),
+                BigDecimal.ZERO,
+                null,
+                null,
+                null,
+                "{\"requestId\":\"req-receiver-manual-confirm\"}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now(),
+                OffsetDateTime.now(),
+                OffsetDateTime.now(),
+                OffsetDateTime.now(),
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        SettlementRequest request = new SettlementRequest(
+                "settlement-receiver-manual-confirm",
+                "batch-receiver-manual-confirm",
+                "collateral-receiver-manual-confirm",
+                "proof-receiver-manual-confirm",
+                SettlementStatus.SETTLED,
+                "SETTLED",
+                false,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        Device receiverDevice = new Device(
+                "row-receiver-manual-confirm",
+                "receiver-device",
+                88L,
+                "receiver-public-key",
+                1,
+                DeviceStatus.ACTIVE,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        CollateralLock collateral = new CollateralLock(
+                "collateral-receiver-manual-confirm",
+                77L,
+                "sender-device",
+                "KORI",
+                new BigDecimal("150"),
+                new BigDecimal("100"),
+                "GENESIS",
+                1,
+                CollateralStatus.LOCKED,
+                "lock-receiver-manual-confirm",
+                OffsetDateTime.now().plusDays(1),
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        when(proofRepository.findById("proof-receiver-manual-confirm")).thenReturn(Optional.of(proof));
+        when(deviceRepository.findByDeviceId("receiver-device")).thenReturn(Optional.of(receiverDevice));
+        when(settlementRepository.findLatestByProofId("proof-receiver-manual-confirm")).thenReturn(Optional.of(request));
+        when(offlineSagaRepository.findBySagaTypeAndReferenceId(
+                OfflineSagaType.SETTLEMENT,
+                "settlement-receiver-manual-confirm"
+        )).thenReturn(Optional.empty());
+        when(collateralRepository.findById("collateral-receiver-manual-confirm")).thenReturn(Optional.of(collateral));
+        when(coinManageSettlementPort.finalizeSettlement(any(CoinManageSettlementPort.SettlementLedgerCommand.class)))
+                .thenReturn(new CoinManageSettlementPort.SettlementLedgerResult(
+                        "settlement-receiver-manual-confirm",
+                        "FINALIZED",
+                        "RELEASE",
+                        true,
+                        "SENDER",
+                        "LEDGER_AND_EXTERNAL_HISTORY_SYNC",
+                        "SENDER_LEDGER_PLUS_RECEIVER_LEDGER_AND_HISTORY",
+                        "OFFLINE_PAY_SAGA",
+                        new BigDecimal("0.000000"),
+                        new BigDecimal("0.000000"),
+                        new BigDecimal("0.000000")
+                ));
+
+        SettlementApplicationService.ReceiverSettlementConfirmationResult result =
+                service.confirmReceivedSettlements(new SettlementApplicationService.ConfirmReceivedSettlementsCommand(
+                        88L,
+                        java.util.List.of("proof-receiver-manual-confirm")
+                ));
+
+        assertEquals(1, result.requested());
+        assertEquals(1, result.confirmed());
+        assertEquals(0, result.skipped());
+        verify(coinManageSettlementPort).finalizeSettlement(argThat(command ->
+                command.receiverWalletSettlementRequested()
+                        && Long.valueOf(88L).equals(command.receiverUserId())
+                        && "receiver-device".equals(command.receiverDeviceId())
+        ));
+        verify(eventBus).publishExternalSyncRequested(
+                eq("RECEIVER_HISTORY_SYNC_REQUESTED"),
+                eq("settlement-receiver-manual-confirm"),
+                eq("batch-receiver-manual-confirm"),
+                eq("proof-receiver-manual-confirm"),
+                argThat(payload -> payload.contains("\"receiverWalletSettlementRequested\":true")
+                        && payload.contains("\"receiverOnlineConfirmedAt\"")
+                        && payload.contains("\"receiverHistoryCommand\"")),
                 anyString()
         );
     }
