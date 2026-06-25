@@ -27,6 +27,8 @@ public class JdbcOfflinePaymentProofRepository implements OfflinePaymentProofRep
             String collateralId,
             String senderDeviceId,
             String receiverDeviceId,
+            long senderUserId,
+            long receiverUserId,
             int keyVersion,
             int policyVersion,
             long counter,
@@ -64,6 +66,8 @@ public class JdbcOfflinePaymentProofRepository implements OfflinePaymentProofRep
                         "collateral_id",
                         "sender_device_id",
                         "receiver_device_id",
+                        "sender_user_id",
+                        "receiver_user_id",
                         "key_version",
                         "policy_version",
                         "counter",
@@ -91,6 +95,8 @@ public class JdbcOfflinePaymentProofRepository implements OfflinePaymentProofRep
                 .param("collateral_id", java.util.UUID.fromString(collateralId))
                 .param("sender_device_id", senderDeviceId)
                 .param("receiver_device_id", receiverDeviceId)
+                .param("sender_user_id", senderUserId)
+                .param("receiver_user_id", receiverUserId)
                 .param("key_version", keyVersion)
                 .param("policy_version", policyVersion)
                 .param("counter", counter)
@@ -310,26 +316,9 @@ public class JdbcOfflinePaymentProofRepository implements OfflinePaymentProofRep
                 JOIN collateral_locks ON collateral_locks.id = offline_payment_proofs.collateral_id
                 WHERE UPPER(collateral_locks.asset_code) = :assetCode
                   AND (
-                    EXISTS (
-                        SELECT 1
-                        FROM devices sender_device
-                        WHERE sender_device.user_id = :userId
-                          AND sender_device.status = 'ACTIVE'
-                          AND sender_device.device_id = offline_payment_proofs.sender_device_id
-                    )
-                    OR EXISTS (
-                        SELECT 1
-                        FROM devices receiver_device
-                        WHERE receiver_device.user_id = :userId
-                          AND receiver_device.status = 'ACTIVE'
-                          AND (
-                            receiver_device.device_id = offline_payment_proofs.receiver_device_id
-                            OR (
-                                offline_payment_proofs.receiver_device_id ~ '^app-suffix:[0-9A-Fa-f]{8}$'
-                                AND RIGHT(receiver_device.device_id, 8) = SUBSTRING(offline_payment_proofs.receiver_device_id FROM 12)
-                            )
-                          )
-                    )
+                    offline_payment_proofs.sender_user_id = :userId
+                    OR collateral_locks.user_id = :userId
+                    OR offline_payment_proofs.receiver_user_id = :userId
                   )
                 ORDER BY COALESCE(offline_payment_proofs.settled_at, offline_payment_proofs.updated_at, offline_payment_proofs.created_at) DESC,
                          offline_payment_proofs.created_at DESC

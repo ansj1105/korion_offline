@@ -12,6 +12,8 @@ public interface OfflinePaymentProofRepository {
             String collateralId,
             String senderDeviceId,
             String receiverDeviceId,
+            long senderUserId,
+            long receiverUserId,
             int keyVersion,
             int policyVersion,
             long counter,

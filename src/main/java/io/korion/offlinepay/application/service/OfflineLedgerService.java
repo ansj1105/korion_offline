@@ -472,10 +472,11 @@ public class OfflineLedgerService {
     private LedgerEvent toProofEvent(OfflinePaymentProof proof, long userId, Set<String> activeDeviceIds) {
         Device senderDevice = deviceIdentifierResolver.resolve(proof.senderDeviceId()).orElse(null);
         Device receiverDevice = deviceIdentifierResolver.resolve(proof.receiverDeviceId()).orElse(null);
-        boolean senderOwned = activeDeviceIds.contains(proof.senderDeviceId())
-                || (senderDevice != null && senderDevice.userId() == userId);
-        boolean receiverOwned = activeDeviceIds.contains(proof.receiverDeviceId())
-                || (receiverDevice != null && receiverDevice.userId() == userId);
+        boolean senderOwned = proof.senderUserId() != null
+                ? proof.senderUserId() == userId
+                : activeDeviceIds.contains(proof.senderDeviceId())
+                    || (senderDevice != null && senderDevice.userId() == userId);
+        boolean receiverOwned = proof.receiverUserId() != null && proof.receiverUserId() == userId;
         if (!senderOwned && !receiverOwned) {
             return null;
         }

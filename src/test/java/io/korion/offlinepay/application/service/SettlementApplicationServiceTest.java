@@ -261,6 +261,8 @@ class SettlementApplicationServiceTest {
                 anyString(),
                 anyString(),
                 anyString(),
+                anyLong(),
+                anyLong(),
                 anyInt(),
                 anyInt(),
                 anyLong(),
@@ -343,6 +345,8 @@ class SettlementApplicationServiceTest {
                 anyString(),
                 anyString(),
                 anyString(),
+                anyLong(),
+                anyLong(),
                 anyInt(),
                 anyInt(),
                 anyLong(),
@@ -505,7 +509,7 @@ class SettlementApplicationServiceTest {
     }
 
     @Test
-    void submitBatchStoresSenderLocalEvidenceBeforeSettlementFinalization() {
+    void submitBatchStoresSenderLocalEvidenceWithPayloadReceiverUserWhenDeviceOwnerChanged() {
         long now = System.currentTimeMillis();
         SettlementApplicationService.ProofSubmission submission = new SettlementApplicationService.ProofSubmission(
                 "voucher-sender-evidence",
@@ -525,6 +529,8 @@ class SettlementApplicationServiceTest {
                 "{}",
                 java.util.Map.ofEntries(
                         java.util.Map.entry("requestId", "req-sender-evidence"),
+                        java.util.Map.entry("senderUserId", 77L),
+                        java.util.Map.entry("receiverUserId", 88L),
                         java.util.Map.entry("senderLocalBlock", true),
                         java.util.Map.entry("senderLocalBlockVoucherId", "voucher-sender-evidence"),
                         java.util.Map.entry("senderLocalBlockAmount", "2.50000000"),
@@ -613,8 +619,20 @@ class SettlementApplicationServiceTest {
         when(batchRepository.findByIdempotencyKey("idempotency-sender-evidence")).thenReturn(Optional.empty());
         when(batchRepository.save(anyString(), anyString(), any(), any(), anyInt(), anyString())).thenReturn(createdBatch);
         when(collateralRepository.findById("collateral-sender-evidence")).thenReturn(Optional.of(collateral));
+        when(deviceRepository.findByDeviceId("receiver-device")).thenReturn(Optional.of(new Device(
+                "row-receiver-sender-evidence",
+                "receiver-device",
+                1474L,
+                "receiver-public-key",
+                1,
+                DeviceStatus.ACTIVE,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        )));
         when(proofRepository.save(
                 anyString(), anyString(), anyString(), anyString(), anyString(),
+                anyLong(), anyLong(),
                 anyInt(), anyInt(), anyLong(), anyString(), anyString(), anyString(), anyString(),
                 any(), anyLong(), anyLong(), anyString(), anyString(), anyString(), anyString()
         )).thenReturn(proof);
@@ -631,6 +649,29 @@ class SettlementApplicationServiceTest {
         ));
 
         assertEquals(SettlementBatchStatus.UPLOADED, result.status());
+        verify(proofRepository).save(
+                eq("batch-sender-evidence"),
+                eq("voucher-sender-evidence"),
+                eq("collateral-sender-evidence"),
+                eq("sender-device"),
+                eq("receiver-device"),
+                eq(77L),
+                eq(88L),
+                eq(1),
+                eq(1),
+                eq(11L),
+                eq("nonce-sender-evidence"),
+                eq("hash-sender-evidence"),
+                eq("prev-sender-evidence"),
+                eq("signature-sender-evidence"),
+                eq(new BigDecimal("2.50000000")),
+                eq(now),
+                eq(now + 60_000),
+                eq("{}"),
+                eq("SENDER"),
+                anyString(),
+                anyString()
+        );
         verify(localEvidenceRepository).save(argThat(evidence ->
                 "proof-sender-evidence".equals(evidence.proofId())
                         && "SEND".equals(evidence.direction())
@@ -650,6 +691,8 @@ class SettlementApplicationServiceTest {
                 "collateral-receiver-auto-confirm",
                 "sender-device",
                 "receiver-device",
+                77L,
+                88L,
                 1,
                 1,
                 7L,
@@ -830,6 +873,8 @@ class SettlementApplicationServiceTest {
                 "collateral-receiver-manual-confirm",
                 "sender-device",
                 "receiver-device",
+                77L,
+                88L,
                 1,
                 1,
                 12L,
@@ -957,6 +1002,8 @@ class SettlementApplicationServiceTest {
                 "collateral-receiver-history-synced",
                 "sender-device",
                 "receiver-device",
+                77L,
+                88L,
                 1,
                 1,
                 12L,
@@ -1256,6 +1303,8 @@ class SettlementApplicationServiceTest {
                 anyString(),
                 anyString(),
                 anyString(),
+                anyLong(),
+                anyLong(),
                 anyInt(),
                 anyInt(),
                 anyLong(),
@@ -2254,6 +2303,8 @@ class SettlementApplicationServiceTest {
                 collateral.id(),
                 "sender-device",
                 "receiver-device",
+                77L,
+                88L,
                 1,
                 1,
                 31L,
@@ -2299,12 +2350,25 @@ class SettlementApplicationServiceTest {
                 .thenReturn(Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(proof));
         when(proofRepository.findBySenderNonce("sender-device", "nonce-direct-reconcile")).thenReturn(Optional.empty());
         when(collateralRepository.findById(collateral.id())).thenReturn(Optional.of(collateral));
+        when(deviceRepository.findByDeviceId("receiver-device")).thenReturn(Optional.of(new Device(
+                "row-receiver-direct-reconcile",
+                "receiver-device",
+                88L,
+                "receiver-public-key",
+                1,
+                DeviceStatus.ACTIVE,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        )));
         when(proofRepository.save(
                 eq(batch.id()),
                 eq("voucher-direct-reconcile"),
                 eq(collateral.id()),
                 eq("sender-device"),
                 eq("receiver-device"),
+                eq(collateral.userId()),
+                anyLong(),
                 eq(1),
                 eq(1),
                 eq(31L),
@@ -2473,6 +2537,8 @@ class SettlementApplicationServiceTest {
                 anyString(),
                 anyString(),
                 anyString(),
+                anyLong(),
+                anyLong(),
                 anyInt(),
                 anyInt(),
                 anyLong(),
@@ -2624,6 +2690,8 @@ class SettlementApplicationServiceTest {
                 anyString(),
                 anyString(),
                 anyString(),
+                anyLong(),
+                anyLong(),
                 anyInt(),
                 anyInt(),
                 anyLong(),
@@ -2699,6 +2767,8 @@ class SettlementApplicationServiceTest {
                 "collateral-1",
                 "device-1",
                 "app-suffix:e7eaeaa7",
+                77L,
+                88L,
                 1,
                 1,
                 1L,

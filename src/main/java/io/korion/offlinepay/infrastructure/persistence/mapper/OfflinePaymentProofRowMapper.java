@@ -20,6 +20,8 @@ public class OfflinePaymentProofRowMapper implements RowMapper<OfflinePaymentPro
                 resultSet.getString("collateral_id"),
                 resultSet.getString("sender_device_id"),
                 resultSet.getString("receiver_device_id"),
+                resultSet.getObject("sender_user_id", Long.class),
+                resultSet.getObject("receiver_user_id", Long.class),
                 resultSet.getInt("key_version"),
                 resultSet.getInt("policy_version"),
                 resultSet.getLong("counter"),

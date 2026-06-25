@@ -116,6 +116,8 @@ class SettlementSyncCommandFactoryTest {
                 collateralId,
                 senderDeviceId,
                 "receiver-device",
+                35L,
+                77L,
                 1,
                 1,
                 1L,

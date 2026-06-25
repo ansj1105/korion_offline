@@ -183,9 +183,7 @@ public class SettlementApplicationService {
             }
             OfflinePaymentProof proof = proofRepository.findById(proofId.trim())
                     .orElseThrow(() -> new IllegalArgumentException("offline proof not found: " + proofId));
-            Device receiverDevice = deviceIdentifierResolver.resolve(proof.receiverDeviceId())
-                    .orElseThrow(() -> new IllegalArgumentException("receiver device not found for proof: " + proof.id()));
-            if (receiverDevice.userId() != command.userId()) {
+            if (!proofBelongsToReceiverUser(proof, command.userId())) {
                 throw new IllegalArgumentException("received proof does not belong to user: " + proof.id());
             }
             if (proof.receivedUnsettledAmount() == null || proof.receivedUnsettledAmount().compareTo(BigDecimal.ZERO) <= 0) {
@@ -891,6 +889,10 @@ public class SettlementApplicationService {
 
             CollateralLock collateral = collateralRepository.findById(submission.collateralId())
                     .orElseThrow(() -> new IllegalArgumentException("collateral not found: " + submission.collateralId()));
+            Device receiverDevice = deviceIdentifierResolver.resolve(submission.receiverDeviceId())
+                    .orElseThrow(() -> new IllegalArgumentException("receiver device not found: " + submission.receiverDeviceId()));
+            long senderUserId = resolveSenderUserId(submission, collateral);
+            long receiverUserId = resolveReceiverUserId(submission, receiverDevice);
 
             OfflinePaymentProof proof = proofRepository.save(
                     batch.id(),
@@ -898,6 +900,8 @@ public class SettlementApplicationService {
                     submission.collateralId(),
                     submission.senderDeviceId(),
                     submission.receiverDeviceId(),
+                    senderUserId,
+                    receiverUserId,
                     submission.keyVersion(),
                     submission.policyVersion(),
                     submission.counter(),
@@ -1386,7 +1390,7 @@ public class SettlementApplicationService {
             }
             return;
         }
-        Device receiverDevice = deviceIdentifierResolver.resolve(proof.receiverDeviceId()).orElse(null);
+        Device receiverDevice = resolveCurrentReceiverDeviceForProofOwner(proof).orElse(null);
         if (receiverDevice == null) {
             return;
         }
@@ -1458,6 +1462,50 @@ public class SettlementApplicationService {
                         "receiverWalletSettlementRequested", true
                 )
         );
+    }
+
+    private boolean proofBelongsToReceiverUser(OfflinePaymentProof proof, long userId) {
+        return proof.receiverUserId() != null && proof.receiverUserId() == userId;
+    }
+
+    private long resolveSenderUserId(ProofSubmission submission, CollateralLock collateral) {
+        Long payloadSenderUserId = positiveLongPayloadValue(submission.payload(), "senderUserId");
+        if (payloadSenderUserId != null && payloadSenderUserId != collateral.userId()) {
+            throw new IllegalArgumentException("sender user mismatch for proof: " + submission.voucherId());
+        }
+        return collateral.userId();
+    }
+
+    private long resolveReceiverUserId(ProofSubmission submission, Device receiverDevice) {
+        Long payloadReceiverUserId = positiveLongPayloadValue(submission.payload(), "receiverUserId");
+        return payloadReceiverUserId != null ? payloadReceiverUserId : receiverDevice.userId();
+    }
+
+    private Long positiveLongPayloadValue(Map<String, Object> payload, String key) {
+        if (payload == null || key == null || key.isBlank()) {
+            return null;
+        }
+        Object value = payload.get(key);
+        if (value instanceof Number number) {
+            long longValue = number.longValue();
+            return longValue > 0 ? longValue : null;
+        }
+        if (value instanceof String stringValue) {
+            String normalized = stringValue.trim();
+            if (normalized.matches("^[0-9]+$")) {
+                long longValue = Long.parseLong(normalized);
+                return longValue > 0 ? longValue : null;
+            }
+        }
+        return null;
+    }
+
+    private Optional<Device> resolveCurrentReceiverDeviceForProofOwner(OfflinePaymentProof proof) {
+        if (proof.receiverUserId() == null) {
+            return Optional.empty();
+        }
+        return deviceIdentifierResolver.resolve(proof.receiverDeviceId())
+                .filter(device -> device.userId() == proof.receiverUserId());
     }
 
     private boolean shouldIgnoreLateReceiverConfirmation(OfflineSaga saga) {
@@ -1959,7 +2007,7 @@ public class SettlementApplicationService {
         Device senderDevice = deviceIdentifierResolver.resolve(proof.senderDeviceId()).orElse(null);
         Device receiverDevice = null;
         if (evaluation.status() == SettlementStatus.SETTLED) {
-            receiverDevice = deviceIdentifierResolver.resolve(proof.receiverDeviceId()).orElse(null);
+            receiverDevice = resolveCurrentReceiverDeviceForProofOwner(proof).orElse(null);
         }
         boolean receiverWalletSettlementRequested = receiverDevice != null
                 && "RECEIVER".equalsIgnoreCase(proof.uploaderType())

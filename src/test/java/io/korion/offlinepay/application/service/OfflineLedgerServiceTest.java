@@ -357,6 +357,23 @@ class OfflineLedgerServiceTest {
     }
 
     @Test
+    void doesNotReassignReceivedProofWhenDeviceOwnerChanges() {
+        Device currentDeviceOwner = device("shared-receiver-device", 1474L);
+        OfflinePaymentProof proof = settledProof("shared-receiver-device");
+        when(deviceRepository.findActiveByUserId(1474L)).thenReturn(List.of(currentDeviceOwner));
+        when(deviceRepository.findByDeviceId("47ba2d8b-5b95-4510-8b23-007957e4fe46")).thenReturn(Optional.empty());
+        when(deviceRepository.findByDeviceId("shared-receiver-device")).thenReturn(Optional.of(currentDeviceOwner));
+        when(proofRepository.findRecentByUserIdAndAssetCode(1474L, "KORI", 31)).thenReturn(List.of(proof));
+        when(collateralOperationRepository.findRecentByUserIdAndAssetCode(1474L, "KORI", 31)).thenReturn(List.of());
+        when(collateralRepository.findAggregateByUserIdAndAssetCode(1474L, "KORI")).thenReturn(Optional.empty());
+
+        OfflineLedgerService.LedgerHistoryResponse response = service.getLedgerHistory(1474L, "KORI", 30);
+
+        assertTrue(response.sentItems().isEmpty());
+        assertTrue(response.receivedItems().isEmpty());
+    }
+
+    @Test
     void doesNotRepeatLedgerPageAfterFetchWindowCap() {
         Device receiverDevice = device("receiver-device", 39L);
         Device senderDevice = device("sender-device", 1L);
@@ -407,6 +424,8 @@ class OfflineLedgerServiceTest {
                 "collateral-id",
                 "47ba2d8b-5b95-4510-8b23-007957e4fe46",
                 receiverDeviceId,
+                1L,
+                39L,
                 1,
                 1,
                 1,
@@ -462,6 +481,8 @@ class OfflineLedgerServiceTest {
                 "collateral-id",
                 "device-1",
                 "device-2",
+                1L,
+                2L,
                 1,
                 1,
                 offlineTxSequence,
@@ -498,6 +519,8 @@ class OfflineLedgerServiceTest {
                 "collateral-id",
                 "47ba2d8b-5b95-4510-8b23-007957e4fe46",
                 receiverDeviceId,
+                1L,
+                39L,
                 1,
                 1,
                 1,
@@ -539,6 +562,8 @@ class OfflineLedgerServiceTest {
                 "collateral-id",
                 "47ba2d8b-5b95-4510-8b23-007957e4fe46",
                 receiverDeviceId,
+                1L,
+                39L,
                 1,
                 1,
                 1,
@@ -579,6 +604,8 @@ class OfflineLedgerServiceTest {
                 "collateral-id",
                 "47ba2d8b-5b95-4510-8b23-007957e4fe46",
                 receiverDeviceId,
+                1L,
+                39L,
                 1,
                 1,
                 1,
@@ -619,6 +646,8 @@ class OfflineLedgerServiceTest {
                 "collateral-id",
                 "sender-device",
                 receiverDeviceId,
+                1L,
+                39L,
                 1,
                 1,
                 1,
@@ -667,6 +696,8 @@ class OfflineLedgerServiceTest {
                 "collateral-id",
                 "47ba2d8b-5b95-4510-8b23-007957e4fe46",
                 receiverDeviceId,
+                1L,
+                39L,
                 1,
                 1,
                 1,

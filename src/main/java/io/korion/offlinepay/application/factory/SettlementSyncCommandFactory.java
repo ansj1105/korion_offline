@@ -55,8 +55,8 @@ public class SettlementSyncCommandFactory {
                 proof.id(),
                 collateral.userId(),
                 senderDeviceId,
-                receiverDevice == null ? null : receiverDevice.userId(),
-                receiverDevice == null ? null : receiverDevice.deviceId(),
+                proof.receiverUserId(),
+                resolveReceiverDeviceId(proof, receiverDevice),
                 receiverWalletSettlementRequested,
                 collateral.assetCode(),
                 amount,
@@ -71,6 +71,16 @@ public class SettlementSyncCommandFactory {
                 proof.nonce(),
                 proof.signature()
         );
+    }
+
+    private String resolveReceiverDeviceId(OfflinePaymentProof proof, Device receiverDevice) {
+        if (proof.receiverUserId() == null) {
+            return null;
+        }
+        if (receiverDevice != null && receiverDevice.userId() == proof.receiverUserId()) {
+            return receiverDevice.deviceId();
+        }
+        return proof.receiverDeviceId();
     }
 
     private BigDecimal settlementFeeAmount(String assetCode, BigDecimal amount, String settlementStatus, String releaseAction) {
