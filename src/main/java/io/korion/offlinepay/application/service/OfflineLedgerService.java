@@ -216,7 +216,9 @@ public class OfflineLedgerService {
                     || event.statusCode() == PublicLedgerStatus.EXPIRED
                     || event.statusCode() == PublicLedgerStatus.REJECTED) {
                 failedCount++;
-                continue;
+                if (!hasFinanciallyHonoredReceivedAmount(event)) {
+                    continue;
+                }
             }
             if (event.statusCode() == PublicLedgerStatus.PENDING) {
                 pendingCount++;
@@ -287,9 +289,15 @@ public class OfflineLedgerService {
 
     private BigDecimal calculateReceivedTotal(List<LedgerHistoryItem> receivedItems) {
         return receivedItems.stream()
-                .filter(item -> !PublicLedgerStatus.FAILED.name().equals(item.statusCode()))
+                .filter(item -> !PublicLedgerStatus.FAILED.name().equals(item.statusCode())
+                        || parseAmount(item.unsettledAmount()).add(parseAmount(item.settledAmount())).compareTo(BigDecimal.ZERO) > 0)
                 .map(item -> parseAmount(item.unsettledAmount()).add(parseAmount(item.settledAmount())))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    private boolean hasFinanciallyHonoredReceivedAmount(LedgerEvent event) {
+        return event.direction() == LedgerDirection.RECEIVE
+                && event.unsettledAmount().compareTo(BigDecimal.ZERO) > 0;
     }
 
     private Set<String> loadActiveDeviceIds(long userId) {
@@ -617,10 +625,12 @@ public class OfflineLedgerService {
 
     private BigDecimal resolveReceivedUnsettledAmount(OfflinePaymentProof proof, PublicLedgerStatus statusCode) {
         BigDecimal unsettledAmount = normalizeAmount(proof.receivedUnsettledAmount());
+        if ((statusCode == PublicLedgerStatus.FAILED || statusCode == PublicLedgerStatus.REJECTED)
+                && unsettledAmount.compareTo(BigDecimal.ZERO) > 0) {
+            return normalizeReceivedAmount(proof, unsettledAmount);
+        }
         if (statusCode == PublicLedgerStatus.SETTLED
-                || statusCode == PublicLedgerStatus.FAILED
                 || statusCode == PublicLedgerStatus.EXPIRED
-                || statusCode == PublicLedgerStatus.REJECTED
                 || statusCode == PublicLedgerStatus.LOCKED) {
             return BigDecimal.ZERO;
         }

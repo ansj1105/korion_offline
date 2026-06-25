@@ -48,9 +48,12 @@ Request fields:
 - `settlementStatus`
 - `releaseAction`
 - `conflictDetected`
+- `financiallyHonored`
 
 Implementation note:
 - 기존 `withdrawals` API에 억지로 매핑하지 말고 `offline_pay settlement posting` 전용 내부 adapter/API를 `coin_manage` 쪽에 추가하는 것이 맞다.
+- `financiallyHonored=true`는 로컬 검증으로 `PENDING`까지 진행된 거래가 서버 검증에서 `REJECTED`로 끝났지만 운영 정책상 금전 반영을 유지하는 경우에만 사용한다.
+- 이 경우 `settlementStatus`는 원래 검증 결과(`REJECTED`)를 유지하고, `releaseAction=RELEASE`로 sender 담보 차감과 receiver 미정산/정산 가능 금액 반영을 진행한다.
 
 ## 2. `offline_pay -> fox_coin`
 

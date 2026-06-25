@@ -39,6 +39,7 @@ class SettlementSyncCommandFactoryTest {
                 "RELEASE",
                 false,
                 receiverDevice,
+                false,
                 false
         );
         var historyCommand = factory.createHistoryCommand(

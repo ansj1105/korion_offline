@@ -40,6 +40,7 @@ public class CoinManageSettlementAdapter implements CoinManageSettlementPort {
                         command.settlementStatus(),
                         command.releaseAction(),
                         command.conflictDetected(),
+                        command.financiallyHonored(),
                         command.proofFingerprint(),
                         command.newStateHash(),
                         command.previousHash(),

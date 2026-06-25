@@ -92,6 +92,7 @@ class CircuitBreakingCoinManageSettlementAdapterTest {
                 "FAILED",
                 "ADJUST",
                 false,
+                false,
                 "0".repeat(64),
                 "new-state",
                 "previous-state",

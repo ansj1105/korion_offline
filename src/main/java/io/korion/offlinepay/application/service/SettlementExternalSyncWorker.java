@@ -669,6 +669,7 @@ public class SettlementExternalSyncWorker {
                 requireText(node, "settlementStatus"),
                 requireText(node, "releaseAction"),
                 node.path("conflictDetected").asBoolean(),
+                node.path("financiallyHonored").asBoolean(false),
                 requireText(node, "proofFingerprint"),
                 requireText(node, "newStateHash"),
                 requireText(node, "previousHash"),

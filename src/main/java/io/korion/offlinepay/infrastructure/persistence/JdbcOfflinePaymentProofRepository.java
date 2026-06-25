@@ -226,6 +226,22 @@ public class JdbcOfflinePaymentProofRepository implements OfflinePaymentProofRep
     }
 
     @Override
+    public long findMaxSenderOfflineTxSequence(String senderDeviceId) {
+        String sql = """
+                SELECT COALESCE(MAX((raw_payload ->> 'offlineTxSequence')::bigint), 0)
+                FROM offline_payment_proofs
+                WHERE sender_device_id = :senderDeviceId
+                  AND jsonb_exists(raw_payload, 'offlineTxSequence')
+                  AND raw_payload ->> 'offlineTxSequence' ~ '^[0-9]+$'
+                """;
+        Long value = jdbcClient.sql(sql)
+                .param("senderDeviceId", senderDeviceId)
+                .query(Long.class)
+                .single();
+        return value == null ? 0L : Math.max(0L, value);
+    }
+
+    @Override
     public java.util.List<OfflinePaymentProof> findByCollateralId(String collateralId) {
         String sql = QueryBuilder.select("offline_payment_proofs")
                 .where("collateral_id", QueryBuilder.Op.EQ, ":collateralId")

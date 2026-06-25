@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import io.korion.offlinepay.application.port.CollateralRepository;
@@ -27,6 +28,51 @@ import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 class OfflineSnapshotServiceTest {
+
+    @Test
+    void checkpointIncludesMaxSenderOfflineTxSequence() {
+        OfflinePaymentProofRepository proofRepository = mock(OfflinePaymentProofRepository.class);
+        when(proofRepository.findLatestSettledBySenderDeviceId("device-1")).thenReturn(Optional.empty());
+        when(proofRepository.findMaxSenderOfflineTxSequence("device-1")).thenReturn(208L);
+        ProofIssuerSignatureService proofIssuerSignatureService = mock(ProofIssuerSignatureService.class);
+        String expectedSigningPayload = "CHECKPOINT_V1|device-1|KORI|GENESIS|0|208|";
+        when(proofIssuerSignatureService.sign(org.mockito.ArgumentMatchers.startsWith(expectedSigningPayload)))
+                .thenReturn("checkpoint-signature");
+        when(proofIssuerSignatureService.keyId()).thenReturn("issuer-key");
+        when(proofIssuerSignatureService.publicKey()).thenReturn("issuer-public-key");
+        JsonService jsonService = new JsonService(new com.fasterxml.jackson.databind.ObjectMapper());
+        OfflineSnapshotService service = new OfflineSnapshotService(
+                mock(DeviceRepository.class),
+                mock(CollateralRepository.class),
+                mock(IssuedOfflineProofRepository.class),
+                proofRepository,
+                mock(FoxCoinWalletSnapshotPort.class),
+                mock(CoinManageCollateralPort.class),
+                new AppProperties(
+                        "KORI",
+                        24,
+                        20,
+                        1000,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null
+                ),
+                jsonService,
+                new JsonPayloadCanonicalizationService(jsonService),
+                proofIssuerSignatureService
+        );
+
+        OfflineSnapshotService.TrustedCheckpoint checkpoint = service.generateCheckpoint("device-1", "KORI");
+
+        assertEquals(208L, checkpoint.maxOfflineTxSequence());
+        assertEquals(0L, checkpoint.counter());
+        assertEquals("GENESIS", checkpoint.stateHash());
+        assertEquals("checkpoint-signature", checkpoint.signature());
+        verify(proofIssuerSignatureService).sign(org.mockito.ArgumentMatchers.startsWith(expectedSigningPayload));
+    }
 
     @Test
     void currentSnapshotUsesRemainingAmountAsCurrentOnlineCollateralBalance() {

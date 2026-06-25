@@ -1405,7 +1405,8 @@ public class SettlementApplicationService {
                 "RELEASE",
                 false,
                 receiverDevice,
-                true
+                true,
+                false
         );
         CoinManageSettlementPort.SettlementLedgerResult receiverLedgerResult =
                 coinManageSettlementPort.finalizeSettlement(receiverLedgerCommand);
@@ -1695,12 +1696,24 @@ public class SettlementApplicationService {
                 )
         );
 
-        markVerifiedEvidenceForProof(proof, receiverEvidenceMatched);
+        boolean validationStartedFromPending = isServerValidationPending(request);
+        boolean receiverEvidenceConfirmed = markVerifiedEvidenceForProof(proof, receiverEvidenceMatched);
 
         proofRepository.updateLifecycle(proof.id(), OfflineProofStatus.CONSUMED_PENDING_SETTLEMENT, null, true, false, false);
         CollateralLock settlementCollateralScope = resolveSettlementCollateralScope(collateral, proof);
         SettlementEvaluation evaluation = evaluateProof(proof, settlementCollateralScope, request.id());
+        boolean financiallyHonored = shouldFinanciallyHonorLocalPendingSettlement(
+                validationStartedFromPending,
+                receiverEvidenceConfirmed,
+                evaluation
+        );
         String terminalReasonCode = normalizeSettlementReasonCode(evaluation.status(), evaluation.reasonCode(), evaluation.conflictDetected());
+        String settlementResultJson = settlementResultJson(
+                evaluation,
+                financiallyHonored,
+                receiverEvidenceConfirmed,
+                validationStartedFromPending
+        );
         proofRepository.updateLifecycle(
                 proof.id(),
                 mapProofStatus(evaluation.status(), evaluation.conflictDetected()),
@@ -1709,19 +1722,19 @@ public class SettlementApplicationService {
                 evaluation.status() == SettlementStatus.SETTLED,
                 evaluation.status() == SettlementStatus.SETTLED
         );
-        if (evaluation.status() == SettlementStatus.SETTLED) {
+        if (evaluation.status() == SettlementStatus.SETTLED || financiallyHonored) {
             proofRepository.ensureReceivedUnsettledAmount(
                     proof.id(),
                     calculateReceiverAmount(proof, settlementCollateralScope.assetCode())
             );
-            deductSettlementAmountAcrossCollateralScope(collateral, proof, request);
+            deductSettlementAmountAcrossCollateralScope(collateral, proof, request, evaluation.status(), financiallyHonored);
         }
         settlementRepository.update(
                 request.id(),
                 evaluation.status(),
                 terminalReasonCode,
                 evaluation.conflictDetected(),
-                evaluation.resultJson()
+                settlementResultJson
         );
         settlementResultRepository.save(
                 request.id(),
@@ -1729,11 +1742,11 @@ public class SettlementApplicationService {
                 proof,
                 evaluation.status(),
                 terminalReasonCode,
-                evaluation.resultJson(),
-                evaluation.settledAmount()
+                settlementResultJson,
+                financiallyHonored ? proof.amount() : evaluation.settledAmount()
         );
-        saveReconciliationCase(request, proof, evaluation);
-        if (evaluation.status() != SettlementStatus.SETTLED) {
+        saveReconciliationCase(request, proof, evaluation, settlementResultJson);
+        if (evaluation.status() != SettlementStatus.SETTLED && !financiallyHonored) {
             collateralRepository.updateStatus(
                     collateral.id(),
                     resolveCollateralStatus(collateral, proof, evaluation),
@@ -1745,7 +1758,7 @@ public class SettlementApplicationService {
             );
         }
 
-        if (evaluation.status() == SettlementStatus.SETTLED || evaluation.conflictDetected()) {
+        if (evaluation.status() == SettlementStatus.SETTLED || evaluation.conflictDetected() || financiallyHonored) {
             offlineSagaService.markProcessing(
                     OfflineSagaType.SETTLEMENT,
                     request.id(),
@@ -1755,10 +1768,11 @@ public class SettlementApplicationService {
                             "batchId", request.batchId(),
                             "proofId", proof.id(),
                             "collateralId", collateral.id(),
-                            "reasonCode", terminalReasonCode
+                            "reasonCode", terminalReasonCode,
+                            "financiallyHonored", financiallyHonored
                     )
             );
-            syncExternalSettlement(collateral, proof, request, evaluation);
+            syncExternalSettlement(collateral, proof, request, evaluation, financiallyHonored);
         } else {
             offlineSagaService.markFailed(
                     OfflineSagaType.SETTLEMENT,
@@ -1778,11 +1792,47 @@ public class SettlementApplicationService {
         return evaluation;
     }
 
-    private void markVerifiedEvidenceForProof(OfflinePaymentProof proof, boolean receiverEvidenceMatched) {
+    private boolean isServerValidationPending(SettlementRequest request) {
+        return request.status() == SettlementStatus.PENDING || request.status() == SettlementStatus.VALIDATING;
+    }
+
+    private boolean shouldFinanciallyHonorLocalPendingSettlement(
+            boolean validationStartedFromPending,
+            boolean receiverEvidenceConfirmed,
+            SettlementEvaluation evaluation
+    ) {
+        return validationStartedFromPending
+                && receiverEvidenceConfirmed
+                && evaluation.status() == SettlementStatus.REJECTED
+                && !evaluation.conflictDetected();
+    }
+
+    private String settlementResultJson(
+            SettlementEvaluation evaluation,
+            boolean financiallyHonored,
+            boolean receiverEvidenceConfirmed,
+            boolean validationStartedFromPending
+    ) {
+        if (!financiallyHonored) {
+            return evaluation.resultJson();
+        }
+        java.util.LinkedHashMap<String, Object> result = new java.util.LinkedHashMap<>(jsonService.readMap(evaluation.resultJson()));
+        result.put("financiallyHonored", true);
+        result.put("financialPolicy", "LOCAL_VERIFIED_PENDING_HONORED");
+        result.put("receiverEvidenceConfirmed", receiverEvidenceConfirmed);
+        result.put("validationStartedFromPending", validationStartedFromPending);
+        result.put("originalSettlementStatus", evaluation.status().name());
+        result.put("financialReleaseAction", "RELEASE");
+        return jsonService.write(result);
+    }
+
+    private boolean markVerifiedEvidenceForProof(OfflinePaymentProof proof, boolean receiverEvidenceMatched) {
         localEvidenceRepository.markMatchingEvidence(proof);
-        if (receiverEvidenceMatched || localEvidenceRepository.existsMatchingReceiverEvidence(proof)) {
+        boolean receiverEvidenceConfirmed = receiverEvidenceMatched || localEvidenceRepository.existsMatchingReceiverEvidence(proof);
+        if (receiverEvidenceConfirmed) {
             localEvidenceRepository.markMatchingReceiverEvidence(proof);
         }
+        return receiverEvidenceConfirmed;
     }
 
     private int currentAttemptCount(String summaryJson) {
@@ -1885,7 +1935,9 @@ public class SettlementApplicationService {
     private void deductSettlementAmountAcrossCollateralScope(
             CollateralLock primaryCollateral,
             OfflinePaymentProof proof,
-            SettlementRequest request
+            SettlementRequest request,
+            SettlementStatus settlementStatus,
+            boolean financiallyHonored
     ) {
         BigDecimal remainingToDeduct = feeCalculator.calculateTotal(primaryCollateral.assetCode(), proof.amount());
         List<CollateralLock> collateralScope = collateralRepository.findActiveByUserIdAndAssetCode(
@@ -1910,7 +1962,8 @@ public class SettlementApplicationService {
                     jsonService.write(Map.of(
                             "lastSettlementId", request.id(),
                             "lastVoucherId", proof.voucherId(),
-                            "lastStatus", SettlementStatus.SETTLED.name(),
+                            "lastStatus", settlementStatus.name(),
+                            "financiallyHonored", financiallyHonored,
                             "deductedAmount", deduction.toPlainString(),
                             "transferAmount", proof.amount().toPlainString(),
                             "feeAmount", feeCalculator.calculateFee(primaryCollateral.assetCode(), proof.amount()).toPlainString(),
@@ -1975,7 +2028,8 @@ public class SettlementApplicationService {
             CollateralLock collateral,
             OfflinePaymentProof proof,
             SettlementRequest request,
-            SettlementEvaluation evaluation
+            SettlementEvaluation evaluation,
+            boolean financiallyHonored
     ) {
         if (evaluation.conflictDetected()) {
             settlementConflictRepository.save(
@@ -2003,15 +2057,16 @@ public class SettlementApplicationService {
             );
         }
 
-        // receiver history/ledger credit: only when receiver device is registered in our system and settlement is SETTLED
+        // receiver history/ledger credit: only when receiver device is registered and settlement is financially honored.
         Device senderDevice = deviceIdentifierResolver.resolve(proof.senderDeviceId()).orElse(null);
         Device receiverDevice = null;
-        if (evaluation.status() == SettlementStatus.SETTLED) {
+        if (evaluation.status() == SettlementStatus.SETTLED || financiallyHonored) {
             receiverDevice = resolveCurrentReceiverDeviceForProofOwner(proof).orElse(null);
         }
         boolean receiverWalletSettlementRequested = receiverDevice != null
                 && "RECEIVER".equalsIgnoreCase(proof.uploaderType())
                 && shouldAutoConfirmReceiverSettlement(proof);
+        String financialReleaseAction = financiallyHonored ? "RELEASE" : evaluation.releaseAction();
 
         CoinManageSettlementPort.SettlementLedgerCommand ledgerCommand = settlementSyncCommandFactory.createLedgerCommand(
                 collateral,
@@ -2019,10 +2074,11 @@ public class SettlementApplicationService {
                 proof.amount(),
                 request,
                 evaluation.status().name(),
-                evaluation.releaseAction(),
+                financialReleaseAction,
                 evaluation.conflictDetected(),
                 receiverDevice,
-                receiverWalletSettlementRequested
+                receiverWalletSettlementRequested,
+                financiallyHonored
         );
         FoxCoinHistoryPort.SettlementHistoryCommand historyCommand = settlementSyncCommandFactory.createHistoryCommand(
                 collateral,
@@ -2030,7 +2086,7 @@ public class SettlementApplicationService {
                 proof.amount(),
                 request,
                 evaluation.status().name(),
-                evaluation.releaseAction(),
+                financialReleaseAction,
                 evaluation.conflictDetected()
         );
         FoxCoinHistoryPort.SettlementHistoryCommand receiverHistoryCommand = null;
@@ -2040,14 +2096,14 @@ public class SettlementApplicationService {
                         && shouldAutoConfirmReceiverSettlement(proof)
         ) {
             receiverHistoryCommand = settlementSyncCommandFactory.createReceiverHistoryCommand(
-                            collateral,
-                            proof.id(),
-                            proof.amount(),
-                            request,
-                            evaluation.status().name(),
-                            evaluation.releaseAction(),
-                            receiverDevice
-                    );
+                    collateral,
+                    proof.id(),
+                    proof.amount(),
+                    request,
+                    evaluation.status().name(),
+                    financialReleaseAction,
+                    receiverDevice
+            );
         }
 
         Map<String, Object> historyCommandMap = Map.ofEntries(
@@ -2098,6 +2154,7 @@ public class SettlementApplicationService {
         ledgerCommandMap.put("settlementStatus", ledgerCommand.settlementStatus());
         ledgerCommandMap.put("releaseAction", ledgerCommand.releaseAction());
         ledgerCommandMap.put("conflictDetected", ledgerCommand.conflictDetected());
+        ledgerCommandMap.put("financiallyHonored", ledgerCommand.financiallyHonored());
         ledgerCommandMap.put("proofFingerprint", ledgerCommand.proofFingerprint());
         ledgerCommandMap.put("newStateHash", ledgerCommand.newStateHash());
         ledgerCommandMap.put("previousHash", ledgerCommand.previousHash());
@@ -2150,7 +2207,12 @@ public class SettlementApplicationService {
         return status == DeviceStatus.ACTIVE ? "ACTIVE" : "REVOKED";
     }
 
-    private void saveReconciliationCase(SettlementRequest request, OfflinePaymentProof proof, SettlementEvaluation evaluation) {
+    private void saveReconciliationCase(
+            SettlementRequest request,
+            OfflinePaymentProof proof,
+            SettlementEvaluation evaluation,
+            String resultJson
+    ) {
         if (evaluation.status() == SettlementStatus.SETTLED && !evaluation.conflictDetected()) {
             return;
         }
@@ -2169,7 +2231,7 @@ public class SettlementApplicationService {
                 caseType,
                 ReconciliationCaseStatus.OPEN,
                 reasonCode,
-                evaluation.resultJson()
+                resultJson
         );
     }
 

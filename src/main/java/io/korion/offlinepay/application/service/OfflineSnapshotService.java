@@ -16,7 +16,9 @@ import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.zone.ZoneRulesException;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -174,18 +176,55 @@ public class OfflineSnapshotService {
         if (aggregateCollateral == null || aggregateCollateral.remainingAmount().compareTo(BigDecimal.ZERO) <= 0) {
             return false;
         }
-        if (proof.usableAmount().compareTo(BigDecimal.ZERO) <= 0
-                || proof.usableAmount().compareTo(aggregateCollateral.remainingAmount()) > 0) {
+        if (proof.usableAmount().compareTo(BigDecimal.ZERO) <= 0) {
             return false;
         }
 
         OffsetDateTime now = OffsetDateTime.now();
-        List<CollateralLock> activeCollaterals = collateralRepository.findActiveByUserIdAndAssetCode(userId, assetCode);
-        return activeCollaterals.stream().anyMatch(collateral ->
-                collateral.id().equals(proof.collateralId())
-                        && collateral.remainingAmount().compareTo(BigDecimal.ZERO) > 0
-                        && (collateral.expiresAt() == null || collateral.expiresAt().isAfter(now))
-        );
+        List<CollateralLock> activeCollaterals = collateralRepository.findActiveByUserIdAndAssetCode(userId, assetCode)
+                .stream()
+                .filter(collateral -> collateral.remainingAmount().compareTo(BigDecimal.ZERO) > 0)
+                .filter(collateral -> collateral.expiresAt() == null || collateral.expiresAt().isAfter(now))
+                .toList();
+        BigDecimal activeAmount = activeCollaterals.stream()
+                .map(CollateralLock::remainingAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        if (proof.usableAmount().compareTo(activeAmount) != 0) {
+            return false;
+        }
+        Set<String> activeCollateralIds = activeCollaterals.stream()
+                .map(CollateralLock::id)
+                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+        return activeCollateralIds.contains(proof.collateralId())
+                && readIssuedProofCollateralLockIds(proof).equals(activeCollateralIds);
+    }
+
+    private Set<String> readIssuedProofCollateralLockIds(IssuedOfflineProof proof) {
+        Set<String> result = new LinkedHashSet<>();
+        try {
+            JsonNode payload = jsonService.readTree(proof.issuedPayloadJson());
+            JsonNode lockIds = payload.path("collateralLockIds");
+            if (lockIds.isArray()) {
+                lockIds.forEach(node -> {
+                    String id = node.asText("");
+                    if (!id.isBlank()) {
+                        result.add(id);
+                    }
+                });
+            }
+            if (result.isEmpty()) {
+                String legacyLockId = payload.path("collateralLockId").asText("");
+                if (!legacyLockId.isBlank()) {
+                    result.add(legacyLockId);
+                }
+            }
+        } catch (Exception ignored) {
+            // Fall back to the repository collateral id below.
+        }
+        if (result.isEmpty() && proof.collateralId() != null && !proof.collateralId().isBlank()) {
+            result.add(proof.collateralId());
+        }
+        return result;
     }
 
     private DeviceRegistrationSnapshot buildDeviceRegistrationSnapshot(long userId, String deviceId, Device device) {
@@ -364,14 +403,16 @@ public class OfflineSnapshotService {
         var latestProof = proofRepository.findLatestSettledBySenderDeviceId(senderDeviceId);
         String stateHash = latestProof.map(io.korion.offlinepay.domain.model.OfflinePaymentProof::hashChainHead).orElse("GENESIS");
         long counter = latestProof.map(io.korion.offlinepay.domain.model.OfflinePaymentProof::counter).orElse(0L);
+        long maxOfflineTxSequence = proofRepository.findMaxSenderOfflineTxSequence(senderDeviceId);
         String normalizedAsset = assetCode == null || assetCode.isBlank() ? "KORI" : assetCode.trim().toUpperCase();
         long issuedAtMs = System.currentTimeMillis();
         long expiresAtMs = issuedAtMs + CHECKPOINT_EXPIRY_MS;
         String signingPayload = "CHECKPOINT_V1|" + senderDeviceId + "|" + normalizedAsset
-                + "|" + stateHash + "|" + counter + "|" + issuedAtMs + "|" + expiresAtMs;
+                + "|" + stateHash + "|" + counter + "|" + maxOfflineTxSequence + "|" + issuedAtMs + "|" + expiresAtMs;
         String signature = proofIssuerSignatureService.sign(signingPayload);
         return new TrustedCheckpoint(
                 senderDeviceId, normalizedAsset, stateHash, counter,
+                maxOfflineTxSequence,
                 issuedAtMs, expiresAtMs,
                 proofIssuerSignatureService.keyId(),
                 proofIssuerSignatureService.publicKey(),
@@ -384,6 +425,7 @@ public class OfflineSnapshotService {
             String assetCode,
             String stateHash,
             long counter,
+            long maxOfflineTxSequence,
             long issuedAtMs,
             long expiresAtMs,
             String issuerKeyId,

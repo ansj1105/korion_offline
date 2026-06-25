@@ -48,6 +48,8 @@ Required behavior:
 - audit log 생성
 - outbox event 생성 가능
 - `settlementId` 기준 idempotent
+- `financiallyHonored=true`는 로컬 검증 완료 후 `PENDING`으로 서버 검증에 진입한 거래가 서버 검증에서 `REJECTED` 되었지만 정책상 금전 반영을 유지할 때만 허용한다.
+- 이 경우 요청은 `settlementStatus=REJECTED`, `releaseAction=RELEASE`, `conflictDetected=false`를 유지해야 하며, 서버 검증 실패 사유는 audit/reconciliation detail에 남긴다.
 
 Response `200`:
 - Contract: [InternalAckResponseContract.java](/Users/an/work/offline_pay/src/main/java/io/korion/offlinepay/contracts/internal/InternalAckResponseContract.java)

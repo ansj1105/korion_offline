@@ -293,6 +293,7 @@ public class AdminOperationsService {
                 "RELEASE",
                 false,
                 null,
+                false,
                 false
         );
         settlementBatchEventBus.publishExternalSyncRequested(

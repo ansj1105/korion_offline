@@ -32,6 +32,7 @@ public interface CoinManageSettlementPort {
             String settlementStatus,
             String releaseAction,
             boolean conflictDetected,
+            boolean financiallyHonored,
             String proofFingerprint,
             String newStateHash,
             String previousHash,

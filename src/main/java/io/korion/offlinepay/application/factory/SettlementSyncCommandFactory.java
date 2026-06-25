@@ -33,7 +33,8 @@ public class SettlementSyncCommandFactory {
             String releaseAction,
             boolean conflictDetected,
             Device receiverDevice,
-            boolean receiverWalletSettlementRequested
+            boolean receiverWalletSettlementRequested,
+            boolean financiallyHonored
     ) {
         String senderDeviceId = proof.senderDeviceId();
         String proofFingerprint = proofFingerprintService.computeFingerprint(
@@ -64,6 +65,7 @@ public class SettlementSyncCommandFactory {
                 settlementStatus,
                 releaseAction,
                 conflictDetected,
+                financiallyHonored,
                 proofFingerprint,
                 proof.newStateHash(),
                 proof.prevStateHash(),
@@ -84,7 +86,7 @@ public class SettlementSyncCommandFactory {
     }
 
     private BigDecimal settlementFeeAmount(String assetCode, BigDecimal amount, String settlementStatus, String releaseAction) {
-        if (!"SETTLED".equalsIgnoreCase(settlementStatus) || !"RELEASE".equalsIgnoreCase(releaseAction)) {
+        if (!"RELEASE".equalsIgnoreCase(releaseAction)) {
             return BigDecimal.ZERO.setScale(6, java.math.RoundingMode.HALF_UP);
         }
         return feeCalculator.calculateFee(assetCode, amount);

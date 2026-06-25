@@ -19,6 +19,7 @@ public record CoinManageFinalizeSettlementContract(
         String settlementStatus,
         String releaseAction,
         boolean conflictDetected,
+        boolean financiallyHonored,
         String proofFingerprint,
         String newStateHash,
         String previousHash,

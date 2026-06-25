@@ -81,6 +81,34 @@ paths:
               schema:
                 $ref: '#/components/schemas/CurrentSnapshotResponse'
 
+  /api/snapshots/checkpoint:
+    get:
+      tags: [Collateral]
+      summary: Offline Pay proof 체인 checkpoint 조회
+      description: |
+        sender device의 서버 확정 proof 체인 기준 stateHash/counter와 offlineTxSequence floor를 반환한다.
+        앱은 온라인 proof 생성 전에 native secure state와 local offlineTxSequence를 이 값 이상으로 동기화해야 한다.
+      operationId: getOfflinePayTrustedCheckpoint
+      parameters:
+        - in: query
+          name: deviceId
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: assetCode
+          required: false
+          schema:
+            type: string
+            default: KORI
+      responses:
+        '200':
+          description: 서버 서명 checkpoint
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TrustedCheckpointResponse'
+
   /api/offline-pay/client-traces:
     post:
       tags: [ClientTrace]
@@ -814,6 +842,48 @@ components:
         clientTimeZoneOffsetMinutes:
           type: integer
           description: 클라이언트가 보낸 timezone offset minutes 또는 0 fallback.
+
+    TrustedCheckpointResponse:
+      type: object
+      required:
+        - deviceId
+        - assetCode
+        - stateHash
+        - counter
+        - maxOfflineTxSequence
+        - issuedAtMs
+        - expiresAtMs
+        - issuerKeyId
+        - issuerPublicKey
+        - signature
+      properties:
+        deviceId:
+          type: string
+        assetCode:
+          type: string
+        stateHash:
+          type: string
+          description: sender device의 최신 서버 확정 proof hashChainHead. 확정 proof가 없으면 GENESIS.
+        counter:
+          type: integer
+          format: int64
+          description: sender device의 최신 서버 확정 proof monotonic counter. 확정 proof가 없으면 0.
+        maxOfflineTxSequence:
+          type: integer
+          format: int64
+          description: sender device 기준 서버가 이미 본 최대 offlineTxSequence. 앱은 다음 sequence를 이 값보다 크게 생성한다.
+        issuedAtMs:
+          type: integer
+          format: int64
+        expiresAtMs:
+          type: integer
+          format: int64
+        issuerKeyId:
+          type: string
+        issuerPublicKey:
+          type: string
+        signature:
+          type: string
 
     CurrentSnapshotResponse:
       type: object

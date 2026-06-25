@@ -303,6 +303,37 @@ class OfflineLedgerServiceTest {
     }
 
     @Test
+    void keepsFinanciallyHonoredRejectedReceivedProofInUnsettledSummaryAndRows() {
+        String receiverDeviceId = "98db6beb-4ae1-4027-b9ee-507ce7eaeaa7";
+        Device receiverDevice = device(receiverDeviceId, 39L);
+        OfflinePaymentProof proof = rejectedProof(
+                "app-suffix:e7eaeaa7",
+                "SERVER_AVAILABLE_AMOUNT_EXCEEDED",
+                new BigDecimal("0.99900000")
+        );
+        when(deviceRepository.findActiveByUserId(39L)).thenReturn(List.of(receiverDevice));
+        when(deviceRepository.findByDeviceId(receiverDeviceId)).thenReturn(Optional.of(receiverDevice));
+        when(deviceRepository.findByDeviceId("47ba2d8b-5b95-4510-8b23-007957e4fe46")).thenReturn(Optional.empty());
+        when(deviceRepository.findByDeviceId("app-suffix:e7eaeaa7")).thenReturn(Optional.empty());
+        when(deviceRepository.findUniqueActiveByDeviceIdSuffix("e7eaeaa7")).thenReturn(Optional.of(receiverDevice));
+        when(proofRepository.findRecentByUserIdAndAssetCode(39L, "KORI", 31)).thenReturn(List.of(proof));
+        when(proofRepository.findRecentByUserIdAndAssetCode(39L, "KORI", 300)).thenReturn(List.of(proof));
+        when(collateralOperationRepository.findRecentByUserIdAndAssetCode(39L, "KORI", 31)).thenReturn(List.of());
+        when(collateralOperationRepository.findRecentByUserIdAndAssetCode(39L, "KORI", 300)).thenReturn(List.of());
+        when(collateralRepository.findAggregateByUserIdAndAssetCode(39L, "KORI")).thenReturn(Optional.empty());
+
+        OfflineLedgerService.LedgerHistoryResponse history = service.getLedgerHistory(39L, "KORI", 200);
+        OfflineLedgerService.HubSummaryResponse summary = service.getHubSummary(receiverDeviceId, "KORI");
+
+        assertEquals(1, history.receivedItems().size());
+        assertEquals("FAILED", history.receivedItems().get(0).statusCode());
+        assertEquals("0.99900000", history.receivedItems().get(0).unsettledAmount());
+        assertEquals("0.99900000", history.totalReceivedAmount());
+        assertEquals("0.99900000", summary.unsettledReceivedAmount());
+        assertEquals(1, summary.failedCount());
+    }
+
+    @Test
     void mapsRejectedTransportInterruptedReceivedProofToFailedPublicStatus() {
         String receiverDeviceId = "98db6beb-4ae1-4027-b9ee-507ce7eaeaa7";
         Device receiverDevice = device(receiverDeviceId, 39L);
@@ -688,6 +719,10 @@ class OfflineLedgerServiceTest {
     }
 
     private OfflinePaymentProof rejectedProof(String receiverDeviceId, String reasonCode) {
+        return rejectedProof(receiverDeviceId, reasonCode, BigDecimal.ZERO);
+    }
+
+    private OfflinePaymentProof rejectedProof(String receiverDeviceId, String reasonCode, BigDecimal receivedUnsettledAmount) {
         OffsetDateTime now = OffsetDateTime.parse("2026-05-19T04:45:04Z");
         return new OfflinePaymentProof(
                 "c97ec0ca-c5a0-474d-9798-60d68017ee04",
@@ -713,7 +748,7 @@ class OfflineLedgerServiceTest {
                 "MANUAL_SELECTION",
                 OfflineProofStatus.REJECTED,
                 reasonCode,
-                BigDecimal.ZERO,
+                receivedUnsettledAmount,
                 BigDecimal.ZERO,
                 null,
                 null,

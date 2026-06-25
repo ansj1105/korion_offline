@@ -3600,6 +3600,248 @@ class SettlementApplicationServiceTest {
     }
 
     @Test
+    void finalizeSettlementFinanciallyHonorsRejectedLocalVerifiedPendingSettlement() {
+        SettlementRequest request = new SettlementRequest(
+                "settlement-local-verified",
+                "batch-local-verified",
+                "collateral-local-verified",
+                "proof-local-verified",
+                SettlementStatus.PENDING,
+                null,
+                false,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        CollateralLock collateral = new CollateralLock(
+                "collateral-local-verified",
+                77L,
+                "device-1",
+                "USDT",
+                new BigDecimal("150"),
+                new BigDecimal("100"),
+                "GENESIS",
+                1,
+                CollateralStatus.LOCKED,
+                "lock-local-verified",
+                OffsetDateTime.now().plusDays(1),
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        String failedProofHash = spendingProofHashService.computeNewStateHash(
+                "GENESIS",
+                new BigDecimal("10"),
+                1L,
+                "device-1",
+                "nonce-local-verified"
+        );
+        long failedProofTimestamp = System.currentTimeMillis();
+        long failedProofExpiresAt = failedProofTimestamp + 60_000;
+        OfflinePaymentProof proof = new OfflinePaymentProof(
+                "proof-local-verified",
+                "batch-local-verified",
+                "voucher-local-verified",
+                "collateral-local-verified",
+                "device-1",
+                "device-2",
+                1,
+                1,
+                1L,
+                "nonce-local-verified",
+                failedProofHash,
+                "GENESIS",
+                "local_sig_failed",
+                new BigDecimal("10"),
+                failedProofTimestamp,
+                failedProofExpiresAt,
+                "{\"voucherId\":\"voucher-local-verified\",\"counterpartyDeviceId\":\"device-2\"}",
+                "SENDER",
+                "{\"voucherId\":\"voucher-local-verified\",\"deviceId\":\"device-1\",\"counterpartyDeviceId\":\"device-2\",\"amount\":\"10\",\"expiresAt\":\""
+                        + failedProofExpiresAt
+                        + "\",\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"100\",\"uiMode\":\"SEND\",\"connectionType\":\"FAST_CONTACT\",\"paymentFlow\":\"FAST_PAYMENT\",\"senderAuthRequired\":true,\"ledgerExecutionMode\":\"INTERNAL_LEDGER_ONLY\",\"dualAmountEntered\":false,\"deviceTrustLevel\":\"HARDWARE_BACKED_VERIFIED\",\"deviceAttestationId\":\"attestation-001\",\"deviceAttestationVerdict\":\"HARDWARE_BACKED_VERIFIED\",\"serverVerifiedTrustLevel\":\"SERVER_VERIFIED\",\"serverAttestationVerifiedAt\":\"2026-06-11T23:58:00.000Z\",\"spendingProof\":{\"deviceId\":\"device-1\",\"amount\":\"10\",\"monotonicCounter\":\"1\",\"nonce\":\"nonce-local-verified\",\"newStateHash\":\""
+                        + failedProofHash
+                        + "\",\"prevStateHash\":\"GENESIS\",\"signature\":\"local_sig_failed\",\"timestamp\":\""
+                        + failedProofTimestamp
+                        + "\"}}",
+                OffsetDateTime.now()
+        );
+        Device inactiveDevice = new Device(
+                "device-row-local-verified",
+                "device-1",
+                77L,
+                "public-key",
+                1,
+                DeviceStatus.FROZEN,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        when(settlementRepository.findById("settlement-local-verified")).thenReturn(
+                Optional.of(request),
+                Optional.of(new SettlementRequest(
+                        "settlement-local-verified",
+                        "batch-local-verified",
+                        "collateral-local-verified",
+                        "proof-local-verified",
+                        SettlementStatus.REJECTED,
+                        "DEVICE_NOT_ACTIVE",
+                        false,
+                        "{\"financiallyHonored\":true}",
+                        OffsetDateTime.now(),
+                        OffsetDateTime.now()
+                ))
+        );
+        when(proofRepository.findById("proof-local-verified")).thenReturn(Optional.of(proof));
+        when(collateralRepository.findById("collateral-local-verified")).thenReturn(Optional.of(collateral));
+        when(deviceRepository.findByDeviceId("device-1")).thenReturn(Optional.of(inactiveDevice));
+        when(localEvidenceRepository.existsMatchingReceiverEvidence(proof)).thenReturn(true);
+
+        SettlementRequest result = service.finalizeSettlement("settlement-local-verified");
+
+        assertEquals(SettlementStatus.REJECTED, result.status());
+        verify(proofRepository).ensureReceivedUnsettledAmount(eq("proof-local-verified"), any());
+        verify(collateralRepository).deductLockedAndRemainingAmount(eq("collateral-local-verified"), any());
+        verify(eventBus).publishExternalSyncRequested(
+                eq("LEDGER_SYNC_REQUESTED"),
+                eq("settlement-local-verified"),
+                eq("batch-local-verified"),
+                eq("proof-local-verified"),
+                argThat(payload -> payload.contains("\"financiallyHonored\":true")
+                        && payload.contains("\"settlementStatus\":\"REJECTED\"")
+                        && payload.contains("\"releaseAction\":\"RELEASE\"")),
+                anyString()
+        );
+        verify(offlineSagaService, never()).markFailed(
+                eq(OfflineSagaType.SETTLEMENT),
+                eq("settlement-local-verified"),
+                anyString(),
+                anyString(),
+                any()
+        );
+        verify(reconciliationCaseRepository).save(
+                eq("settlement-local-verified"),
+                eq("batch-local-verified"),
+                eq("proof-local-verified"),
+                eq("voucher-local-verified"),
+                eq("DEVICE_INVALID"),
+                eq(io.korion.offlinepay.domain.status.ReconciliationCaseStatus.OPEN),
+                eq("DEVICE_NOT_ACTIVE"),
+                argThat(detail -> detail.contains("\"financiallyHonored\":true")
+                        && detail.contains("LOCAL_VERIFIED_PENDING_HONORED"))
+        );
+    }
+
+    @Test
+    void finalizeSettlementDoesNotFinanciallyHonorRejectedSettlementThatDidNotStartFromPendingValidation() {
+        SettlementRequest request = new SettlementRequest(
+                "settlement-terminal-rejected",
+                "batch-terminal-rejected",
+                "collateral-terminal-rejected",
+                "proof-terminal-rejected",
+                SettlementStatus.REJECTED,
+                "DEVICE_NOT_ACTIVE",
+                false,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        CollateralLock collateral = new CollateralLock(
+                "collateral-terminal-rejected",
+                77L,
+                "device-1",
+                "USDT",
+                new BigDecimal("150"),
+                new BigDecimal("100"),
+                "GENESIS",
+                1,
+                CollateralStatus.LOCKED,
+                "lock-terminal-rejected",
+                OffsetDateTime.now().plusDays(1),
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        String proofHash = spendingProofHashService.computeNewStateHash(
+                "GENESIS",
+                new BigDecimal("10"),
+                1L,
+                "device-1",
+                "nonce-terminal-rejected"
+        );
+        long proofTimestamp = System.currentTimeMillis();
+        long proofExpiresAt = proofTimestamp + 60_000;
+        OfflinePaymentProof proof = new OfflinePaymentProof(
+                "proof-terminal-rejected",
+                "batch-terminal-rejected",
+                "voucher-terminal-rejected",
+                "collateral-terminal-rejected",
+                "device-1",
+                "device-2",
+                1,
+                1,
+                1L,
+                "nonce-terminal-rejected",
+                proofHash,
+                "GENESIS",
+                "local_sig_terminal_rejected",
+                new BigDecimal("10"),
+                proofTimestamp,
+                proofExpiresAt,
+                "{\"voucherId\":\"voucher-terminal-rejected\",\"counterpartyDeviceId\":\"device-2\"}",
+                "SENDER",
+                "{\"voucherId\":\"voucher-terminal-rejected\",\"deviceId\":\"device-1\",\"counterpartyDeviceId\":\"device-2\",\"amount\":\"10\",\"expiresAt\":\""
+                        + proofExpiresAt
+                        + "\",\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"100\",\"uiMode\":\"SEND\",\"connectionType\":\"FAST_CONTACT\",\"paymentFlow\":\"FAST_PAYMENT\",\"senderAuthRequired\":true,\"ledgerExecutionMode\":\"INTERNAL_LEDGER_ONLY\",\"dualAmountEntered\":false,\"deviceTrustLevel\":\"HARDWARE_BACKED_VERIFIED\",\"deviceAttestationId\":\"attestation-001\",\"deviceAttestationVerdict\":\"HARDWARE_BACKED_VERIFIED\",\"serverVerifiedTrustLevel\":\"SERVER_VERIFIED\",\"serverAttestationVerifiedAt\":\"2026-06-11T23:58:00.000Z\",\"spendingProof\":{\"deviceId\":\"device-1\",\"amount\":\"10\",\"monotonicCounter\":\"1\",\"nonce\":\"nonce-terminal-rejected\",\"newStateHash\":\""
+                        + proofHash
+                        + "\",\"prevStateHash\":\"GENESIS\",\"signature\":\"local_sig_terminal_rejected\",\"timestamp\":\""
+                        + proofTimestamp
+                        + "\"}}",
+                OffsetDateTime.now()
+        );
+        Device inactiveDevice = new Device(
+                "device-row-terminal-rejected",
+                "device-1",
+                77L,
+                "public-key",
+                1,
+                DeviceStatus.FROZEN,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        when(settlementRepository.findById("settlement-terminal-rejected")).thenReturn(
+                Optional.of(request),
+                Optional.of(request)
+        );
+        when(proofRepository.findById("proof-terminal-rejected")).thenReturn(Optional.of(proof));
+        when(collateralRepository.findById("collateral-terminal-rejected")).thenReturn(Optional.of(collateral));
+        when(deviceRepository.findByDeviceId("device-1")).thenReturn(Optional.of(inactiveDevice));
+        when(localEvidenceRepository.existsMatchingReceiverEvidence(proof)).thenReturn(true);
+
+        SettlementRequest result = service.finalizeSettlement("settlement-terminal-rejected");
+
+        assertEquals(SettlementStatus.REJECTED, result.status());
+        verify(proofRepository, never()).ensureReceivedUnsettledAmount(anyString(), any());
+        verify(collateralRepository, never()).deductLockedAndRemainingAmount(anyString(), any());
+        verify(eventBus, never()).publishExternalSyncRequested(
+                eq("LEDGER_SYNC_REQUESTED"),
+                eq("settlement-terminal-rejected"),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString()
+        );
+        verify(offlineSagaService).markFailed(
+                eq(OfflineSagaType.SETTLEMENT),
+                eq("settlement-terminal-rejected"),
+                eq("SETTLEMENT_REJECTED"),
+                eq("DEVICE_NOT_ACTIVE"),
+                any()
+        );
+    }
+
+    @Test
     void finalizeSettlementRejectsInvalidDeviceBinding() {
         SettlementRequest request = new SettlementRequest(
                 "settlement-2",
