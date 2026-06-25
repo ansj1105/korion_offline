@@ -843,10 +843,10 @@ public class SettlementApplicationService {
             if (existing != null && isReceiverConfirmation(command, submission, existing)) {
                 continue;
             }
+            assertProofSubmissionNotReplayed(submission);
             if (command.uploaderType() == UploaderType.RECEIVER && existing == null && hasReceiverLocalBlock(submission)) {
                 throw new IllegalArgumentException("receiver settlement requires existing sender proof: " + submission.voucherId());
             }
-            assertProofSubmissionNotReplayed(submission);
         }
 
         SettlementBatchFactory.SettlementBatchDraft batchDraft = settlementBatchFactory.createDraft(command);

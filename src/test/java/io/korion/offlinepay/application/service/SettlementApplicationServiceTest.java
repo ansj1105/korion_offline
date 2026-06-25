@@ -2682,7 +2682,10 @@ class SettlementApplicationServiceTest {
                 ))
         );
 
-        assertTrue(exception.getMessage().contains("duplicate offline proof submission by offlineTxSequence"));
+        assertTrue(
+                exception.getMessage().contains("duplicate offline proof submission by offlineTxSequence"),
+                exception.getMessage()
+        );
         verify(batchRepository, never()).save(anyString(), anyString(), any(), any(), anyInt(), anyString());
         verify(proofRepository, never()).save(
                 anyString(),
@@ -2707,6 +2710,86 @@ class SettlementApplicationServiceTest {
                 anyString(),
                 anyString()
         );
+    }
+
+    @Test
+    void submitReceiverLocalBlockChecksDuplicateSenderOfflineTxSequenceBeforeMissingSenderProof() {
+        long now = System.currentTimeMillis();
+        OfflinePaymentProof existingProof = new OfflinePaymentProof(
+                "proof-existing-receiver-sequence-submit",
+                "batch-existing-receiver-sequence-submit",
+                "voucher-existing-receiver-sequence-submit",
+                "collateral-existing-receiver-sequence-submit",
+                "device-1",
+                "device-2",
+                1,
+                1,
+                1L,
+                "nonce-existing-receiver-sequence-submit",
+                "hash-existing",
+                "GENESIS",
+                "signature-existing",
+                new BigDecimal("1"),
+                now,
+                now + 60_000,
+                "{}",
+                "SENDER",
+                "{\"requestId\":\"request-existing-receiver\",\"offlineTxSequence\":12}",
+                OffsetDateTime.now()
+        );
+        SettlementApplicationService.ProofSubmission submission = new SettlementApplicationService.ProofSubmission(
+                "voucher-new-receiver-sequence-submit",
+                "collateral-new-receiver-sequence-submit",
+                "device-1",
+                "device-2",
+                1,
+                1,
+                2L,
+                "nonce-new-receiver-sequence-submit",
+                "hash-new",
+                "GENESIS",
+                "signature-new",
+                new BigDecimal("1"),
+                now,
+                now + 60_000,
+                "{}",
+                java.util.Map.ofEntries(
+                        java.util.Map.entry("requestId", "request-new-receiver-sequence-submit"),
+                        java.util.Map.entry("offlineTxSequence", 12),
+                        java.util.Map.entry("receiverLocalBlock", true),
+                        java.util.Map.entry("receiverLocalBlockVoucherId", "voucher-new-receiver-sequence-submit"),
+                        java.util.Map.entry("receiverLocalBlockSenderDeviceId", "device-1"),
+                        java.util.Map.entry("receiverLocalBlockReceiverDeviceId", "device-2"),
+                        java.util.Map.entry("receiverLocalBlockCounter", 2L),
+                        java.util.Map.entry("receiverLocalBlockPrevHash", "GENESIS"),
+                        java.util.Map.entry("receiverLocalBlockNewHash", "hash-new"),
+                        java.util.Map.entry("receiverLocalBlockNonce", "nonce-new-receiver-sequence-submit"),
+                        java.util.Map.entry("receiverLocalBlockSignature", "signature-new"),
+                        java.util.Map.entry("receiverLocalBlockAmount", "1.00000000")
+                )
+        );
+        when(proofRepository.findByVoucherId("voucher-new-receiver-sequence-submit"))
+                .thenReturn(Optional.empty());
+        when(proofRepository.findBySenderOfflineTxSequence("device-1", 12L))
+                .thenReturn(Optional.of(existingProof));
+
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> service.submitBatch(new SettlementApplicationService.SubmitSettlementBatchCommand(
+                        SettlementApplicationService.UploaderType.RECEIVER,
+                        "device-2",
+                        "idempotency-new-receiver-sequence-submit",
+                        java.util.List.of(submission),
+                        "MANUAL"
+                ))
+        );
+
+        assertTrue(
+                exception.getMessage().contains("duplicate offline proof submission by offlineTxSequence"),
+                exception.getMessage()
+        );
+        assertFalse(exception.getMessage().contains("receiver settlement requires existing sender proof"));
+        verify(batchRepository, never()).save(anyString(), anyString(), any(), any(), anyInt(), anyString());
     }
 
     @Test
