@@ -94,6 +94,27 @@ class OfflineLedgerServiceTest {
     }
 
     @Test
+    void hubSummaryDoesNotCountSettledReceivedProofWithStaleUnsettledAmount() {
+        String receiverDeviceId = "98db6beb-4ae1-4027-b9ee-507ce7eaeaa7";
+        Device receiverDevice = device(receiverDeviceId, 39L);
+        OfflinePaymentProof proof = staleSettledReceivedProof("app-suffix:e7eaeaa7");
+        when(deviceRepository.findByDeviceId(receiverDeviceId)).thenReturn(Optional.of(receiverDevice));
+        when(deviceRepository.findActiveByUserId(39L)).thenReturn(List.of(receiverDevice));
+        when(deviceRepository.findByDeviceId("47ba2d8b-5b95-4510-8b23-007957e4fe46")).thenReturn(Optional.empty());
+        when(deviceRepository.findByDeviceId("app-suffix:e7eaeaa7")).thenReturn(Optional.empty());
+        when(deviceRepository.findUniqueActiveByDeviceIdSuffix("e7eaeaa7")).thenReturn(Optional.of(receiverDevice));
+        when(proofRepository.findRecentByUserIdAndAssetCode(39L, "KORI", 300)).thenReturn(List.of(proof));
+        when(collateralOperationRepository.findRecentByUserIdAndAssetCode(39L, "KORI", 300)).thenReturn(List.of());
+        when(collateralRepository.findAggregateByUserIdAndAssetCode(39L, "KORI")).thenReturn(Optional.empty());
+
+        OfflineLedgerService.HubSummaryResponse response = service.getHubSummary(receiverDeviceId, "KORI");
+
+        assertEquals("0", response.unsettledReceivedAmount());
+        assertEquals(0, response.pendingCount());
+        assertEquals(0, response.failedCount());
+    }
+
+    @Test
     void usesNestedCollateralOperationWalletAddressForLedgerItem() {
         CollateralOperation operation = new CollateralOperation(
                 "operation-1",
@@ -470,6 +491,47 @@ class OfflineLedgerServiceTest {
                 "received-wallet-settlement:c97ec0ca-c5a0-474d-9798-60d68017ee04",
                 settledAt,
                 "{\"paymentMethod\":\"BLE\",\"token\":\"KORI\",\"fee\":\"0.001000\"}",
+                now,
+                now,
+                null,
+                now,
+                now,
+                settledAt,
+                now
+        );
+    }
+
+    private OfflinePaymentProof staleSettledReceivedProof(String receiverDeviceId) {
+        OffsetDateTime now = OffsetDateTime.parse("2026-05-19T04:45:04Z");
+        OffsetDateTime settledAt = OffsetDateTime.parse("2026-05-19T04:46:04Z");
+        return new OfflinePaymentProof(
+                "77cc4410-83c3-4c14-99a3-4ba7b4581dd6",
+                "batch-id",
+                "voucher_1779133486894",
+                "collateral-id",
+                "47ba2d8b-5b95-4510-8b23-007957e4fe46",
+                receiverDeviceId,
+                1,
+                1,
+                1,
+                "nonce",
+                "hash",
+                "previous-hash",
+                "signature",
+                new BigDecimal("2.00000000"),
+                1779133504000L,
+                1779137104000L,
+                "{}",
+                "SENDER",
+                "MANUAL_SELECTION",
+                OfflineProofStatus.SETTLED,
+                "SETTLED",
+                new BigDecimal("1.998000"),
+                new BigDecimal("1.998000"),
+                "operation-1",
+                "received-wallet-settlement:77cc4410-83c3-4c14-99a3-4ba7b4581dd6",
+                settledAt,
+                "{\"paymentMethod\":\"BLE\",\"token\":\"KORI\",\"fee\":\"0.002000\"}",
                 now,
                 now,
                 null,

@@ -586,6 +586,13 @@ public class OfflineLedgerService {
 
     private BigDecimal resolveReceivedUnsettledAmount(OfflinePaymentProof proof, PublicLedgerStatus statusCode) {
         BigDecimal unsettledAmount = normalizeAmount(proof.receivedUnsettledAmount());
+        if (statusCode == PublicLedgerStatus.SETTLED
+                || statusCode == PublicLedgerStatus.FAILED
+                || statusCode == PublicLedgerStatus.EXPIRED
+                || statusCode == PublicLedgerStatus.REJECTED
+                || statusCode == PublicLedgerStatus.LOCKED) {
+            return BigDecimal.ZERO;
+        }
         if (statusCode != PublicLedgerStatus.PENDING || unsettledAmount.compareTo(BigDecimal.ZERO) > 0) {
             return normalizeReceivedAmount(proof, unsettledAmount);
         }
