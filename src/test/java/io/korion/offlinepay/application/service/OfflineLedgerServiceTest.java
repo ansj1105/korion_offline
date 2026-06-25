@@ -2,6 +2,7 @@ package io.korion.offlinepay.application.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.when;
 
@@ -44,6 +45,33 @@ class OfflineLedgerServiceTest {
             new JsonService(new ObjectMapper()),
             new OfflinePaySettlementFeeCalculator()
     );
+
+    @Test
+    void hubProjectionRejectsDeviceOwnedByDifferentUserWhenExpectedUserIsProvided() {
+        when(deviceRepository.findByUserIdAndDeviceId(39L, "shared-device")).thenReturn(Optional.empty());
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> service.getHubProjection("shared-device", 39L, "RECEIVED", "KORI", 30, 0)
+        );
+    }
+
+    @Test
+    void hubProjectionUsesExpectedUserScopedDeviceWhenProvided() {
+        Device device = device("shared-device", 1474L);
+        when(deviceRepository.findByUserIdAndDeviceId(1474L, "shared-device")).thenReturn(Optional.of(device));
+        when(deviceRepository.findActiveByUserId(1474L)).thenReturn(List.of(device));
+        when(proofRepository.findRecentByUserIdAndAssetCode(1474L, "KORI", 31)).thenReturn(List.of());
+        when(collateralOperationRepository.findRecentByUserIdAndAssetCode(1474L, "KORI", 31)).thenReturn(List.of());
+        when(collateralRepository.findAggregateByUserIdAndAssetCode(1474L, "KORI")).thenReturn(Optional.empty());
+
+        OfflineLedgerService.HubProjectionResponse response =
+                service.getHubProjection("shared-device", 1474L, "RECEIVED", "KORI", 30, 0);
+
+        assertEquals(1474L, response.userId());
+        assertEquals("shared-device", response.deviceId());
+        assertTrue(response.items().isEmpty());
+    }
 
     @Test
     void resolvesAppSuffixReceiverAsReceivedLedgerItem() {

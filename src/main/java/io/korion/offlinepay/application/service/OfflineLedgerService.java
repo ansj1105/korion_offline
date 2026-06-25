@@ -148,7 +148,19 @@ public class OfflineLedgerService {
             Integer limit,
             Integer page
     ) {
-        Device device = resolveRegisteredDevice(deviceId);
+        return getHubProjection(deviceId, null, tab, assetCode, limit, page);
+    }
+
+    @Transactional(readOnly = true)
+    public HubProjectionResponse getHubProjection(
+            String deviceId,
+            Long userId,
+            String tab,
+            String assetCode,
+            Integer limit,
+            Integer page
+    ) {
+        Device device = resolveRegisteredDevice(deviceId, userId);
         LedgerHistoryResponse history = getLedgerHistory(device.userId(), assetCode, limit, page);
         String normalizedTab = normalizeTab(tab);
         List<LedgerHistoryItem> items = "RECEIVED".equals(normalizedTab)
@@ -173,7 +185,12 @@ public class OfflineLedgerService {
 
     @Transactional(readOnly = true)
     public HubSummaryResponse getHubSummary(String deviceId, String assetCode) {
-        Device device = resolveRegisteredDevice(deviceId);
+        return getHubSummary(deviceId, null, assetCode);
+    }
+
+    @Transactional(readOnly = true)
+    public HubSummaryResponse getHubSummary(String deviceId, Long userId, String assetCode) {
+        Device device = resolveRegisteredDevice(deviceId, userId);
         String normalizedAssetCode = assetCode == null || assetCode.isBlank()
                 ? properties.assetCode()
                 : assetCode.trim().toUpperCase();
@@ -232,11 +249,24 @@ public class OfflineLedgerService {
     }
 
     private Device resolveRegisteredDevice(String deviceId) {
+        return resolveRegisteredDevice(deviceId, null);
+    }
+
+    private Device resolveRegisteredDevice(String deviceId, Long expectedUserId) {
         if (deviceId == null || deviceId.isBlank()) {
             throw new IllegalArgumentException("deviceId is required");
         }
-        return deviceRepository.findByDeviceId(deviceId.trim())
-                .orElseThrow(() -> new IllegalArgumentException("device not registered: " + deviceId));
+        String normalizedDeviceId = deviceId.trim();
+        if (expectedUserId != null && expectedUserId > 0) {
+            Device device = deviceRepository.findByUserIdAndDeviceId(expectedUserId, normalizedDeviceId)
+                    .orElseThrow(() -> new IllegalArgumentException("device not registered for user: " + normalizedDeviceId));
+            if (device.status() != io.korion.offlinepay.domain.status.DeviceStatus.ACTIVE) {
+                throw new IllegalArgumentException("device not active for user: " + normalizedDeviceId);
+            }
+            return device;
+        }
+        return deviceRepository.findByDeviceId(normalizedDeviceId)
+                .orElseThrow(() -> new IllegalArgumentException("device not registered: " + normalizedDeviceId));
     }
 
     private String normalizeTab(String tab) {

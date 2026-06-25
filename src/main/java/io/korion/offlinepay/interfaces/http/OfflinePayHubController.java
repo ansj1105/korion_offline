@@ -39,19 +39,21 @@ public class OfflinePayHubController {
     @GetMapping("/hub/projection")
     public OfflineLedgerService.HubProjectionResponse getHubProjection(
             @RequestParam String deviceId,
+            @RequestParam(required = false) Long userId,
             @RequestParam(defaultValue = "SENT") String tab,
             @RequestParam(required = false) String assetCode,
             @RequestParam(required = false) Integer limit,
             @RequestParam(required = false) Integer page
     ) {
-        return offlineLedgerService.getHubProjection(deviceId, tab, assetCode, limit, page);
+        return offlineLedgerService.getHubProjection(deviceId, userId, tab, assetCode, limit, page);
     }
 
     @GetMapping("/hub/summary")
     public OfflineLedgerService.HubSummaryResponse getHubSummary(
             @RequestParam String deviceId,
+            @RequestParam(required = false) Long userId,
             @RequestParam(required = false) String assetCode
     ) {
-        return offlineLedgerService.getHubSummary(deviceId, assetCode);
+        return offlineLedgerService.getHubSummary(deviceId, userId, assetCode);
     }
 }
