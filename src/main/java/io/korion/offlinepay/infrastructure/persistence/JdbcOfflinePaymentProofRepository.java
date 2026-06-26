@@ -425,22 +425,28 @@ public class JdbcOfflinePaymentProofRepository implements OfflinePaymentProofRep
 
     @Override
     public java.util.Optional<OfflinePaymentProof> findLatestSequenceAnchorBySenderDeviceId(String senderDeviceId) {
-        String sql = """
+        String sql = latestSequenceAnchorLookupSql();
+        return jdbcClient.sql(sql)
+                .param("senderDeviceId", senderDeviceId)
+                .query(offlinePaymentProofRowMapper)
+                .optional();
+    }
+
+    static String latestSequenceAnchorLookupSql() {
+        return """
                 SELECT offline_payment_proofs.*
                 FROM offline_payment_proofs
                 WHERE offline_payment_proofs.sender_device_id = :senderDeviceId
                   AND (
                     offline_payment_proofs.status = 'SETTLED'
+                    OR offline_payment_proofs.verified_at IS NOT NULL
                     OR offline_payment_proofs.reason_code = 'COUNTER_GAP'
+                    OR offline_payment_proofs.reason_code = 'SENDER_AUTH_NOT_COMPLETED'
                   )
                 ORDER BY offline_payment_proofs.counter DESC,
                          offline_payment_proofs.created_at DESC
                 LIMIT 1
                 """;
-        return jdbcClient.sql(sql)
-                .param("senderDeviceId", senderDeviceId)
-                .query(offlinePaymentProofRowMapper)
-                .optional();
     }
 
     private String normalizeReasonCode(OfflineProofStatus status, String reasonCode) {

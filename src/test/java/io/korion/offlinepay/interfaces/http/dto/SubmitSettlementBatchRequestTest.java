@@ -112,4 +112,55 @@ class SubmitSettlementBatchRequestTest {
         assertThat(proof.timestampMs()).isEqualTo(1_778_164_128_344L);
         assertThat(proof.expiresAtMs()).isZero();
     }
+
+    @Test
+    void usesSignedSpendingProofAsCanonicalProofFieldsWhenLocalBlockCountersDiffer() {
+        SubmitSettlementBatchRequest request = new SubmitSettlementBatchRequest(
+                "SENDER",
+                "sender-device",
+                List.of(new SubmitSettlementBatchRequest.ProofRequest(
+                        "voucher-recovered",
+                        "collateral-recovered",
+                        "sender-device",
+                        "receiver-device",
+                        "local-block-new-hash",
+                        "local-block-prev-hash",
+                        "local-block-signature",
+                        new BigDecimal("5.00"),
+                        1L,
+                        1L,
+                        72L,
+                        "local-block-nonce",
+                        1_782_488_128_000L,
+                        0L,
+                        "{}",
+                        Map.of(
+                                "localBlockCounter", 72,
+                                "localBlockNewHash", "local-block-new-hash",
+                                "localBlockPrevHash", "local-block-prev-hash",
+                                "localBlockNonce", "local-block-nonce",
+                                "localBlockSignature", "local-block-signature",
+                                "spendingProof", Map.of(
+                                        "monotonicCounter", 67,
+                                        "newStateHash", "spending-proof-new-hash",
+                                        "prevStateHash", "spending-proof-prev-hash",
+                                        "nonce", "spending-proof-nonce",
+                                        "signature", "spending-proof-signature",
+                                        "timestamp", 1_782_488_128_111L
+                                )
+                        )
+                )),
+                null
+        );
+
+        SettlementApplicationService.SubmitSettlementBatchCommand command = request.toCommand("idempotency-key");
+        SettlementApplicationService.ProofSubmission proof = command.proofs().get(0);
+
+        assertThat(proof.counter()).isEqualTo(67L);
+        assertThat(proof.hashChainHead()).isEqualTo("spending-proof-new-hash");
+        assertThat(proof.previousHash()).isEqualTo("spending-proof-prev-hash");
+        assertThat(proof.nonce()).isEqualTo("spending-proof-nonce");
+        assertThat(proof.signature()).isEqualTo("spending-proof-signature");
+        assertThat(proof.timestampMs()).isEqualTo(1_782_488_128_111L);
+    }
 }
