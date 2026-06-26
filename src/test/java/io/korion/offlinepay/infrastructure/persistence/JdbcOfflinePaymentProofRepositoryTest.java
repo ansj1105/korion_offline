@@ -24,9 +24,11 @@ class JdbcOfflinePaymentProofRepositoryTest {
     void latestSequenceAnchorIncludesNonFinancialConsumedCounterMarkers() {
         String sql = JdbcOfflinePaymentProofRepository.latestSequenceAnchorLookupSql();
 
+        assertTrue(sql.contains("offline_payment_proofs.sequence_anchor_at IS NOT NULL"));
         assertTrue(sql.contains("offline_payment_proofs.status = 'SETTLED'"));
         assertTrue(sql.contains("offline_payment_proofs.verified_at IS NOT NULL"));
         assertTrue(sql.contains("offline_payment_proofs.reason_code = 'COUNTER_GAP'"));
+        assertTrue(sql.contains("offline_payment_proofs.reason_code = 'INVALID_GENESIS_COUNTER'"));
         assertTrue(sql.contains("offline_payment_proofs.reason_code = 'SENDER_AUTH_NOT_COMPLETED'"));
         assertTrue(sql.contains(":senderDeviceId"));
         assertDoesNotThrow(() -> NamedParameterUtils.parseSqlStatement(sql));

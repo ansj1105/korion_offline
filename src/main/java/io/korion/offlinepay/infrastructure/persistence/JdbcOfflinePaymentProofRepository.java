@@ -141,6 +141,21 @@ public class JdbcOfflinePaymentProofRepository implements OfflinePaymentProofRep
     }
 
     @Override
+    public void markSequenceAnchor(String proofId, String reasonCode) {
+        requireNonBlank(reasonCode, "reasonCode");
+        String sql = QueryBuilder.update("offline_payment_proofs")
+                .set("sequence_anchor_at", "COALESCE(sequence_anchor_at, NOW())")
+                .set("sequence_anchor_reason", ":reasonCode")
+                .touchUpdatedAt()
+                .where("id", QueryBuilder.Op.EQ, ":id")
+                .build();
+        jdbcClient.sql(sql)
+                .param("id", java.util.UUID.fromString(proofId))
+                .param("reasonCode", reasonCode)
+                .update();
+    }
+
+    @Override
     public int ensureReceivedUnsettledAmount(String proofId, java.math.BigDecimal receivedAmount) {
         String sql = QueryBuilder.update("offline_payment_proofs")
                 .set("received_unsettled_amount", ":receivedAmount")
@@ -438,9 +453,12 @@ public class JdbcOfflinePaymentProofRepository implements OfflinePaymentProofRep
                 FROM offline_payment_proofs
                 WHERE offline_payment_proofs.sender_device_id = :senderDeviceId
                   AND (
+                    offline_payment_proofs.sequence_anchor_at IS NOT NULL
+                    OR
                     offline_payment_proofs.status = 'SETTLED'
                     OR offline_payment_proofs.verified_at IS NOT NULL
                     OR offline_payment_proofs.reason_code = 'COUNTER_GAP'
+                    OR offline_payment_proofs.reason_code = 'INVALID_GENESIS_COUNTER'
                     OR offline_payment_proofs.reason_code = 'SENDER_AUTH_NOT_COMPLETED'
                   )
                 ORDER BY offline_payment_proofs.counter DESC,

@@ -2712,6 +2712,7 @@ class SettlementApplicationServiceTest {
         assertEquals(1, result.rejected());
         assertEquals(0, result.skipped());
         verify(proofRepository).ensureReceivedUnsettledAmount(eq(proof.id()), any());
+        verify(proofRepository).markSequenceAnchor(proof.id(), "FINANCIAL_HONOR:COUNTER_GAP");
         verify(collateralRepository).deductRemainingAmount(eq(collateral.id()), any());
         verify(settlementRepository).update(
                 eq(rejectedRequest.id()),
@@ -3883,6 +3884,7 @@ class SettlementApplicationServiceTest {
 
         assertEquals(SettlementStatus.REJECTED, result.status());
         verify(proofRepository).ensureReceivedUnsettledAmount(eq("proof-local-verified"), any());
+        verify(proofRepository).markSequenceAnchor("proof-local-verified", "FINANCIAL_HONOR:DEVICE_NOT_ACTIVE");
         verify(collateralRepository).deductRemainingAmount(eq("collateral-local-verified"), any());
         verify(eventBus).publishExternalSyncRequested(
                 eq("LEDGER_SYNC_REQUESTED"),
@@ -4005,6 +4007,7 @@ class SettlementApplicationServiceTest {
 
         assertEquals(SettlementStatus.REJECTED, result.status());
         verify(proofRepository, never()).ensureReceivedUnsettledAmount(anyString(), any());
+        verify(proofRepository).markSequenceAnchor("proof-pre-auth", "NON_FINANCIAL:SENDER_AUTH_NOT_COMPLETED");
         verify(collateralRepository, never()).deductLockedAndRemainingAmount(anyString(), any());
         verify(eventBus, never()).publishExternalSyncRequested(
                 eq("LEDGER_SYNC_REQUESTED"),

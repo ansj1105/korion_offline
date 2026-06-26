@@ -32,6 +32,8 @@ public interface OfflinePaymentProofRepository {
 
     void updateLifecycle(String proofId, OfflineProofStatus status, String reasonCode, boolean consumed, boolean verified, boolean settled);
 
+    void markSequenceAnchor(String proofId, String reasonCode);
+
     int ensureReceivedUnsettledAmount(String proofId, BigDecimal receivedAmount);
 
     java.util.Optional<OfflinePaymentProof> findById(String proofId);

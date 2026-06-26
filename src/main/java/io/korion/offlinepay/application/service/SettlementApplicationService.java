@@ -1846,6 +1846,15 @@ public class SettlementApplicationService {
                 settlementResultJson,
                 financiallyHonored ? proof.amount() : evaluation.settledAmount()
         );
+        String sequenceAnchorReason = resolveSequenceAnchorReason(
+                proof,
+                financiallyHonored,
+                senderAuthorizationCompleted,
+                terminalReasonCode
+        );
+        if (sequenceAnchorReason != null) {
+            proofRepository.markSequenceAnchor(proof.id(), sequenceAnchorReason);
+        }
         saveReconciliationCase(request, proof, evaluation, settlementResultJson);
         if (evaluation.status() != SettlementStatus.SETTLED && !financiallyHonored) {
             collateralRepository.updateStatus(
@@ -1924,6 +1933,33 @@ public class SettlementApplicationService {
         return hasCompletedSenderAuthorization(proof)
                 && (localEvidenceRepository.existsMatchingReceiverEvidence(proof)
                 || hasLocalBilateralCompletion(proof));
+    }
+
+    private String resolveSequenceAnchorReason(
+            OfflinePaymentProof proof,
+            boolean financiallyHonored,
+            boolean senderAuthorizationCompleted,
+            String terminalReasonCode
+    ) {
+        if (!hasSequenceAnchorMaterial(proof)) {
+            return null;
+        }
+        String reasonCode = terminalReasonCode == null || terminalReasonCode.isBlank()
+                ? "UNKNOWN"
+                : terminalReasonCode.trim();
+        if (financiallyHonored) {
+            return "FINANCIAL_HONOR:" + reasonCode;
+        }
+        if (!senderAuthorizationCompleted && OfflinePayReasonCode.SENDER_AUTH_NOT_COMPLETED.equals(reasonCode)) {
+            return "NON_FINANCIAL:" + reasonCode;
+        }
+        return null;
+    }
+
+    private boolean hasSequenceAnchorMaterial(OfflinePaymentProof proof) {
+        return proof.counter() > 0
+                && proof.hashChainHead() != null
+                && !proof.hashChainHead().isBlank();
     }
 
     private boolean isFinanciallyHonored(String settlementResultJson) {
