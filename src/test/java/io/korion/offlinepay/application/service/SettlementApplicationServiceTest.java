@@ -2712,7 +2712,7 @@ class SettlementApplicationServiceTest {
         assertEquals(1, result.rejected());
         assertEquals(0, result.skipped());
         verify(proofRepository).ensureReceivedUnsettledAmount(eq(proof.id()), any());
-        verify(collateralRepository).deductLockedAndRemainingAmount(eq(collateral.id()), any());
+        verify(collateralRepository).deductRemainingAmount(eq(collateral.id()), any());
         verify(settlementRepository).update(
                 eq(rejectedRequest.id()),
                 eq(SettlementStatus.REJECTED),
@@ -3271,11 +3271,11 @@ class SettlementApplicationServiceTest {
         SettlementRequest result = service.finalizeSettlement("settlement-aggregate");
 
         assertEquals(SettlementStatus.SETTLED, result.status());
-        verify(collateralRepository).deductLockedAndRemainingAmount(
+        verify(collateralRepository).deductRemainingAmount(
                 eq("collateral-primary"),
                 argThat(amount -> amount.compareTo(new BigDecimal("80")) == 0)
         );
-        verify(collateralRepository).deductLockedAndRemainingAmount(
+        verify(collateralRepository).deductRemainingAmount(
                 eq("collateral-secondary"),
                 argThat(amount -> amount.compareTo(new BigDecimal("40")) == 0)
         );
@@ -3426,7 +3426,7 @@ class SettlementApplicationServiceTest {
         SettlementRequest result = service.finalizeSettlement("settlement-rebound-device");
 
         assertEquals(SettlementStatus.SETTLED, result.status());
-        verify(collateralRepository).deductLockedAndRemainingAmount(
+        verify(collateralRepository).deductRemainingAmount(
                 eq("collateral-rebound"),
                 argThat(amount -> amount.compareTo(new BigDecimal("5")) == 0)
         );
@@ -3587,7 +3587,7 @@ class SettlementApplicationServiceTest {
         SettlementRequest result = service.finalizeSettlement("settlement-cross-chain");
 
         assertEquals(SettlementStatus.SETTLED, result.status());
-        verify(collateralRepository).deductLockedAndRemainingAmount(
+        verify(collateralRepository).deductRemainingAmount(
                 eq("collateral-new"),
                 argThat(amount -> amount.compareTo(new BigDecimal("1")) == 0)
         );
@@ -3883,7 +3883,7 @@ class SettlementApplicationServiceTest {
 
         assertEquals(SettlementStatus.REJECTED, result.status());
         verify(proofRepository).ensureReceivedUnsettledAmount(eq("proof-local-verified"), any());
-        verify(collateralRepository).deductLockedAndRemainingAmount(eq("collateral-local-verified"), any());
+        verify(collateralRepository).deductRemainingAmount(eq("collateral-local-verified"), any());
         verify(eventBus).publishExternalSyncRequested(
                 eq("LEDGER_SYNC_REQUESTED"),
                 eq("settlement-local-verified"),

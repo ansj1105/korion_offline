@@ -157,7 +157,7 @@ class OfflineSnapshotServiceTest {
     }
 
     @Test
-    void currentSnapshotUsesRemainingAmountAsCurrentOnlineCollateralBalance() {
+    void currentSnapshotSeparatesCollateralTotalFromRemainingSpendableAmount() {
         DeviceRepository deviceRepository = mock(DeviceRepository.class);
         CollateralRepository collateralRepository = mock(CollateralRepository.class);
         IssuedOfflineProofRepository issuedOfflineProofRepository = mock(IssuedOfflineProofRepository.class);
@@ -238,7 +238,7 @@ class OfflineSnapshotServiceTest {
         assertNotNull(snapshot.wallet());
         assertEquals("76.00000000", snapshot.collateral().lockedAmount());
         assertEquals("23.00000000", snapshot.collateral().remainingAmount());
-        assertEquals("23.00000000", snapshot.collateral().collateralTotal());
+        assertEquals("76.00000000", snapshot.collateral().collateralTotal());
         assertEquals("0", snapshot.collateral().unsettledOutgoing());
         assertEquals("23.00000000", snapshot.collateral().availableForPay());
         assertEquals("122.253587460317457206", snapshot.wallet().additionalCollateralAvailableAmount());

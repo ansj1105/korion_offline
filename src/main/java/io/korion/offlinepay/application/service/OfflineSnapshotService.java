@@ -109,7 +109,7 @@ public class OfflineSnapshotService {
                         collateral.assetCode(),
                         collateral.lockedAmount().toPlainString(),
                         collateral.remainingAmount().toPlainString(),
-                        collateral.remainingAmount().toPlainString(),
+                        collateral.lockedAmount().toPlainString(),
                         "0",
                         collateral.remainingAmount().toPlainString(),
                         collateral.policyVersion(),
