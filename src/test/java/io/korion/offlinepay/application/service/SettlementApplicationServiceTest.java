@@ -3659,7 +3659,7 @@ class SettlementApplicationServiceTest {
                 "SENDER",
                 "{\"voucherId\":\"voucher-local-verified\",\"deviceId\":\"device-1\",\"counterpartyDeviceId\":\"device-2\",\"amount\":\"10\",\"expiresAt\":\""
                         + failedProofExpiresAt
-                        + "\",\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"100\",\"uiMode\":\"SEND\",\"connectionType\":\"FAST_CONTACT\",\"paymentFlow\":\"FAST_PAYMENT\",\"senderAuthRequired\":true,\"ledgerExecutionMode\":\"INTERNAL_LEDGER_ONLY\",\"dualAmountEntered\":false,\"deviceTrustLevel\":\"HARDWARE_BACKED_VERIFIED\",\"deviceAttestationId\":\"attestation-001\",\"deviceAttestationVerdict\":\"HARDWARE_BACKED_VERIFIED\",\"serverVerifiedTrustLevel\":\"SERVER_VERIFIED\",\"serverAttestationVerifiedAt\":\"2026-06-11T23:58:00.000Z\",\"spendingProof\":{\"deviceId\":\"device-1\",\"amount\":\"10\",\"monotonicCounter\":\"1\",\"nonce\":\"nonce-local-verified\",\"newStateHash\":\""
+                        + "\",\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"100\",\"uiMode\":\"SEND\",\"connectionType\":\"FAST_CONTACT\",\"paymentFlow\":\"FAST_PAYMENT\",\"senderAuthRequired\":true,\"senderLocalBlock\":true,\"localSagaStatus\":\"SENDER_PROOF_COMMITTED\",\"ledgerExecutionMode\":\"INTERNAL_LEDGER_ONLY\",\"dualAmountEntered\":false,\"deviceTrustLevel\":\"HARDWARE_BACKED_VERIFIED\",\"deviceAttestationId\":\"attestation-001\",\"deviceAttestationVerdict\":\"HARDWARE_BACKED_VERIFIED\",\"serverVerifiedTrustLevel\":\"SERVER_VERIFIED\",\"serverAttestationVerifiedAt\":\"2026-06-11T23:58:00.000Z\",\"spendingProof\":{\"deviceId\":\"device-1\",\"amount\":\"10\",\"monotonicCounter\":\"1\",\"nonce\":\"nonce-local-verified\",\"newStateHash\":\""
                         + failedProofHash
                         + "\",\"prevStateHash\":\"GENESIS\",\"signature\":\"local_sig_failed\",\"timestamp\":\""
                         + failedProofTimestamp
@@ -3729,6 +3729,114 @@ class SettlementApplicationServiceTest {
                 eq("DEVICE_NOT_ACTIVE"),
                 argThat(detail -> detail.contains("\"financiallyHonored\":true")
                         && detail.contains("LOCAL_VERIFIED_PENDING_HONORED"))
+        );
+    }
+
+    @Test
+    void finalizeSettlementDoesNotFinanciallyHonorRejectedProofBeforeSenderAuthCompletion() {
+        SettlementRequest request = new SettlementRequest(
+                "settlement-pre-auth",
+                "batch-pre-auth",
+                "collateral-pre-auth",
+                "proof-pre-auth",
+                SettlementStatus.PENDING,
+                null,
+                false,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        CollateralLock collateral = new CollateralLock(
+                "collateral-pre-auth",
+                77L,
+                "device-1",
+                "USDT",
+                new BigDecimal("150"),
+                new BigDecimal("100"),
+                "GENESIS",
+                1,
+                CollateralStatus.LOCKED,
+                "lock-pre-auth",
+                OffsetDateTime.now().plusDays(1),
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        String proofHash = spendingProofHashService.computeNewStateHash(
+                "GENESIS",
+                new BigDecimal("10"),
+                1L,
+                "device-1",
+                "nonce-pre-auth"
+        );
+        long proofTimestamp = System.currentTimeMillis();
+        long proofExpiresAt = proofTimestamp + 60_000;
+        OfflinePaymentProof proof = new OfflinePaymentProof(
+                "proof-pre-auth",
+                "batch-pre-auth",
+                "voucher-pre-auth",
+                "collateral-pre-auth",
+                "device-1",
+                "device-2",
+                1,
+                1,
+                1L,
+                "nonce-pre-auth",
+                proofHash,
+                "GENESIS",
+                "local_sig_pre_auth",
+                new BigDecimal("10"),
+                proofTimestamp,
+                proofExpiresAt,
+                "{\"voucherId\":\"voucher-pre-auth\",\"counterpartyDeviceId\":\"device-2\"}",
+                "SENDER",
+                "{\"voucherId\":\"voucher-pre-auth\",\"deviceId\":\"device-1\",\"counterpartyDeviceId\":\"device-2\",\"amount\":\"10\",\"expiresAt\":\""
+                        + proofExpiresAt
+                        + "\",\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"100\",\"uiMode\":\"SEND\",\"connectionType\":\"FAST_CONTACT\",\"paymentFlow\":\"FAST_PAYMENT\",\"senderAuthRequired\":true,\"senderLocalBlock\":true,\"localSagaStatus\":\"PENDING\",\"ledgerExecutionMode\":\"INTERNAL_LEDGER_ONLY\",\"dualAmountEntered\":false,\"deviceTrustLevel\":\"HARDWARE_BACKED_VERIFIED\",\"deviceAttestationId\":\"attestation-001\",\"deviceAttestationVerdict\":\"HARDWARE_BACKED_VERIFIED\",\"serverVerifiedTrustLevel\":\"SERVER_VERIFIED\",\"serverAttestationVerifiedAt\":\"2026-06-11T23:58:00.000Z\",\"spendingProof\":{\"deviceId\":\"device-1\",\"amount\":\"10\",\"monotonicCounter\":\"1\",\"nonce\":\"nonce-pre-auth\",\"newStateHash\":\""
+                        + proofHash
+                        + "\",\"prevStateHash\":\"GENESIS\",\"signature\":\"local_sig_pre_auth\",\"timestamp\":\""
+                        + proofTimestamp
+                        + "\"}}",
+                OffsetDateTime.now()
+        );
+        when(settlementRepository.findById("settlement-pre-auth")).thenReturn(
+                Optional.of(request),
+                Optional.of(new SettlementRequest(
+                        "settlement-pre-auth",
+                        "batch-pre-auth",
+                        "collateral-pre-auth",
+                        "proof-pre-auth",
+                        SettlementStatus.REJECTED,
+                        "SENDER_AUTH_NOT_COMPLETED",
+                        false,
+                        "{}",
+                        OffsetDateTime.now(),
+                        OffsetDateTime.now()
+                ))
+        );
+        when(proofRepository.findById("proof-pre-auth")).thenReturn(Optional.of(proof));
+        when(collateralRepository.findById("collateral-pre-auth")).thenReturn(Optional.of(collateral));
+        when(localEvidenceRepository.existsMatchingReceiverEvidence(proof)).thenReturn(true);
+
+        SettlementRequest result = service.finalizeSettlement("settlement-pre-auth");
+
+        assertEquals(SettlementStatus.REJECTED, result.status());
+        verify(proofRepository, never()).ensureReceivedUnsettledAmount(anyString(), any());
+        verify(collateralRepository, never()).deductLockedAndRemainingAmount(anyString(), any());
+        verify(eventBus, never()).publishExternalSyncRequested(
+                eq("LEDGER_SYNC_REQUESTED"),
+                eq("settlement-pre-auth"),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString()
+        );
+        verify(offlineSagaService).markFailed(
+                eq(OfflineSagaType.SETTLEMENT),
+                eq("settlement-pre-auth"),
+                eq("SETTLEMENT_REJECTED"),
+                eq("SENDER_AUTH_NOT_COMPLETED"),
+                any()
         );
     }
 

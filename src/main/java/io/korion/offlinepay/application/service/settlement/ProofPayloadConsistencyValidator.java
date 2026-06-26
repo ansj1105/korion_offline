@@ -12,12 +12,24 @@ import java.security.NoSuchAlgorithmException;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
 import java.util.Map;
+import java.util.Set;
 import org.springframework.stereotype.Component;
 
 @Component
 public class ProofPayloadConsistencyValidator {
 
     private final JsonService jsonService;
+    private static final Set<String> SENDER_AUTH_COMPLETED_SAGA_STATUSES = Set.of(
+            "SENDER_PROOF_COMMITTED",
+            "COMPLETE_PREPARE_SENT",
+            "COMPLETE_SUMMARY_SENDING",
+            "COMPLETE_SUMMARY_ACK_WAITING",
+            "COMPLETE_FINALIZE_SENDING",
+            "COMPLETE_FINALIZE_ACK_WAITING",
+            "COMPLETE_SENT",
+            "COMPLETE_ACKED",
+            "COMPLETED"
+    );
 
     public ProofPayloadConsistencyValidator(JsonService jsonService) {
         this.jsonService = jsonService;
@@ -31,6 +43,10 @@ public class ProofPayloadConsistencyValidator {
         ValidationResult requiredFieldsValidation = validateRequiredFields(proof, rawPayload, canonicalPayload, spendingProof);
         if (!requiredFieldsValidation.passed()) {
             return requiredFieldsValidation;
+        }
+        ValidationResult senderAuthValidation = validateSenderAuthCompletion(proof, rawPayload);
+        if (!senderAuthValidation.passed()) {
+            return senderAuthValidation;
         }
 
         if (mismatch(text(rawPayload, "voucherId"), proof.voucherId()) || mismatch(text(canonicalPayload, "voucherId"), proof.voucherId())) {
@@ -70,6 +86,21 @@ public class ProofPayloadConsistencyValidator {
         ValidationResult hybridTimeValidation = validateHybridTime(proof, rawPayload, canonicalPayload);
         if (!hybridTimeValidation.passed()) {
             return hybridTimeValidation;
+        }
+        return ValidationResult.success();
+    }
+
+    private ValidationResult validateSenderAuthCompletion(OfflinePaymentProof proof, JsonNode rawPayload) {
+        if (!booleanValue(rawPayload, "senderAuthRequired") || !booleanValue(rawPayload, "senderLocalBlock")) {
+            return ValidationResult.success();
+        }
+        String localSagaStatus = text(rawPayload, "localSagaStatus");
+        if (localSagaStatus == null || !SENDER_AUTH_COMPLETED_SAGA_STATUSES.contains(localSagaStatus.trim())) {
+            return invalid(
+                    OfflinePayReasonCode.SENDER_AUTH_NOT_COMPLETED,
+                    proof,
+                    "sender authorization not completed before proof submission"
+            );
         }
         return ValidationResult.success();
     }
@@ -276,6 +307,18 @@ public class ProofPayloadConsistencyValidator {
         } catch (NumberFormatException exception) {
             return null;
         }
+    }
+
+    private boolean booleanValue(JsonNode node, String field) {
+        if (node == null || node.isMissingNode() || node.isNull()) {
+            return false;
+        }
+        JsonNode child = node.path(field);
+        if (child.isBoolean()) {
+            return child.asBoolean(false);
+        }
+        String value = text(node, field);
+        return value != null && "true".equalsIgnoreCase(value.trim());
     }
 
     private OffsetDateTime parseOffsetTime(String value) {

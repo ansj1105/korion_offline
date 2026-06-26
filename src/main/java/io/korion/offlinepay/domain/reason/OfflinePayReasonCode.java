@@ -49,6 +49,7 @@ public final class OfflinePayReasonCode {
     public static final String AUTH_BIOMETRIC_FAIL = "AUTH_BIOMETRIC_FAIL";
     public static final String AUTH_PIN_FAIL = "AUTH_PIN_FAIL";
     public static final String AUTH_CANCELLED = "AUTH_CANCELLED";
+    public static final String SENDER_AUTH_NOT_COMPLETED = "SENDER_AUTH_NOT_COMPLETED";
     public static final String PROOF_NOT_FOUND = "PROOF_NOT_FOUND";
     public static final String PROOF_TAMPERED = "PROOF_TAMPERED";
     public static final String ISSUED_PROOF_REQUIRED = "ISSUED_PROOF_REQUIRED";

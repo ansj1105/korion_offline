@@ -71,6 +71,17 @@ public class SettlementApplicationService {
             "NATIVE_NFC_BRIDGE_TRANSCRIPT_V1",
             "NATIVE_QR_SCAN_TRANSCRIPT_V1"
     );
+    private static final Set<String> SENDER_AUTH_COMPLETED_SAGA_STATUSES = Set.of(
+            "SENDER_PROOF_COMMITTED",
+            "COMPLETE_PREPARE_SENT",
+            "COMPLETE_SUMMARY_SENDING",
+            "COMPLETE_SUMMARY_ACK_WAITING",
+            "COMPLETE_FINALIZE_SENDING",
+            "COMPLETE_FINALIZE_ACK_WAITING",
+            "COMPLETE_SENT",
+            "COMPLETE_ACKED",
+            "COMPLETED"
+    );
 
     private final CollateralRepository collateralRepository;
     private final CollateralOperationRepository collateralOperationRepository;
@@ -1702,9 +1713,11 @@ public class SettlementApplicationService {
         proofRepository.updateLifecycle(proof.id(), OfflineProofStatus.CONSUMED_PENDING_SETTLEMENT, null, true, false, false);
         CollateralLock settlementCollateralScope = resolveSettlementCollateralScope(collateral, proof);
         SettlementEvaluation evaluation = evaluateProof(proof, settlementCollateralScope, request.id());
+        boolean senderAuthorizationCompleted = hasCompletedSenderAuthorization(proof);
         boolean financiallyHonored = shouldFinanciallyHonorLocalPendingSettlement(
                 validationStartedFromPending,
                 receiverEvidenceConfirmed,
+                senderAuthorizationCompleted,
                 evaluation
         );
         String terminalReasonCode = normalizeSettlementReasonCode(evaluation.status(), evaluation.reasonCode(), evaluation.conflictDetected());
@@ -1712,6 +1725,7 @@ public class SettlementApplicationService {
                 evaluation,
                 financiallyHonored,
                 receiverEvidenceConfirmed,
+                senderAuthorizationCompleted,
                 validationStartedFromPending
         );
         proofRepository.updateLifecycle(
@@ -1799,10 +1813,12 @@ public class SettlementApplicationService {
     private boolean shouldFinanciallyHonorLocalPendingSettlement(
             boolean validationStartedFromPending,
             boolean receiverEvidenceConfirmed,
+            boolean senderAuthorizationCompleted,
             SettlementEvaluation evaluation
     ) {
         return validationStartedFromPending
                 && receiverEvidenceConfirmed
+                && senderAuthorizationCompleted
                 && evaluation.status() == SettlementStatus.REJECTED
                 && !evaluation.conflictDetected();
     }
@@ -1811,6 +1827,7 @@ public class SettlementApplicationService {
             SettlementEvaluation evaluation,
             boolean financiallyHonored,
             boolean receiverEvidenceConfirmed,
+            boolean senderAuthorizationCompleted,
             boolean validationStartedFromPending
     ) {
         if (!financiallyHonored) {
@@ -1820,10 +1837,23 @@ public class SettlementApplicationService {
         result.put("financiallyHonored", true);
         result.put("financialPolicy", "LOCAL_VERIFIED_PENDING_HONORED");
         result.put("receiverEvidenceConfirmed", receiverEvidenceConfirmed);
+        result.put("senderAuthorizationCompleted", senderAuthorizationCompleted);
         result.put("validationStartedFromPending", validationStartedFromPending);
         result.put("originalSettlementStatus", evaluation.status().name());
         result.put("financialReleaseAction", "RELEASE");
         return jsonService.write(result);
+    }
+
+    private boolean hasCompletedSenderAuthorization(OfflinePaymentProof proof) {
+        JsonNode payload = jsonService.readTree(proof.rawPayloadJson());
+        if (!payload.path("senderAuthRequired").asBoolean(false)) {
+            return true;
+        }
+        if (!payload.path("senderLocalBlock").asBoolean(false)) {
+            return false;
+        }
+        String localSagaStatus = payload.path("localSagaStatus").asText("");
+        return SENDER_AUTH_COMPLETED_SAGA_STATUSES.contains(localSagaStatus == null ? "" : localSagaStatus.trim());
     }
 
     private boolean markVerifiedEvidenceForProof(OfflinePaymentProof proof, boolean receiverEvidenceMatched) {

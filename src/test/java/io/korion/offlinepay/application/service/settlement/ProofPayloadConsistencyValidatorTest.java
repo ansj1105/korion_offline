@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.korion.offlinepay.application.service.JsonService;
 import io.korion.offlinepay.domain.model.OfflinePaymentProof;
+import io.korion.offlinepay.domain.reason.OfflinePayReasonCode;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import org.junit.jupiter.api.Test;
@@ -219,6 +220,23 @@ class ProofPayloadConsistencyValidatorTest {
         assertFalse(validator.validate(proof).passed());
     }
 
+    @Test
+    void rejectsSenderLocalBlockBeforeSenderAuthCompletion() {
+        ProofPayloadConsistencyValidator.ValidationResult result =
+                validator.validate(proofWithSenderAuthSagaStatus("PENDING"));
+
+        assertFalse(result.passed());
+        assertEquals(OfflinePayReasonCode.SENDER_AUTH_NOT_COMPLETED, result.reasonCode());
+    }
+
+    @Test
+    void acceptsSenderLocalBlockAfterSenderAuthCompletion() {
+        ProofPayloadConsistencyValidator.ValidationResult result =
+                validator.validate(proofWithSenderAuthSagaStatus("COMPLETE_ACKED"));
+
+        assertTrue(result.passed());
+    }
+
     private OfflinePaymentProof proofWithHybridTime(String estimatedServerTime) {
         return proofWithHybridTime(
                 estimatedServerTime,
@@ -331,6 +349,42 @@ class ProofPayloadConsistencyValidatorTest {
                   "counterpartyDeviceId": "device-2"
                 }
                 """.formatted(requestId, canonicalTxId, canonicalSequence, estimatedServerTime);
+
+        return proofWithPayloads(rawPayload, canonicalPayload);
+    }
+
+    private OfflinePaymentProof proofWithSenderAuthSagaStatus(String localSagaStatus) {
+        long timestampMs = 1_781_184_120_000L;
+        long expiresAtMs = timestampMs + 60_000L;
+        String rawPayload = """
+                {
+                  "voucherId": "voucher-hybrid",
+                  "deviceId": "device-1",
+                  "counterpartyDeviceId": "device-2",
+                  "amount": "1.00",
+                  "expiresAt": %d,
+                  "senderAuthRequired": true,
+                  "senderLocalBlock": true,
+                  "localSagaStatus": "%s",
+                  "spendingProof": {
+                    "deviceId": "device-1",
+                    "amount": "1.00",
+                    "monotonicCounter": 18,
+                    "nonce": "nonce-hybrid",
+                    "newStateHash": "hash-new",
+                    "prevStateHash": "hash-prev",
+                    "signature": "signature",
+                    "timestamp": %d
+                  }
+                }
+                """.formatted(expiresAtMs, localSagaStatus, timestampMs);
+        String canonicalPayload = """
+                {
+                  "voucherId": "voucher-hybrid",
+                  "deviceId": "device-1",
+                  "counterpartyDeviceId": "device-2"
+                }
+                """;
 
         return proofWithPayloads(rawPayload, canonicalPayload);
     }
