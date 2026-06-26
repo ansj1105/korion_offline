@@ -237,12 +237,15 @@ public class SettlementExternalSyncWorker {
                     OfflineSagaType.SETTLEMENT,
                     message.settlementId(),
                     "RECEIVER_HISTORY_SYNCED",
-                    Map.of(
-                            "settlementId", message.settlementId(),
-                            "batchId", message.batchId(),
-                            "proofId", message.proofId(),
-                            "receiverHistorySynced", true,
-                            "eventType", message.eventType()
+                    Map.ofEntries(
+                            Map.entry("settlementId", message.settlementId()),
+                            Map.entry("batchId", message.batchId()),
+                            Map.entry("proofId", message.proofId()),
+                            Map.entry("receiverHistorySynced", true),
+                            Map.entry("eventType", message.eventType()),
+                            Map.entry("receiverSettlementTrigger", payload.path("receiverSettlementTrigger").asText("UNKNOWN")),
+                            Map.entry("receiverSettlementManualRequest", payload.path("receiverSettlementManualRequest").asBoolean(false)),
+                            Map.entry("transferRef", receiverCommand.transferRef())
                     )
             );
             return;

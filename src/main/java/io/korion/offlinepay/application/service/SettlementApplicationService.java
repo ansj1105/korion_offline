@@ -211,7 +211,7 @@ public class SettlementApplicationService {
                 skipped++;
                 continue;
             }
-            handleReceiverOnlineConfirmation(proof, request);
+            handleReceiverOnlineConfirmation(proof, request, ReceiverSettlementTrigger.MANUAL_RECEIVED_CONFIRM, true);
             confirmed++;
         }
         return new ReceiverSettlementConfirmationResult(requested, confirmed, skipped);
@@ -373,7 +373,12 @@ public class SettlementApplicationService {
                 continue;
             }
             attempted++;
-            handleReceiverOnlineConfirmation(proof, request);
+            handleReceiverOnlineConfirmation(
+                    proof,
+                    request,
+                    ReceiverSettlementTrigger.AUTO_RECEIVED_CONFIRM,
+                    shouldAutoConfirmReceiverSettlement(proof)
+            );
             confirmed++;
         }
         return new AutoConfirmPendingReceiverHistoryResult(staleSagas.size(), attempted, confirmed, skipped);
@@ -916,7 +921,12 @@ public class SettlementApplicationService {
                 }
                 preserveReceivedUnsettledAmount(existing, request);
                 if (shouldAutoConfirmReceiverSettlement(submission)) {
-                    handleReceiverOnlineConfirmation(existing, request);
+                    handleReceiverOnlineConfirmation(
+                            existing,
+                            request,
+                            ReceiverSettlementTrigger.AUTO_RECEIVED_CONFIRM,
+                            shouldAutoConfirmReceiverSettlement(submission)
+                    );
                 }
                 requestIds.add(request.id());
                 receiverConfirmationCount++;
@@ -1409,7 +1419,15 @@ public class SettlementApplicationService {
         return String.valueOf(left == null ? "" : left).equals(String.valueOf(right == null ? "" : right));
     }
 
-    private void handleReceiverOnlineConfirmation(OfflinePaymentProof proof, SettlementRequest request) {
+    private void handleReceiverOnlineConfirmation(
+            OfflinePaymentProof proof,
+            SettlementRequest request,
+            ReceiverSettlementTrigger trigger,
+            boolean receiverSettlementAllowed
+    ) {
+        if (!receiverSettlementAllowed) {
+            return;
+        }
         boolean financiallyHonored = isFinanciallyHonoredSettlement(proof, request);
         if (proof.status() != OfflineProofStatus.SETTLED && !financiallyHonored) {
             return;
@@ -1464,15 +1482,17 @@ public class SettlementApplicationService {
                 request.id(),
                 request.batchId(),
                 proof.id(),
-                jsonService.write(Map.of(
-                        "settlementId", request.id(),
-                        "batchId", request.batchId(),
-                        "proofId", proof.id(),
-                        "receiverWalletSettlementRequested", true,
-                        "receiverLedgerOutcome", receiverLedgerResult.ledgerOutcome(),
-                        "receiverSettlementMode", receiverLedgerResult.receiverSettlementMode(),
-                        "receiverOnlineConfirmedAt", OffsetDateTime.now().toString(),
-                        "receiverHistoryCommand", Map.ofEntries(
+                jsonService.write(Map.ofEntries(
+                        Map.entry("settlementId", request.id()),
+                        Map.entry("batchId", request.batchId()),
+                        Map.entry("proofId", proof.id()),
+                        Map.entry("receiverWalletSettlementRequested", true),
+                        Map.entry("receiverSettlementTrigger", trigger.name()),
+                        Map.entry("receiverSettlementManualRequest", trigger == ReceiverSettlementTrigger.MANUAL_RECEIVED_CONFIRM),
+                        Map.entry("receiverLedgerOutcome", receiverLedgerResult.ledgerOutcome()),
+                        Map.entry("receiverSettlementMode", receiverLedgerResult.receiverSettlementMode()),
+                        Map.entry("receiverOnlineConfirmedAt", OffsetDateTime.now().toString()),
+                        Map.entry("receiverHistoryCommand", Map.ofEntries(
                                 Map.entry("settlementId", receiverHistoryCommand.settlementId()),
                                 Map.entry("transferRef", receiverHistoryCommand.transferRef()),
                                 Map.entry("batchId", receiverHistoryCommand.batchId()),
@@ -1485,7 +1505,7 @@ public class SettlementApplicationService {
                                 Map.entry("feeAmount", receiverHistoryCommand.feeAmount()),
                                 Map.entry("settlementStatus", receiverHistoryCommand.settlementStatus()),
                                 Map.entry("historyType", receiverHistoryCommand.historyType())
-                        )
+                        ))
                 )),
                 OffsetDateTime.now().toString()
         );
@@ -1500,7 +1520,9 @@ public class SettlementApplicationService {
                         "senderHistorySynced", true,
                         "receiverHistoryPending", true,
                         "receiverOnlineConfirmed", true,
-                        "receiverWalletSettlementRequested", true
+                        "receiverWalletSettlementRequested", true,
+                        "receiverSettlementTrigger", trigger.name(),
+                        "receiverSettlementManualRequest", trigger == ReceiverSettlementTrigger.MANUAL_RECEIVED_CONFIRM
                 )
         );
     }
@@ -2635,6 +2657,11 @@ public class SettlementApplicationService {
             long userId,
             List<String> proofIds
     ) {}
+
+    private enum ReceiverSettlementTrigger {
+        MANUAL_RECEIVED_CONFIRM,
+        AUTO_RECEIVED_CONFIRM
+    }
 
     public record ReceiverSettlementConfirmationResult(
             int requested,

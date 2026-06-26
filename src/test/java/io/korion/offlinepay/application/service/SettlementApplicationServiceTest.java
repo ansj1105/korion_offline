@@ -858,7 +858,9 @@ class SettlementApplicationServiceTest {
                 eq("proof-receiver-auto-confirm"),
                 argThat(payload -> payload.contains("\"receiverHistoryCommand\"")
                         && payload.contains("\"receiverWalletSettlementRequested\":true")
-                        && payload.contains("\"receiverOnlineConfirmedAt\"")),
+                        && payload.contains("\"receiverOnlineConfirmedAt\"")
+                        && payload.contains("\"receiverSettlementTrigger\":\"AUTO_RECEIVED_CONFIRM\"")
+                        && payload.contains("\"receiverSettlementManualRequest\":false")),
                 anyString()
         );
     }
@@ -987,6 +989,8 @@ class SettlementApplicationServiceTest {
                 eq("proof-receiver-manual-confirm"),
                 argThat(payload -> payload.contains("\"receiverWalletSettlementRequested\":true")
                         && payload.contains("\"receiverOnlineConfirmedAt\"")
+                        && payload.contains("\"receiverSettlementTrigger\":\"MANUAL_RECEIVED_CONFIRM\"")
+                        && payload.contains("\"receiverSettlementManualRequest\":true")
                         && payload.contains("\"receiverHistoryCommand\"")),
                 anyString()
         );
