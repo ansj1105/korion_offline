@@ -240,6 +240,24 @@ public class JdbcOfflinePayLocalEvidenceRepository implements OfflinePayLocalEvi
                           AND COALESCE(s.raw_payload ->> 'expiresAtMs', s.raw_payload ->> 'senderLocalBlockExpiresAtMs', s.raw_payload ->> 'localBlockExpiresAtMs', s.raw_payload ->> 'expiresAt', '') <> ''
                       )
                       OR (
+                          s.direction = 'SEND'
+                          AND EXISTS (
+                              SELECT 1
+                              FROM offline_payment_proofs p
+                              JOIN settlement_requests sr ON sr.proof_id = p.id
+                              WHERE p.voucher_id = s.voucher_id
+                                AND p.sender_device_id = s.sender_device_id
+                                AND p.receiver_device_id = s.receiver_device_id
+                                AND p.amount = s.amount
+                                AND p.status = 'REJECTED'
+                                AND sr.status = 'REJECTED'
+                                AND COALESCE(sr.conflict_detected, FALSE) = FALSE
+                                AND COALESCE(sr.settlement_result ->> 'financiallyHonored', 'false') <> 'true'
+                                AND COALESCE(p.raw_payload ->> 'senderLocalBlock', 'false') = 'true'
+                                AND COALESCE(p.raw_payload ->> 'localSagaStatus', '') IN ('COMPLETE_ACKED', 'COMPLETED')
+                          )
+                      )
+                      OR (
                           s.direction = 'RECEIVE'
                           AND (
                               (

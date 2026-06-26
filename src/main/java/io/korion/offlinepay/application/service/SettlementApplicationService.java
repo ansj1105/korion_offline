@@ -82,6 +82,10 @@ public class SettlementApplicationService {
             "COMPLETE_ACKED",
             "COMPLETED"
     );
+    private static final Set<String> LOCAL_BILATERAL_COMPLETED_SAGA_STATUSES = Set.of(
+            "COMPLETE_ACKED",
+            "COMPLETED"
+    );
 
     private final CollateralRepository collateralRepository;
     private final CollateralOperationRepository collateralOperationRepository;
@@ -290,7 +294,8 @@ public class SettlementApplicationService {
                     skipped++;
                     continue;
                 }
-                SettlementEvaluation evaluation = processSettlementRequest(existingRequest, true, retryFinancialHonor);
+                boolean receiverEvidenceMatched = "RECEIVE".equalsIgnoreCase(evidence.direction());
+                SettlementEvaluation evaluation = processSettlementRequest(existingRequest, receiverEvidenceMatched, retryFinancialHonor);
                 settlementIds.add(request.get().id());
                 reused++;
                 if (evaluation.status() == SettlementStatus.SETTLED) {
@@ -1764,9 +1769,11 @@ public class SettlementApplicationService {
         CollateralLock settlementCollateralScope = resolveSettlementCollateralScope(collateral, proof);
         SettlementEvaluation evaluation = evaluateProof(proof, settlementCollateralScope, request.id());
         boolean senderAuthorizationCompleted = hasCompletedSenderAuthorization(proof);
+        boolean localBilateralCompletionConfirmed = hasLocalBilateralCompletion(proof);
         boolean financiallyHonored = shouldFinanciallyHonorLocalPendingSettlement(
                 validationStartedFromPending,
                 receiverEvidenceConfirmed,
+                localBilateralCompletionConfirmed,
                 senderAuthorizationCompleted,
                 evaluation
         );
@@ -1781,6 +1788,7 @@ public class SettlementApplicationService {
                 evaluation,
                 financiallyHonored,
                 receiverEvidenceConfirmed,
+                localBilateralCompletionConfirmed,
                 senderAuthorizationCompleted,
                 validationStartedFromPending,
                 terminalReasonCode
@@ -1870,11 +1878,12 @@ public class SettlementApplicationService {
     private boolean shouldFinanciallyHonorLocalPendingSettlement(
             boolean validationStartedFromPending,
             boolean receiverEvidenceConfirmed,
+            boolean localBilateralCompletionConfirmed,
             boolean senderAuthorizationCompleted,
             SettlementEvaluation evaluation
     ) {
         return validationStartedFromPending
-                && receiverEvidenceConfirmed
+                && (receiverEvidenceConfirmed || localBilateralCompletionConfirmed)
                 && senderAuthorizationCompleted
                 && evaluation.status() == SettlementStatus.REJECTED
                 && !evaluation.conflictDetected();
@@ -1891,7 +1900,8 @@ public class SettlementApplicationService {
             return false;
         }
         return hasCompletedSenderAuthorization(proof)
-                && localEvidenceRepository.existsMatchingReceiverEvidence(proof);
+                && (localEvidenceRepository.existsMatchingReceiverEvidence(proof)
+                || hasLocalBilateralCompletion(proof));
     }
 
     private boolean isFinanciallyHonored(String settlementResultJson) {
@@ -1905,6 +1915,7 @@ public class SettlementApplicationService {
             SettlementEvaluation evaluation,
             boolean financiallyHonored,
             boolean receiverEvidenceConfirmed,
+            boolean localBilateralCompletionConfirmed,
             boolean senderAuthorizationCompleted,
             boolean validationStartedFromPending,
             String terminalReasonCode
@@ -1918,6 +1929,7 @@ public class SettlementApplicationService {
         result.put("financiallyHonored", true);
         result.put("financialPolicy", "LOCAL_VERIFIED_PENDING_HONORED");
         result.put("receiverEvidenceConfirmed", receiverEvidenceConfirmed);
+        result.put("localBilateralCompletionConfirmed", localBilateralCompletionConfirmed);
         result.put("senderAuthorizationCompleted", senderAuthorizationCompleted);
         result.put("validationStartedFromPending", validationStartedFromPending);
         result.put("originalSettlementStatus", evaluation.status().name());
@@ -1950,6 +1962,15 @@ public class SettlementApplicationService {
         }
         String localSagaStatus = payload.path("localSagaStatus").asText("");
         return SENDER_AUTH_COMPLETED_SAGA_STATUSES.contains(localSagaStatus == null ? "" : localSagaStatus.trim());
+    }
+
+    private boolean hasLocalBilateralCompletion(OfflinePaymentProof proof) {
+        JsonNode payload = jsonService.readTree(proof.rawPayloadJson());
+        if (!payload.path("senderLocalBlock").asBoolean(false)) {
+            return false;
+        }
+        String localSagaStatus = payload.path("localSagaStatus").asText("");
+        return LOCAL_BILATERAL_COMPLETED_SAGA_STATUSES.contains(localSagaStatus == null ? "" : localSagaStatus.trim());
     }
 
     private boolean markVerifiedEvidenceForProof(OfflinePaymentProof proof, boolean receiverEvidenceMatched) {

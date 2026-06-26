@@ -2557,15 +2557,15 @@ class SettlementApplicationServiceTest {
     }
 
     @Test
-    void reconcileDirectLocalEvidenceHonorsRejectedCompletedProofAfterLateReceiverEvidence() {
+    void reconcileDirectLocalEvidenceHonorsRejectedCompletedProofAfterSenderCompleteAckEvidence() {
         long now = System.currentTimeMillis();
-        OfflinePayLocalEvidence receiverEvidence = new OfflinePayLocalEvidence(
+        OfflinePayLocalEvidence senderEvidence = new OfflinePayLocalEvidence(
                 null,
                 "voucher-late-receiver",
                 "req-late-receiver",
-                "RECEIVE",
-                "RECEIVER",
-                "receiver-device",
+                "SEND",
+                "SENDER",
+                "sender-device",
                 "sender-device",
                 "receiver-device",
                 new BigDecimal("2.00000000"),
@@ -2575,9 +2575,12 @@ class SettlementApplicationServiceTest {
                 "nonce-late-receiver",
                 "signature-late-receiver",
                 "{\"voucherId\":\"voucher-late-receiver\"}",
-                java.util.Map.of("receiverEvidenceBlock", true),
+                java.util.Map.of(
+                        "senderLocalBlock", true,
+                        "localSagaStatus", "COMPLETE_ACKED"
+                ),
                 "VERIFIED",
-                "matched receiver evidence",
+                "sender evidence stored before receiver match",
                 null
         );
         CollateralLock collateral = new CollateralLock(
@@ -2684,7 +2687,7 @@ class SettlementApplicationServiceTest {
         );
 
         when(localEvidenceRepository.findVerifiedSenderEvidenceAwaitingCarrier(25))
-                .thenReturn(java.util.List.of(receiverEvidence));
+                .thenReturn(java.util.List.of(senderEvidence));
         when(proofRepository.findByVoucherId("voucher-late-receiver")).thenReturn(Optional.of(proof));
         when(settlementRepository.findLatestByProofId(proof.id())).thenReturn(Optional.of(rejectedRequest));
         when(proofRepository.findById(proof.id())).thenReturn(Optional.of(proof));
@@ -2694,7 +2697,7 @@ class SettlementApplicationServiceTest {
                 .thenReturn(java.util.List.of(previousProof, proof));
         when(deviceRepository.findByDeviceId("sender-device")).thenReturn(Optional.of(senderDevice));
         when(deviceRepository.findByDeviceId("receiver-device")).thenReturn(Optional.of(receiverDevice));
-        when(localEvidenceRepository.existsMatchingReceiverEvidence(proof)).thenReturn(true);
+        when(localEvidenceRepository.existsMatchingReceiverEvidence(proof)).thenReturn(false);
 
         SettlementApplicationService.DirectLocalEvidenceReconcileResult result =
                 service.reconcileDirectLocalEvidence(25);
@@ -2713,7 +2716,9 @@ class SettlementApplicationServiceTest {
                 eq(false),
                 argThat(payload -> payload.contains("\"reasonCode\":\"COUNTER_GAP\"")
                         && payload.contains("\"evaluatedReasonCode\":\"PAYLOAD_REQUIRED_FIELD_MISSING\"")
-                        && payload.contains("\"financiallyHonored\":true"))
+                        && payload.contains("\"financiallyHonored\":true")
+                        && payload.contains("\"receiverEvidenceConfirmed\":false")
+                        && payload.contains("\"localBilateralCompletionConfirmed\":true"))
         );
         verify(eventBus).publishExternalSyncRequested(
                 eq("LEDGER_SYNC_REQUESTED"),
@@ -3832,7 +3837,7 @@ class SettlementApplicationServiceTest {
                 "SENDER",
                 "{\"voucherId\":\"voucher-local-verified\",\"deviceId\":\"device-1\",\"counterpartyDeviceId\":\"device-2\",\"amount\":\"10\",\"expiresAt\":\""
                         + failedProofExpiresAt
-                        + "\",\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"100\",\"uiMode\":\"SEND\",\"connectionType\":\"FAST_CONTACT\",\"paymentFlow\":\"FAST_PAYMENT\",\"senderAuthRequired\":true,\"senderLocalBlock\":true,\"localSagaStatus\":\"SENDER_PROOF_COMMITTED\",\"ledgerExecutionMode\":\"INTERNAL_LEDGER_ONLY\",\"dualAmountEntered\":false,\"deviceTrustLevel\":\"HARDWARE_BACKED_VERIFIED\",\"deviceAttestationId\":\"attestation-001\",\"deviceAttestationVerdict\":\"HARDWARE_BACKED_VERIFIED\",\"serverVerifiedTrustLevel\":\"SERVER_VERIFIED\",\"serverAttestationVerifiedAt\":\"2026-06-11T23:58:00.000Z\",\"spendingProof\":{\"deviceId\":\"device-1\",\"amount\":\"10\",\"monotonicCounter\":\"1\",\"nonce\":\"nonce-local-verified\",\"newStateHash\":\""
+                        + "\",\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"100\",\"uiMode\":\"SEND\",\"connectionType\":\"FAST_CONTACT\",\"paymentFlow\":\"FAST_PAYMENT\",\"senderAuthRequired\":true,\"senderLocalBlock\":true,\"localSagaStatus\":\"COMPLETE_ACKED\",\"ledgerExecutionMode\":\"INTERNAL_LEDGER_ONLY\",\"dualAmountEntered\":false,\"deviceTrustLevel\":\"HARDWARE_BACKED_VERIFIED\",\"deviceAttestationId\":\"attestation-001\",\"deviceAttestationVerdict\":\"HARDWARE_BACKED_VERIFIED\",\"serverVerifiedTrustLevel\":\"SERVER_VERIFIED\",\"serverAttestationVerifiedAt\":\"2026-06-11T23:58:00.000Z\",\"spendingProof\":{\"deviceId\":\"device-1\",\"amount\":\"10\",\"monotonicCounter\":\"1\",\"nonce\":\"nonce-local-verified\",\"newStateHash\":\""
                         + failedProofHash
                         + "\",\"prevStateHash\":\"GENESIS\",\"signature\":\"local_sig_failed\",\"timestamp\":\""
                         + failedProofTimestamp
@@ -3868,7 +3873,7 @@ class SettlementApplicationServiceTest {
         when(proofRepository.findById("proof-local-verified")).thenReturn(Optional.of(proof));
         when(collateralRepository.findById("collateral-local-verified")).thenReturn(Optional.of(collateral));
         when(deviceRepository.findByDeviceId("device-1")).thenReturn(Optional.of(inactiveDevice));
-        when(localEvidenceRepository.existsMatchingReceiverEvidence(proof)).thenReturn(true);
+        when(localEvidenceRepository.existsMatchingReceiverEvidence(proof)).thenReturn(false);
 
         SettlementRequest result = service.finalizeSettlement("settlement-local-verified");
 
@@ -3901,6 +3906,7 @@ class SettlementApplicationServiceTest {
                 eq(io.korion.offlinepay.domain.status.ReconciliationCaseStatus.OPEN),
                 eq("DEVICE_NOT_ACTIVE"),
                 argThat(detail -> detail.contains("\"financiallyHonored\":true")
+                        && detail.contains("\"localBilateralCompletionConfirmed\":true")
                         && detail.contains("LOCAL_VERIFIED_PENDING_HONORED"))
         );
     }

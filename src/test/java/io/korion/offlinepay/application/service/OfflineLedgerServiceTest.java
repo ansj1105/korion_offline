@@ -228,7 +228,40 @@ class OfflineLedgerServiceTest {
         assertEquals("+0.999000", response.receivedItems().get(1).amount());
         assertEquals("0", response.receivedItems().get(1).unsettledAmount());
         assertEquals("SETTLED", response.receivedItems().get(1).receivedSettlementState());
-        assertEquals("0.999000", response.totalReceivedAmount());
+        assertEquals("0", response.totalReceivedAmount());
+    }
+
+    @Test
+    void receivedTotalAmountUsesAllUnsettledRowsNotSettledRowsOrCurrentPageOnly() {
+        String receiverDeviceId = "98db6beb-4ae1-4027-b9ee-507ce7eaeaa7";
+        Device receiverDevice = device(receiverDeviceId, 39L);
+        OfflinePaymentProof settledProof = settledReceivedProof(
+                "settled-page-zero",
+                "app-suffix:e7eaeaa7",
+                OffsetDateTime.parse("2026-05-20T04:45:04Z")
+        );
+        OfflinePaymentProof unsettledProof = rejectedReceivedProof(
+                "unsettled-page-one",
+                "app-suffix:e7eaeaa7",
+                OffsetDateTime.parse("2026-05-19T04:45:04Z"),
+                new BigDecimal("1.89810000")
+        );
+        when(deviceRepository.findActiveByUserId(39L)).thenReturn(List.of(receiverDevice));
+        when(deviceRepository.findByDeviceId("sender-device")).thenReturn(Optional.empty());
+        when(deviceRepository.findByDeviceId("app-suffix:e7eaeaa7")).thenReturn(Optional.empty());
+        when(deviceRepository.findUniqueActiveByDeviceIdSuffix("e7eaeaa7")).thenReturn(Optional.of(receiverDevice));
+        when(proofRepository.findRecentByUserIdAndAssetCode(39L, "KORI", 2))
+                .thenReturn(List.of(settledProof, unsettledProof));
+        when(collateralOperationRepository.findRecentByUserIdAndAssetCode(39L, "KORI", 2)).thenReturn(List.of());
+        when(collateralRepository.findAggregateByUserIdAndAssetCode(39L, "KORI")).thenReturn(Optional.empty());
+
+        OfflineLedgerService.LedgerHistoryResponse response = service.getLedgerHistory(39L, "KORI", 1);
+
+        assertEquals(1, response.receivedItems().size());
+        assertEquals("SETTLED", response.receivedItems().get(0).statusCode());
+        assertEquals("0", response.receivedItems().get(0).unsettledAmount());
+        assertEquals("1.89810000", response.totalReceivedAmount());
+        assertTrue(response.receivedHasNext());
     }
 
     @Test
@@ -761,6 +794,61 @@ class OfflineLedgerServiceTest {
                 null,
                 now,
                 now
+        );
+    }
+
+    private OfflinePaymentProof rejectedReceivedProof(
+            String proofId,
+            String receiverDeviceId,
+            OffsetDateTime proofTime,
+            BigDecimal receivedUnsettledAmount
+    ) {
+        return new OfflinePaymentProof(
+                proofId,
+                "batch-" + proofId,
+                "voucher-" + proofId,
+                "collateral-id",
+                "sender-device",
+                receiverDeviceId,
+                1L,
+                39L,
+                1,
+                1,
+                1,
+                "nonce-" + proofId,
+                "hash-" + proofId,
+                "previous-hash",
+                "signature",
+                new BigDecimal("2.00000000"),
+                1779133504000L,
+                1779137104000L,
+                "{}",
+                "SENDER",
+                "MANUAL_SELECTION",
+                OfflineProofStatus.REJECTED,
+                "COUNTER_GAP",
+                receivedUnsettledAmount,
+                BigDecimal.ZERO,
+                null,
+                null,
+                null,
+                """
+                {
+                  "paymentMethod": "NFC",
+                  "token": "KORI",
+                  "fee": "0.001900",
+                  "estimatedServerTime": "%s",
+                  "category": "P2P",
+                  "offlineTxSequence": 1
+                }
+                """.formatted(proofTime),
+                proofTime,
+                proofTime,
+                null,
+                null,
+                null,
+                proofTime,
+                proofTime
         );
     }
 }

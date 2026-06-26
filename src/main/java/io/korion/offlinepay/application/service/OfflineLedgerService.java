@@ -131,7 +131,7 @@ public class OfflineLedgerService {
                 normalizedAssetCode,
                 sentItems,
                 receivedItems,
-                calculateReceivedTotal(receivedItems).toPlainString(),
+                calculateReceivedUnsettledTotal(allReceivedItems).toPlainString(),
                 OffsetDateTime.now().toString(),
                 normalizedPage,
                 normalizedSize,
@@ -287,11 +287,11 @@ public class OfflineLedgerService {
         return items.size() > offset + size;
     }
 
-    private BigDecimal calculateReceivedTotal(List<LedgerHistoryItem> receivedItems) {
+    private BigDecimal calculateReceivedUnsettledTotal(List<LedgerHistoryItem> receivedItems) {
         return receivedItems.stream()
                 .filter(item -> !PublicLedgerStatus.FAILED.name().equals(item.statusCode())
-                        || parseAmount(item.unsettledAmount()).add(parseAmount(item.settledAmount())).compareTo(BigDecimal.ZERO) > 0)
-                .map(item -> parseAmount(item.unsettledAmount()).add(parseAmount(item.settledAmount())))
+                        || parseAmount(item.unsettledAmount()).compareTo(BigDecimal.ZERO) > 0)
+                .map(item -> parseAmount(item.unsettledAmount()))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
