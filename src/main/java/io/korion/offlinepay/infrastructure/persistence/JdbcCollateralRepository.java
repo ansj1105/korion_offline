@@ -5,7 +5,6 @@ import io.korion.offlinepay.domain.model.CollateralLock;
 import io.korion.offlinepay.domain.status.CollateralStatus;
 import io.korion.offlinepay.infrastructure.persistence.mapper.CollateralLockRowMapper;
 import java.math.BigDecimal;
-import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -33,7 +32,6 @@ public class JdbcCollateralRepository implements CollateralRepository {
             int policyVersion,
             CollateralStatus status,
             String externalLockId,
-            OffsetDateTime expiresAt,
             String metadataJson
     ) {
         String sql = QueryBuilder
@@ -48,7 +46,6 @@ public class JdbcCollateralRepository implements CollateralRepository {
                         "policy_version",
                         "status",
                         "external_lock_id",
-                        "expires_at",
                         "metadata"
                 )
                 .value("metadata", "CAST(:metadata AS jsonb)")
@@ -63,7 +60,6 @@ public class JdbcCollateralRepository implements CollateralRepository {
                 .param("policy_version", policyVersion)
                 .param("status", status.name())
                 .param("external_lock_id", externalLockId)
-                .param("expires_at", expiresAt)
                 .param("metadata", metadataJson)
                 .update();
 
@@ -107,7 +103,7 @@ public class JdbcCollateralRepository implements CollateralRepository {
                         ELSE COALESCE(MAX(status), 'RELEASED')
                     END AS status,
                     STRING_AGG(external_lock_id, ',' ORDER BY created_at) AS external_lock_id,
-                    MAX(expires_at) AS expires_at,
+                    NULL::timestamptz AS expires_at,
                     '{}'::text AS metadata,
                     MIN(created_at) AS created_at,
                     MAX(updated_at) AS updated_at
@@ -167,26 +163,6 @@ public class JdbcCollateralRepository implements CollateralRepository {
                         rs.getBigDecimal("remaining_amount")
                 ))
                 .list();
-    }
-
-    @Override
-    public boolean renewExpiry(String collateralId, OffsetDateTime referenceTime, OffsetDateTime expiresAt, String metadataJson) {
-        String sql = QueryBuilder.update("collateral_locks")
-                .set("expires_at", ":expiresAt")
-                .set("metadata", "COALESCE(metadata, '{}'::jsonb) || CAST(:metadata AS jsonb)")
-                .touchUpdatedAt()
-                .where("id", QueryBuilder.Op.EQ, "CAST(:id AS uuid)")
-                .where("remaining_amount", QueryBuilder.Op.GT, ":zero")
-                .where("expires_at", QueryBuilder.Op.LTE, ":referenceTime")
-                .where("status IN ('LOCKED', 'PARTIALLY_SETTLED')")
-                .build();
-        return jdbcClient.sql(sql)
-                .param("id", collateralId)
-                .param("zero", BigDecimal.ZERO)
-                .param("referenceTime", referenceTime)
-                .param("expiresAt", expiresAt)
-                .param("metadata", metadataJson)
-                .update() > 0;
     }
 
     @Override

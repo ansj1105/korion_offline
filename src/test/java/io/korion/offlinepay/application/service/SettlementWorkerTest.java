@@ -783,7 +783,6 @@ class SettlementWorkerTest {
                 eq(1),
                 eq(CollateralStatus.LOCKED),
                 eq("external-lock-1"),
-                Mockito.any(),
                 anyString()
         )).thenReturn(collateral);
 

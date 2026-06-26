@@ -13,7 +13,6 @@ import io.korion.offlinepay.domain.model.OfflinePaymentProof;
 import io.korion.offlinepay.domain.reason.OfflinePayReasonCode;
 import io.korion.offlinepay.domain.status.IssuedProofStatus;
 import java.math.BigDecimal;
-import java.time.OffsetDateTime;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
@@ -80,9 +79,6 @@ public class IssuedProofVerificationService {
         if (issuedProof.status() != IssuedProofStatus.ACTIVE) {
             return VerificationResult.invalid(OfflinePayReasonCode.ISSUED_PROOF_STATUS_INVALID, "issued proof is not active");
         }
-        if (issuedProof.expiresAt() != null && issuedProof.expiresAt().isBefore(OffsetDateTime.now())) {
-            return VerificationResult.invalid(OfflinePayReasonCode.ISSUED_PROOF_EXPIRED, "issued proof expired");
-        }
         if (!proof.senderDeviceId().equals(issuedProof.deviceId())) {
             return VerificationResult.invalid(OfflinePayReasonCode.ISSUED_PROOF_DEVICE_MISMATCH, "issued proof device mismatch");
         }
@@ -115,7 +111,6 @@ public class IssuedProofVerificationService {
                 || mismatch(text(issuedPayloadNode, "issuerKeyId"), issuedProof.issuerKeyId())
                 || mismatch(text(issuedPayloadNode, "devicePublicKey"), text(senderDeviceNode, "publicKey"))
                 || isBlank(text(issuedPayloadNode, "issuedAt"))
-                || isBlank(text(issuedPayloadNode, "expiresAt"))
                 || mismatch(text(issuedPayloadNode, "expiresAt"), issuedProof.expiresAt() == null ? null : issuedProof.expiresAt().toString())) {
             return VerificationResult.invalid(OfflinePayReasonCode.ISSUED_PROOF_PAYLOAD_MISMATCH, "issued proof persisted payload mismatch");
         }

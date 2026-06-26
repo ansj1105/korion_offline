@@ -70,6 +70,32 @@ class IssuedProofVerificationServiceTest {
     }
 
     @Test
+    void verifyAcceptsActiveIssuedProofAfterExpiresAt() {
+        IssuedProofFixture fixture = buildIssuedProofFixture(false, false, OffsetDateTime.now().minusHours(1));
+        when(issuedOfflineProofRepository.findById("issued-proof-1")).thenReturn(Optional.of(fixture.issuedProof()));
+        givenActiveCollateralBacking("collateral-1", "500.000000");
+
+        IssuedProofVerificationService.VerificationResult result = service.verify(
+                buildIncomingProof(fixture.issuedProof(), fixture.signedPayload())
+        );
+
+        assertTrue(result.valid());
+    }
+
+    @Test
+    void verifyAcceptsIssuedProofWithoutExpiresAt() {
+        IssuedProofFixture fixture = buildIssuedProofFixture(false, false, null);
+        when(issuedOfflineProofRepository.findById("issued-proof-1")).thenReturn(Optional.of(fixture.issuedProof()));
+        givenActiveCollateralBacking("collateral-1", "500.000000");
+
+        IssuedProofVerificationService.VerificationResult result = service.verify(
+                buildIncomingProof(fixture.issuedProof(), fixture.signedPayload())
+        );
+
+        assertTrue(result.valid());
+    }
+
+    @Test
     void verifyAcceptsSignedPayloadWhenDatabaseJsonbNormalizesStoredPayload() {
         IssuedProofFixture fixture = buildIssuedProofFixture(false);
         IssuedOfflineProof normalizedStoredProof = withPersistedPayload(
@@ -177,7 +203,10 @@ class IssuedProofVerificationServiceTest {
     }
 
     private IssuedProofFixture buildIssuedProofFixture(boolean tamperSignature, boolean canonicalSignature) {
-        OffsetDateTime expiresAt = OffsetDateTime.now().plusHours(1);
+        return buildIssuedProofFixture(tamperSignature, canonicalSignature, OffsetDateTime.now().plusHours(1));
+    }
+
+    private IssuedProofFixture buildIssuedProofFixture(boolean tamperSignature, boolean canonicalSignature, OffsetDateTime expiresAt) {
         Map<String, Object> issuedPayloadMap = new LinkedHashMap<>();
         issuedPayloadMap.put("proofId", "issued-proof-1");
         issuedPayloadMap.put("userId", 77L);
@@ -187,7 +216,7 @@ class IssuedProofVerificationServiceTest {
         issuedPayloadMap.put("assetCode", "USDT");
         issuedPayloadMap.put("usableAmount", "500.000000");
         issuedPayloadMap.put("issuedAt", OffsetDateTime.now().toString());
-        issuedPayloadMap.put("expiresAt", expiresAt.toString());
+        issuedPayloadMap.put("expiresAt", expiresAt == null ? null : expiresAt.toString());
         issuedPayloadMap.put("nonce", "proof-nonce-1");
         issuedPayloadMap.put("devicePublicKey", "sender-device-public-key");
         issuedPayloadMap.put("issuerKeyId", proofIssuerSignatureService.keyId());

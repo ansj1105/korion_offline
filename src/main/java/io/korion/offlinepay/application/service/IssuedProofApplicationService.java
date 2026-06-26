@@ -3,12 +3,10 @@ package io.korion.offlinepay.application.service;
 import io.korion.offlinepay.application.port.CollateralRepository;
 import io.korion.offlinepay.application.port.DeviceRepository;
 import io.korion.offlinepay.application.port.IssuedOfflineProofRepository;
-import io.korion.offlinepay.application.port.SettlementRepository;
 import io.korion.offlinepay.config.AppProperties;
 import io.korion.offlinepay.domain.model.CollateralLock;
 import io.korion.offlinepay.domain.model.Device;
 import io.korion.offlinepay.domain.model.IssuedOfflineProof;
-import io.korion.offlinepay.domain.status.CollateralStatus;
 import io.korion.offlinepay.domain.status.IssuedProofStatus;
 import com.fasterxml.jackson.databind.JsonNode;
 import java.nio.charset.StandardCharsets;
@@ -36,7 +34,6 @@ public class IssuedProofApplicationService {
     private final DeviceRepository deviceRepository;
     private final CollateralRepository collateralRepository;
     private final IssuedOfflineProofRepository issuedOfflineProofRepository;
-    private final SettlementRepository settlementRepository;
     private final ProofIssuerSignatureService proofIssuerSignatureService;
     private final JsonService jsonService;
     private final JsonPayloadCanonicalizationService jsonPayloadCanonicalizationService;
@@ -46,7 +43,6 @@ public class IssuedProofApplicationService {
             DeviceRepository deviceRepository,
             CollateralRepository collateralRepository,
             IssuedOfflineProofRepository issuedOfflineProofRepository,
-            SettlementRepository settlementRepository,
             ProofIssuerSignatureService proofIssuerSignatureService,
             JsonService jsonService,
             JsonPayloadCanonicalizationService jsonPayloadCanonicalizationService,
@@ -55,7 +51,6 @@ public class IssuedProofApplicationService {
         this.deviceRepository = deviceRepository;
         this.collateralRepository = collateralRepository;
         this.issuedOfflineProofRepository = issuedOfflineProofRepository;
-        this.settlementRepository = settlementRepository;
         this.proofIssuerSignatureService = proofIssuerSignatureService;
         this.jsonService = jsonService;
         this.jsonPayloadCanonicalizationService = jsonPayloadCanonicalizationService;
@@ -70,12 +65,9 @@ public class IssuedProofApplicationService {
         Device device = deviceRepository.findByUserIdAndDeviceId(command.userId(), command.deviceId())
                 .orElseThrow(() -> new IllegalArgumentException("device binding mismatch: " + command.deviceId()));
         OffsetDateTime issuedAt = OffsetDateTime.now();
-        List<CollateralLock> collaterals = filterUnexpiredCollaterals(
-                resolveIssuableCollaterals(command.userId(), command.deviceId(), normalizedAssetCode, issuedAt),
-                issuedAt
-        );
+        List<CollateralLock> collaterals = resolveIssuableCollaterals(command.userId(), normalizedAssetCode);
         CollateralLock collateral = selectPrimaryCollateral(collaterals)
-                .orElseThrow(() -> new IllegalArgumentException("collateral expired for asset: " + normalizedAssetCode));
+                .orElseThrow(() -> new IllegalArgumentException("collateral unavailable for asset: " + normalizedAssetCode));
         BigDecimal usableAmount = collaterals.stream()
                 .map(CollateralLock::remainingAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
@@ -86,7 +78,7 @@ public class IssuedProofApplicationService {
                 .findLatestActiveByUserIdAndDeviceIdAndAssetCode(command.userId(), command.deviceId(), normalizedAssetCode);
         if (existingActive.isPresent()) {
             IssuedOfflineProof existing = existingActive.get();
-            if (isReusableForCurrentCollateral(existing, collateral.id(), collateralLockIds, usableAmount, issuedAt)) {
+            if (isReusableForCurrentCollateral(existing, collateral.id(), collateralLockIds, usableAmount)) {
                 return new IssuedProofEnvelope(
                         existing.id(),
                         existing.userId(),
@@ -100,7 +92,7 @@ public class IssuedProofApplicationService {
                         existing.issuerSignature(),
                         existing.issuedPayloadJson(),
                         existing.status().name(),
-                        existing.expiresAt().toString(),
+                        formatExpiresAt(existing.expiresAt()),
                         existing.createdAt().toString(),
                         collateralLockIds
                 );
@@ -112,8 +104,7 @@ public class IssuedProofApplicationService {
             );
         }
 
-        OffsetDateTime expiresAt = resolveAggregateExpiresAt(collaterals, issuedAt)
-                .orElse(issuedAt.plusHours(properties.defaultCollateralExpiryHours()));
+        OffsetDateTime expiresAt = null;
         String proofId = UUID.randomUUID().toString();
         String nonce = "proof_" + UUID.randomUUID().toString().replace("-", "");
         Map<String, Object> payloadMap = new LinkedHashMap<>();
@@ -128,7 +119,7 @@ public class IssuedProofApplicationService {
         payloadMap.put("assetCode", normalizedAssetCode);
         payloadMap.put("usableAmount", usableAmount.toPlainString());
         payloadMap.put("issuedAt", issuedAt.toString());
-        payloadMap.put("expiresAt", expiresAt.toString());
+        payloadMap.put("expiresAt", null);
         payloadMap.put("nonce", nonce);
         payloadMap.put("devicePublicKey", device.publicKey());
         payloadMap.put("issuerKeyId", proofIssuerSignatureService.keyId());
@@ -165,14 +156,13 @@ public class IssuedProofApplicationService {
                 issued.issuerSignature(),
                 payload,
                 issued.status().name(),
-                issued.expiresAt().toString(),
+                formatExpiresAt(issued.expiresAt()),
                 issued.createdAt().toString(),
                 collateralLockIds
         );
     }
 
-    private List<CollateralLock> resolveIssuableCollaterals(long userId, String deviceId, String assetCode, OffsetDateTime issuedAt) {
-        renewExpiredCollateralsForSecurityDevice(userId, deviceId, assetCode, issuedAt);
+    private List<CollateralLock> resolveIssuableCollaterals(long userId, String assetCode) {
         return collateralRepository.findActiveByUserIdAndAssetCode(userId, assetCode);
     }
 
@@ -181,54 +171,6 @@ public class IssuedProofApplicationService {
     public void syncSingleActiveDeviceCollateralBindings() {
         // Collateral ownership is user + active security-device authorization, not lock.device_id.
         // Keep the legacy scheduler inert so it cannot migrate collateral locks between devices.
-    }
-
-    private void renewExpiredCollateralsForSecurityDevice(long userId, String deviceId, String assetCode, OffsetDateTime issuedAt) {
-        List<CollateralLock> collaterals = collateralRepository.findActiveByUserIdAndAssetCode(userId, assetCode);
-        boolean foundRenewableCollateral = false;
-        boolean blockedBySettlement = false;
-        OffsetDateTime renewedExpiresAt = issuedAt.plusHours(properties.defaultCollateralExpiryHours());
-        for (CollateralLock collateral : collaterals) {
-            if (!isRenewableExpiredCollateral(collateral, issuedAt)) {
-                continue;
-            }
-            if (hasOpenSettlement(collateral)) {
-                blockedBySettlement = true;
-                continue;
-            }
-            foundRenewableCollateral = true;
-            collateralRepository.renewExpiry(
-                    collateral.id(),
-                    issuedAt,
-                    renewedExpiresAt,
-                    buildCollateralRenewalMetadata(deviceId, "ON_DEMAND_PROOF_ISSUE")
-            );
-        }
-        if (!foundRenewableCollateral && blockedBySettlement && filterUnexpiredCollaterals(collaterals, issuedAt).isEmpty()) {
-            throw new IllegalArgumentException("collateral renewal blocked: pending settlement exists");
-        }
-    }
-
-    private boolean isRenewableExpiredCollateral(CollateralLock collateral, OffsetDateTime issuedAt) {
-        return (collateral.status() == CollateralStatus.LOCKED
-                || collateral.status() == CollateralStatus.PARTIALLY_SETTLED)
-                && collateral.remainingAmount().signum() > 0
-                && collateral.expiresAt() != null
-                && !collateral.expiresAt().isAfter(issuedAt);
-    }
-
-    private boolean hasOpenSettlement(CollateralLock collateral) {
-        return settlementRepository.existsOpenByCollateralId(collateral.id());
-    }
-
-    private String buildCollateralRenewalMetadata(String deviceId, String reason) {
-        return jsonService.write(Map.of(
-                "expiryRenewal", Map.of(
-                        "reason", reason,
-                        "deviceId", deviceId,
-                        "renewedAt", OffsetDateTime.now().toString()
-                )
-        ));
     }
 
     private Optional<CollateralLock> selectPrimaryCollateral(List<CollateralLock> collaterals) {
@@ -240,8 +182,7 @@ public class IssuedProofApplicationService {
             IssuedOfflineProof existing,
             String primaryCollateralId,
             List<String> currentCollateralLockIds,
-            BigDecimal currentUsableAmount,
-            OffsetDateTime issuedAt
+            BigDecimal currentUsableAmount
     ) {
         if (!existing.collateralId().equals(primaryCollateralId)) {
             return false;
@@ -249,10 +190,11 @@ public class IssuedProofApplicationService {
         if (existing.usableAmount().compareTo(currentUsableAmount) != 0) {
             return false;
         }
-        if (existing.expiresAt() == null || !existing.expiresAt().isAfter(issuedAt)) {
-            return false;
-        }
         return readIssuedProofCollateralLockIds(existing).equals(new LinkedHashSet<>(currentCollateralLockIds));
+    }
+
+    private String formatExpiresAt(OffsetDateTime expiresAt) {
+        return expiresAt == null ? "" : expiresAt.toString();
     }
 
     private Set<String> readIssuedProofCollateralLockIds(IssuedOfflineProof proof) {
@@ -277,20 +219,6 @@ public class IssuedProofApplicationService {
             result.add(proof.collateralId());
         }
         return result;
-    }
-
-    private List<CollateralLock> filterUnexpiredCollaterals(List<CollateralLock> collaterals, OffsetDateTime issuedAt) {
-        return collaterals.stream()
-                .filter(collateral -> collateral.expiresAt() == null || collateral.expiresAt().isAfter(issuedAt))
-                .toList();
-    }
-
-    private Optional<OffsetDateTime> resolveAggregateExpiresAt(List<CollateralLock> collaterals, OffsetDateTime issuedAt) {
-        return collaterals.stream()
-                .map(CollateralLock::expiresAt)
-                .filter(java.util.Objects::nonNull)
-                .filter(expiresAt -> expiresAt.isAfter(issuedAt))
-                .min(Comparator.naturalOrder());
     }
 
     public static String buildSubjectBindingKey(long userId, String assetCode) {

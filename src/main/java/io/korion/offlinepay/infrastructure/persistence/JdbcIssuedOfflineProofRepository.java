@@ -92,7 +92,6 @@ public class JdbcIssuedOfflineProofRepository implements IssuedOfflineProofRepos
                 .where("device_id", QueryBuilder.Op.EQ, ":deviceId")
                 .where("asset_code", QueryBuilder.Op.EQ, ":assetCode")
                 .where("status", QueryBuilder.Op.EQ, ":status")
-                .where("expires_at", QueryBuilder.Op.GT, ":now")
                 .orderBy("created_at DESC")
                 .limit(1)
                 .build();
@@ -101,7 +100,6 @@ public class JdbcIssuedOfflineProofRepository implements IssuedOfflineProofRepos
                 .param("deviceId", deviceId)
                 .param("assetCode", assetCode)
                 .param("status", IssuedProofStatus.ACTIVE.name())
-                .param("now", OffsetDateTime.now())
                 .query(rowMapper)
                 .optional();
     }
@@ -111,12 +109,10 @@ public class JdbcIssuedOfflineProofRepository implements IssuedOfflineProofRepos
         String sql = QueryBuilder.select("issued_offline_proofs", "COUNT(*)")
                 .where("collateral_id", QueryBuilder.Op.EQ, "CAST(:collateralId AS uuid)")
                 .where("status", QueryBuilder.Op.EQ, ":status")
-                .where("expires_at", QueryBuilder.Op.GT, ":now")
                 .build();
         Integer count = jdbcClient.sql(sql)
                 .param("collateralId", collateralId)
                 .param("status", IssuedProofStatus.ACTIVE.name())
-                .param("now", OffsetDateTime.now())
                 .query(Integer.class)
                 .single();
         return count != null && count > 0;

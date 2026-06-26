@@ -150,7 +150,6 @@ public class CollateralExternalSyncWorker {
                 policyVersion,
                 CollateralStatus.LOCKED,
                 external.lockId(),
-                OffsetDateTime.now().plusHours(properties.defaultCollateralExpiryHours()),
                 jsonService.write(metadata.getOrDefault("metadata", Map.of()))
         );
         collateralOperationRepository.markCompleted(

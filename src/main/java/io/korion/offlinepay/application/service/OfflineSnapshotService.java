@@ -116,7 +116,6 @@ public class OfflineSnapshotService {
                         collateral.status().name(),
                         collateral.initialStateRoot(),
                         collateral.externalLockId(),
-                        collateral.expiresAt() == null ? "" : collateral.expiresAt().toString(),
                         collateral.updatedAt().toString(),
                         collateral.updatedAt().toInstant().toEpochMilli()
                 ),
@@ -131,7 +130,7 @@ public class OfflineSnapshotService {
                         issuedProof.issuerSignature(),
                         issuedProof.issuedPayloadJson(),
                         issuedProof.status().name(),
-                        issuedProof.expiresAt().toString(),
+                        formatExpiresAt(issuedProof.expiresAt()),
                         issuedProof.createdAt().toString()
                 ),
                 walletSnapshot,
@@ -180,11 +179,9 @@ public class OfflineSnapshotService {
             return false;
         }
 
-        OffsetDateTime now = OffsetDateTime.now();
         List<CollateralLock> activeCollaterals = collateralRepository.findActiveByUserIdAndAssetCode(userId, assetCode)
                 .stream()
                 .filter(collateral -> collateral.remainingAmount().compareTo(BigDecimal.ZERO) > 0)
-                .filter(collateral -> collateral.expiresAt() == null || collateral.expiresAt().isAfter(now))
                 .toList();
         BigDecimal activeAmount = activeCollaterals.stream()
                 .map(CollateralLock::remainingAmount)
@@ -197,6 +194,10 @@ public class OfflineSnapshotService {
                 .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
         return activeCollateralIds.contains(proof.collateralId())
                 && readIssuedProofCollateralLockIds(proof).equals(activeCollateralIds);
+    }
+
+    private String formatExpiresAt(OffsetDateTime expiresAt) {
+        return expiresAt == null ? "" : expiresAt.toString();
     }
 
     private Set<String> readIssuedProofCollateralLockIds(IssuedOfflineProof proof) {
@@ -318,7 +319,6 @@ public class OfflineSnapshotService {
             String status,
             String initialStateRoot,
             String externalLockId,
-            String expiresAt,
             String updatedAt,
             long snapshotVersion
     ) {}

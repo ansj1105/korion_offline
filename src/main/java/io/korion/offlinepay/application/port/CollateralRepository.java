@@ -3,7 +3,6 @@ package io.korion.offlinepay.application.port;
 import io.korion.offlinepay.domain.model.CollateralLock;
 import io.korion.offlinepay.domain.status.CollateralStatus;
 import java.math.BigDecimal;
-import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -26,7 +25,6 @@ public interface CollateralRepository {
             int policyVersion,
             CollateralStatus status,
             String externalLockId,
-            OffsetDateTime expiresAt,
             String metadataJson
     );
 
@@ -37,8 +35,6 @@ public interface CollateralRepository {
     List<CollateralLock> findActiveByUserIdAndAssetCode(long userId, String assetCode);
 
     List<CollateralBalanceSummary> summarizeActiveBalances(String assetCode, int size);
-
-    boolean renewExpiry(String collateralId, OffsetDateTime referenceTime, OffsetDateTime expiresAt, String metadataJson);
 
     void deductLockedAndRemainingAmount(String collateralId, BigDecimal amount);
 

@@ -4,7 +4,6 @@ import io.korion.offlinepay.application.service.JsonService;
 import io.korion.offlinepay.domain.model.CollateralLock;
 import io.korion.offlinepay.domain.model.OfflinePaymentProof;
 import io.korion.offlinepay.domain.reason.OfflinePayReasonCode;
-import java.time.OffsetDateTime;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -22,9 +21,6 @@ public class ProofChainValidator {
     }
 
     public ChainValidationResult validate(CollateralLock collateral, List<OfflinePaymentProof> existingProofs, OfflinePaymentProof incomingProof) {
-        if (collateral.expiresAt().isBefore(OffsetDateTime.now())) {
-            return new ChainValidationResult(false, OfflinePayReasonCode.COLLATERAL_EXPIRED, "{}");
-        }
         if (incomingProof.policyVersion() != collateral.policyVersion()) {
             return new ChainValidationResult(false, OfflinePayReasonCode.POLICY_VERSION_MISMATCH, "{}");
         }
