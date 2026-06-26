@@ -9,6 +9,7 @@ import static org.mockito.Mockito.when;
 
 import io.korion.offlinepay.application.port.CollateralOperationRepository;
 import io.korion.offlinepay.application.port.CollateralRepository;
+import io.korion.offlinepay.application.port.CoinManageCollateralPort;
 import io.korion.offlinepay.application.port.DeviceRepository;
 import io.korion.offlinepay.application.port.FoxCoinWalletSnapshotPort;
 import io.korion.offlinepay.application.port.SettlementBatchEventBus;
@@ -32,6 +33,8 @@ class CollateralApplicationServiceTest {
 
     private final CollateralRepository collateralRepository = mock(CollateralRepository.class);
     private final CollateralOperationRepository collateralOperationRepository = mock(CollateralOperationRepository.class);
+    private final CoinManageCollateralPort coinManageCollateralPort = mock(CoinManageCollateralPort.class);
+    private final FoxCoinWalletSnapshotPort foxCoinWalletSnapshotPort = mock(FoxCoinWalletSnapshotPort.class);
     private final DeviceRepository deviceRepository = mock(DeviceRepository.class);
     private final SettlementBatchEventBus settlementBatchEventBus = mock(SettlementBatchEventBus.class);
     private final OfflineSagaService offlineSagaService = mock(OfflineSagaService.class);
@@ -40,7 +43,8 @@ class CollateralApplicationServiceTest {
             deviceRepository,
             collateralRepository,
             collateralOperationRepository,
-            mock(FoxCoinWalletSnapshotPort.class),
+            coinManageCollateralPort,
+            foxCoinWalletSnapshotPort,
             settlementBatchEventBus,
             offlineSagaService,
             new JsonService(new com.fasterxml.jackson.databind.ObjectMapper()),
@@ -235,5 +239,58 @@ class CollateralApplicationServiceTest {
 
         assertTrue(referenceId.length() <= 64, "referenceId must fit coin_manage varchar(64)");
         assertTrue(referenceId.startsWith("topup:"));
+    }
+
+    @Test
+    void createCollateralCapsTopupByCoinManageAvailableBalance() {
+        OffsetDateTime now = OffsetDateTime.parse("2026-06-08T00:00:00Z");
+        CollateralLock aggregate = new CollateralLock(
+                "aggregate",
+                1L,
+                "AGGREGATED",
+                "KORI",
+                new BigDecimal("16.000000"),
+                new BigDecimal("14.000000"),
+                "AGGREGATED",
+                1,
+                CollateralStatus.LOCKED,
+                "topup:device-1:key",
+                now.plusHours(1),
+                "{}",
+                now,
+                now
+        );
+
+        when(deviceRepository.findByUserIdAndDeviceId(1L, "device-1")).thenReturn(Optional.of(activeDevice(now)));
+        when(collateralRepository.findAggregateByUserIdAndAssetCode(1L, "KORI")).thenReturn(Optional.of(aggregate));
+        when(foxCoinWalletSnapshotPort.getCanonicalWalletSnapshot(1L, "KORI"))
+                .thenReturn(new FoxCoinWalletSnapshotPort.WalletSnapshot(
+                        1L,
+                        "KORI",
+                        new BigDecimal("211.464387"),
+                        BigDecimal.ZERO,
+                        "FOX_CLIENT_VISIBLE_AVAILABLE_KORI_EXCLUDING_OFFLINE_COLLATERAL",
+                        now.toString()
+                ));
+        when(coinManageCollateralPort.getBalanceSnapshot(1L, "KORI"))
+                .thenReturn(new CoinManageCollateralPort.BalanceSnapshot("160.464387", "0.000000", "16.000000"));
+
+        try {
+            service.createCollateral(new CollateralApplicationService.CreateCollateralCommand(
+                    1L,
+                    "device-1",
+                    new BigDecimal("195.464387"),
+                    "KORI",
+                    "GENESIS",
+                    1,
+                    Map.of(),
+                    "topup-over-ledger-available"
+            ));
+        } catch (IllegalArgumentException exception) {
+            assertTrue(exception.getMessage().contains("exceeds foxya canonical snapshot balance"));
+            return;
+        }
+
+        throw new AssertionError("top-up above coin_manage available balance must be rejected");
     }
 }

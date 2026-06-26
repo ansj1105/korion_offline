@@ -256,7 +256,7 @@ class OfflineSnapshotServiceTest {
     }
 
     @Test
-    void currentSnapshotDoesNotSubtractCollateralAgainWhenFoxyaSnapshotAlreadyExcludesOfflineCollateral() {
+    void currentSnapshotCapsTopupAvailabilityByCoinManageLedgerAvailable() {
         DeviceRepository deviceRepository = mock(DeviceRepository.class);
         CollateralRepository collateralRepository = mock(CollateralRepository.class);
         IssuedOfflineProofRepository issuedOfflineProofRepository = mock(IssuedOfflineProofRepository.class);
@@ -287,7 +287,7 @@ class OfflineSnapshotServiceTest {
                 .thenReturn(new FoxCoinWalletSnapshotPort.WalletSnapshot(
                         175L,
                         "KORI",
-                        new BigDecimal("291.614611"),
+                        new BigDecimal("310.000700"),
                         BigDecimal.ZERO,
                         "FOX_CLIENT_VISIBLE_AVAILABLE_KORI_EXCLUDING_OFFLINE_COLLATERAL",
                         "2026-05-31T10:00:00Z"
@@ -360,7 +360,6 @@ class OfflineSnapshotServiceTest {
                 ));
         when(coinManageCollateralPort.getBalanceSnapshot(1762L, "KORI"))
                 .thenReturn(new CoinManageCollateralPort.BalanceSnapshot("0.000000", "0.000000", "0.000000"));
-
         JsonService jsonService = new JsonService(new com.fasterxml.jackson.databind.ObjectMapper());
         OfflineSnapshotService service = new OfflineSnapshotService(
                 deviceRepository,
@@ -478,7 +477,6 @@ class OfflineSnapshotServiceTest {
                 ));
         when(coinManageCollateralPort.getBalanceSnapshot(39L, "KORI"))
                 .thenReturn(new CoinManageCollateralPort.BalanceSnapshot("999.000000", "0.000000", "0.000000"));
-
         JsonService jsonService = new JsonService(new com.fasterxml.jackson.databind.ObjectMapper());
         OfflineSnapshotService service = new OfflineSnapshotService(
                 deviceRepository,

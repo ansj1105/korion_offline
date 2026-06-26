@@ -16,20 +16,32 @@ final class CollateralAvailabilityCalculator {
             return BigDecimal.ZERO;
         }
         BigDecimal totalBalance = walletSnapshot.totalBalance();
-        if (isOfflineCollateralExcludedBasis(walletSnapshot.canonicalBasis())) {
-            return totalBalance.max(BigDecimal.ZERO);
-        }
         BigDecimal collateralAmount = currentCollateralAmount == null
                 ? BigDecimal.ZERO
                 : currentCollateralAmount.max(BigDecimal.ZERO);
         return totalBalance.subtract(collateralAmount).max(BigDecimal.ZERO);
     }
 
-    private static boolean isOfflineCollateralExcludedBasis(String canonicalBasis) {
-        if (canonicalBasis == null) {
-            return false;
+    static BigDecimal capByLedgerAvailableAmount(
+            BigDecimal additionalCollateralAvailableAmount,
+            BigDecimal ledgerAvailableAmount,
+            BigDecimal ledgerLockedAmount,
+            BigDecimal ledgerOfflinePayPendingAmount
+    ) {
+        BigDecimal available = additionalCollateralAvailableAmount == null
+                ? BigDecimal.ZERO
+                : additionalCollateralAvailableAmount.max(BigDecimal.ZERO);
+        BigDecimal ledgerAvailable = ledgerAvailableAmount == null ? BigDecimal.ZERO : ledgerAvailableAmount.max(BigDecimal.ZERO);
+        BigDecimal ledgerLocked = ledgerLockedAmount == null ? BigDecimal.ZERO : ledgerLockedAmount.max(BigDecimal.ZERO);
+        BigDecimal ledgerOfflinePayPending = ledgerOfflinePayPendingAmount == null
+                ? BigDecimal.ZERO
+                : ledgerOfflinePayPendingAmount.max(BigDecimal.ZERO);
+        boolean ledgerHasOfflinePayFootprint = ledgerAvailable.signum() > 0
+                || ledgerLocked.signum() > 0
+                || ledgerOfflinePayPending.signum() > 0;
+        if (ledgerHasOfflinePayFootprint && ledgerAvailable.compareTo(available) < 0) {
+            return ledgerAvailable;
         }
-        String normalized = canonicalBasis.trim().toUpperCase();
-        return normalized.contains("EXCLUDING_OFFLINE_COLLATERAL");
+        return available;
     }
 }

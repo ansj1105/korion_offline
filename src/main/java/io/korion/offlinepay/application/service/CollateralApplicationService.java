@@ -2,6 +2,7 @@ package io.korion.offlinepay.application.service;
 
 import io.korion.offlinepay.application.port.CollateralOperationRepository;
 import io.korion.offlinepay.application.port.CollateralRepository;
+import io.korion.offlinepay.application.port.CoinManageCollateralPort;
 import io.korion.offlinepay.application.port.DeviceRepository;
 import io.korion.offlinepay.application.port.FoxCoinWalletSnapshotPort;
 import io.korion.offlinepay.application.port.SettlementBatchEventBus;
@@ -29,6 +30,7 @@ public class CollateralApplicationService {
     private final DeviceRepository deviceRepository;
     private final CollateralRepository collateralRepository;
     private final CollateralOperationRepository collateralOperationRepository;
+    private final CoinManageCollateralPort coinManageCollateralPort;
     private final FoxCoinWalletSnapshotPort foxCoinWalletSnapshotPort;
     private final SettlementBatchEventBus settlementBatchEventBus;
     private final OfflineSagaService offlineSagaService;
@@ -39,6 +41,7 @@ public class CollateralApplicationService {
             DeviceRepository deviceRepository,
             CollateralRepository collateralRepository,
             CollateralOperationRepository collateralOperationRepository,
+            CoinManageCollateralPort coinManageCollateralPort,
             FoxCoinWalletSnapshotPort foxCoinWalletSnapshotPort,
             SettlementBatchEventBus settlementBatchEventBus,
             OfflineSagaService offlineSagaService,
@@ -48,6 +51,7 @@ public class CollateralApplicationService {
         this.deviceRepository = deviceRepository;
         this.collateralRepository = collateralRepository;
         this.collateralOperationRepository = collateralOperationRepository;
+        this.coinManageCollateralPort = coinManageCollateralPort;
         this.foxCoinWalletSnapshotPort = foxCoinWalletSnapshotPort;
         this.settlementBatchEventBus = settlementBatchEventBus;
         this.offlineSagaService = offlineSagaService;
@@ -73,10 +77,7 @@ public class CollateralApplicationService {
                 ? BigDecimal.ZERO
                 : aggregate.lockedAmount().max(BigDecimal.ZERO);
         BigDecimal additionalCollateralAvailableAmount =
-                CollateralAvailabilityCalculator.resolveAdditionalCollateralAvailableAmount(
-                        walletSnapshot,
-                        currentCollateralAmount
-                );
+                resolveAdditionalCollateralAvailableAmount(command.userId(), assetCode, walletSnapshot, currentCollateralAmount);
         if (command.amount() == null || command.amount().signum() <= 0) {
             throw new IllegalArgumentException("collateral amount is required");
         }
@@ -121,6 +122,38 @@ public class CollateralApplicationService {
                 )
         );
         return operation;
+    }
+
+    private BigDecimal resolveAdditionalCollateralAvailableAmount(
+            long userId,
+            String assetCode,
+            FoxCoinWalletSnapshotPort.WalletSnapshot walletSnapshot,
+            BigDecimal currentCollateralAmount
+    ) {
+        BigDecimal additionalCollateralAvailableAmount =
+                CollateralAvailabilityCalculator.resolveAdditionalCollateralAvailableAmount(
+                        walletSnapshot,
+                        currentCollateralAmount
+                );
+        CoinManageCollateralPort.BalanceSnapshot ledgerSnapshot =
+                coinManageCollateralPort.getBalanceSnapshot(userId, assetCode);
+        return CollateralAvailabilityCalculator.capByLedgerAvailableAmount(
+                additionalCollateralAvailableAmount,
+                parsePositiveAmount(ledgerSnapshot.availableBalance()),
+                parsePositiveAmount(ledgerSnapshot.lockedBalance()),
+                parsePositiveAmount(ledgerSnapshot.offlinePayPendingBalance())
+        );
+    }
+
+    private BigDecimal parsePositiveAmount(String value) {
+        try {
+            if (value == null || value.isBlank()) {
+                return BigDecimal.ZERO;
+            }
+            return new BigDecimal(value.trim()).max(BigDecimal.ZERO);
+        } catch (RuntimeException ignored) {
+            return BigDecimal.ZERO;
+        }
     }
 
     @Transactional(readOnly = true)

@@ -9,7 +9,7 @@ import org.junit.jupiter.api.Test;
 class CollateralAvailabilityCalculatorTest {
 
     @Test
-    void returnsFoxyaAvailableAmountAsIsWhenSnapshotAlreadyExcludesOfflineCollateral() {
+    void subtractsCurrentCollateralEvenWhenSnapshotBasisSaysExcludingOfflineCollateral() {
         BigDecimal available = CollateralAvailabilityCalculator.resolveAdditionalCollateralAvailableAmount(
                 new FoxCoinWalletSnapshotPort.WalletSnapshot(
                         175L,
@@ -22,7 +22,7 @@ class CollateralAvailabilityCalculatorTest {
                 new BigDecimal("298.884000")
         );
 
-        assertEquals(new BigDecimal("291.614611"), available);
+        assertEquals(BigDecimal.ZERO, available);
     }
 
     @Test
