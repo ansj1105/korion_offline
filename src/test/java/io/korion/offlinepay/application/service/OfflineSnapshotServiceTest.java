@@ -18,9 +18,12 @@ import io.korion.offlinepay.config.AppProperties;
 import io.korion.offlinepay.domain.model.CollateralLock;
 import io.korion.offlinepay.domain.model.Device;
 import io.korion.offlinepay.domain.model.IssuedOfflineProof;
+import io.korion.offlinepay.domain.model.OfflinePaymentProof;
+import io.korion.offlinepay.domain.reason.OfflinePayReasonCode;
 import io.korion.offlinepay.domain.status.CollateralStatus;
 import io.korion.offlinepay.domain.status.DeviceStatus;
 import io.korion.offlinepay.domain.status.IssuedProofStatus;
+import io.korion.offlinepay.domain.status.OfflineProofStatus;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -32,7 +35,7 @@ class OfflineSnapshotServiceTest {
     @Test
     void checkpointIncludesMaxSenderOfflineTxSequence() {
         OfflinePaymentProofRepository proofRepository = mock(OfflinePaymentProofRepository.class);
-        when(proofRepository.findLatestSettledBySenderDeviceId("device-1")).thenReturn(Optional.empty());
+        when(proofRepository.findLatestSequenceAnchorBySenderDeviceId("device-1")).thenReturn(Optional.empty());
         when(proofRepository.findMaxSenderOfflineTxSequence("device-1")).thenReturn(208L);
         ProofIssuerSignatureService proofIssuerSignatureService = mock(ProofIssuerSignatureService.class);
         String expectedSigningPayload = "CHECKPOINT_V1|device-1|KORI|GENESIS|0|208|";
@@ -70,6 +73,85 @@ class OfflineSnapshotServiceTest {
         assertEquals(208L, checkpoint.maxOfflineTxSequence());
         assertEquals(0L, checkpoint.counter());
         assertEquals("GENESIS", checkpoint.stateHash());
+        assertEquals("checkpoint-signature", checkpoint.signature());
+        verify(proofIssuerSignatureService).sign(org.mockito.ArgumentMatchers.startsWith(expectedSigningPayload));
+    }
+
+    @Test
+    void checkpointUsesObservedCounterGapProofAsSequenceAnchor() {
+        OfflinePaymentProofRepository proofRepository = mock(OfflinePaymentProofRepository.class);
+        OfflinePaymentProof counterGapProof = new OfflinePaymentProof(
+                "proof-counter-gap",
+                "batch-counter-gap",
+                "voucher-counter-gap",
+                "collateral-1",
+                "device-1",
+                "receiver-1",
+                1474L,
+                1L,
+                1,
+                1,
+                30L,
+                "nonce-counter-gap",
+                "hash-counter-30",
+                "hash-counter-29",
+                "signature",
+                new BigDecimal("1.00000000"),
+                1782461133000L,
+                0L,
+                "{}",
+                "SENDER",
+                "BLE",
+                OfflineProofStatus.REJECTED,
+                OfflinePayReasonCode.COUNTER_GAP,
+                "{}",
+                OffsetDateTime.parse("2026-06-26T08:05:33Z"),
+                OffsetDateTime.parse("2026-06-26T08:05:33Z"),
+                null,
+                null,
+                null,
+                OffsetDateTime.parse("2026-06-26T08:05:34Z"),
+                OffsetDateTime.parse("2026-06-26T08:05:33Z")
+        );
+        when(proofRepository.findLatestSequenceAnchorBySenderDeviceId("device-1"))
+                .thenReturn(Optional.of(counterGapProof));
+        when(proofRepository.findMaxSenderOfflineTxSequence("device-1")).thenReturn(208L);
+        ProofIssuerSignatureService proofIssuerSignatureService = mock(ProofIssuerSignatureService.class);
+        String expectedSigningPayload = "CHECKPOINT_V1|device-1|KORI|hash-counter-30|30|208|";
+        when(proofIssuerSignatureService.sign(org.mockito.ArgumentMatchers.startsWith(expectedSigningPayload)))
+                .thenReturn("checkpoint-signature");
+        when(proofIssuerSignatureService.keyId()).thenReturn("issuer-key");
+        when(proofIssuerSignatureService.publicKey()).thenReturn("issuer-public-key");
+        JsonService jsonService = new JsonService(new com.fasterxml.jackson.databind.ObjectMapper());
+        OfflineSnapshotService service = new OfflineSnapshotService(
+                mock(DeviceRepository.class),
+                mock(CollateralRepository.class),
+                mock(IssuedOfflineProofRepository.class),
+                proofRepository,
+                mock(FoxCoinWalletSnapshotPort.class),
+                mock(CoinManageCollateralPort.class),
+                new AppProperties(
+                        "KORI",
+                        24,
+                        20,
+                        1000,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null
+                ),
+                jsonService,
+                new JsonPayloadCanonicalizationService(jsonService),
+                proofIssuerSignatureService
+        );
+
+        OfflineSnapshotService.TrustedCheckpoint checkpoint = service.generateCheckpoint("device-1", "KORI");
+
+        assertEquals(208L, checkpoint.maxOfflineTxSequence());
+        assertEquals(30L, checkpoint.counter());
+        assertEquals("hash-counter-30", checkpoint.stateHash());
         assertEquals("checkpoint-signature", checkpoint.signature());
         verify(proofIssuerSignatureService).sign(org.mockito.ArgumentMatchers.startsWith(expectedSigningPayload));
     }

@@ -400,7 +400,7 @@ public class OfflineSnapshotService {
 
     @Transactional(readOnly = true)
     public TrustedCheckpoint generateCheckpoint(String senderDeviceId, String assetCode) {
-        var latestProof = proofRepository.findLatestSettledBySenderDeviceId(senderDeviceId);
+        var latestProof = proofRepository.findLatestSequenceAnchorBySenderDeviceId(senderDeviceId);
         String stateHash = latestProof.map(io.korion.offlinepay.domain.model.OfflinePaymentProof::hashChainHead).orElse("GENESIS");
         long counter = latestProof.map(io.korion.offlinepay.domain.model.OfflinePaymentProof::counter).orElse(0L);
         long maxOfflineTxSequence = proofRepository.findMaxSenderOfflineTxSequence(senderDeviceId);

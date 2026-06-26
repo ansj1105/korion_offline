@@ -421,12 +421,15 @@ public class JdbcOfflinePaymentProofRepository implements OfflinePaymentProofRep
     }
 
     @Override
-    public java.util.Optional<OfflinePaymentProof> findLatestSettledBySenderDeviceId(String senderDeviceId) {
+    public java.util.Optional<OfflinePaymentProof> findLatestSequenceAnchorBySenderDeviceId(String senderDeviceId) {
         String sql = """
                 SELECT offline_payment_proofs.*
                 FROM offline_payment_proofs
                 WHERE offline_payment_proofs.sender_device_id = :senderDeviceId
-                  AND offline_payment_proofs.status = 'SETTLED'
+                  AND (
+                    offline_payment_proofs.status = 'SETTLED'
+                    OR offline_payment_proofs.reason_code = 'COUNTER_GAP'
+                  )
                 ORDER BY offline_payment_proofs.counter DESC,
                          offline_payment_proofs.created_at DESC
                 LIMIT 1
