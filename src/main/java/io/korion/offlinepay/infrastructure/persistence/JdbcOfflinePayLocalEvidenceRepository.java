@@ -220,33 +220,13 @@ public class JdbcOfflinePayLocalEvidenceRepository implements OfflinePayLocalEvi
                 WHERE s.verification_status = 'VERIFIED'
                   AND (
                       (
-                          s.matched_proof_id IS NULL
+                          s.direction = 'SEND'
+                          AND s.matched_proof_id IS NULL
                           AND NOT EXISTS (
                               SELECT 1
                               FROM offline_payment_proofs p
                               WHERE p.voucher_id = s.voucher_id
                           )
-                      )
-                      OR (
-                          s.direction = 'RECEIVE'
-                          AND EXISTS (
-                              SELECT 1
-                              FROM offline_payment_proofs p
-                              JOIN settlement_requests sr ON sr.proof_id = p.id
-                              WHERE p.voucher_id = s.voucher_id
-                                AND p.sender_device_id = s.sender_device_id
-                                AND p.receiver_device_id = s.receiver_device_id
-                                AND p.amount = s.amount
-                                AND p.status = 'REJECTED'
-                                AND sr.status = 'REJECTED'
-                                AND COALESCE(sr.conflict_detected, FALSE) = FALSE
-                                AND COALESCE(sr.settlement_result ->> 'financiallyHonored', 'false') <> 'true'
-                          )
-                      )
-                  )
-                  AND (
-                      (
-                          s.direction = 'SEND'
                           AND s.amount IS NOT NULL
                           AND s.counter IS NOT NULL
                           AND COALESCE(s.hash_chain_head, '') <> ''
@@ -261,10 +241,35 @@ public class JdbcOfflinePayLocalEvidenceRepository implements OfflinePayLocalEvi
                       )
                       OR (
                           s.direction = 'RECEIVE'
-                          AND COALESCE(s.raw_payload ->> 'senderProofCanonicalPayload', s.raw_payload ->> 'receiverEvidenceBlockSenderProofCanonicalPayload', '') <> ''
-                          AND COALESCE(s.raw_payload ->> 'senderProofSignature', s.raw_payload ->> 'receiverEvidenceBlockSenderProofSignature', '') <> ''
-                          AND COALESCE(s.raw_payload ->> 'senderProofNewHash', s.raw_payload ->> 'receiverEvidenceBlockSenderProofNewHash', '') <> ''
-                          AND COALESCE(s.raw_payload ->> 'senderProofNonce', s.raw_payload ->> 'receiverEvidenceBlockSenderProofNonce', '') <> ''
+                          AND (
+                              (
+                                  EXISTS (
+                                      SELECT 1
+                                      FROM offline_payment_proofs p
+                                      JOIN settlement_requests sr ON sr.proof_id = p.id
+                                      WHERE p.voucher_id = s.voucher_id
+                                        AND p.sender_device_id = s.sender_device_id
+                                        AND p.receiver_device_id = s.receiver_device_id
+                                        AND p.amount = s.amount
+                                        AND p.status = 'REJECTED'
+                                        AND sr.status = 'REJECTED'
+                                        AND COALESCE(sr.conflict_detected, FALSE) = FALSE
+                                        AND COALESCE(sr.settlement_result ->> 'financiallyHonored', 'false') <> 'true'
+                                  )
+                              )
+                              OR (
+                                  s.matched_proof_id IS NULL
+                                  AND NOT EXISTS (
+                                      SELECT 1
+                                      FROM offline_payment_proofs p
+                                      WHERE p.voucher_id = s.voucher_id
+                                  )
+                                  AND COALESCE(s.raw_payload ->> 'senderProofCanonicalPayload', s.raw_payload ->> 'receiverEvidenceBlockSenderProofCanonicalPayload', '') <> ''
+                                  AND COALESCE(s.raw_payload ->> 'senderProofSignature', s.raw_payload ->> 'receiverEvidenceBlockSenderProofSignature', '') <> ''
+                                  AND COALESCE(s.raw_payload ->> 'senderProofNewHash', s.raw_payload ->> 'receiverEvidenceBlockSenderProofNewHash', '') <> ''
+                                  AND COALESCE(s.raw_payload ->> 'senderProofNonce', s.raw_payload ->> 'receiverEvidenceBlockSenderProofNonce', '') <> ''
+                              )
+                          )
                       )
                   )
                 ORDER BY CASE WHEN s.direction = 'RECEIVE' THEN 0 ELSE 1 END, s.created_at ASC
