@@ -245,7 +245,20 @@ public class JdbcOfflinePayLocalEvidenceRepository implements OfflinePayLocalEvi
                       )
                   )
                   AND (
-                      s.direction = 'SEND'
+                      (
+                          s.direction = 'SEND'
+                          AND s.amount IS NOT NULL
+                          AND s.counter IS NOT NULL
+                          AND COALESCE(s.hash_chain_head, '') <> ''
+                          AND COALESCE(s.signature, '') <> ''
+                          AND COALESCE(s.nonce, '') <> ''
+                          AND COALESCE(s.canonical_payload, '') <> ''
+                          AND COALESCE(s.raw_payload ->> 'collateralId', s.raw_payload ->> 'senderLocalBlockCollateralId', s.raw_payload ->> 'localBlockCollateralId', '') <> ''
+                          AND COALESCE(s.raw_payload ->> 'keyVersion', s.raw_payload ->> 'senderLocalBlockKeyVersion', s.raw_payload ->> 'localBlockKeyVersion', '') <> ''
+                          AND COALESCE(s.raw_payload ->> 'policyVersion', s.raw_payload ->> 'senderLocalBlockPolicyVersion', s.raw_payload ->> 'localBlockPolicyVersion', '') <> ''
+                          AND COALESCE(s.raw_payload ->> 'timestampMs', s.raw_payload ->> 'senderLocalBlockTimestampMs', s.raw_payload ->> 'localBlockTimestampMs', s.raw_payload ->> 'timestamp', '') <> ''
+                          AND COALESCE(s.raw_payload ->> 'expiresAtMs', s.raw_payload ->> 'senderLocalBlockExpiresAtMs', s.raw_payload ->> 'localBlockExpiresAtMs', s.raw_payload ->> 'expiresAt', '') <> ''
+                      )
                       OR (
                           s.direction = 'RECEIVE'
                           AND COALESCE(s.raw_payload ->> 'senderProofCanonicalPayload', s.raw_payload ->> 'receiverEvidenceBlockSenderProofCanonicalPayload', '') <> ''
@@ -254,7 +267,7 @@ public class JdbcOfflinePayLocalEvidenceRepository implements OfflinePayLocalEvi
                           AND COALESCE(s.raw_payload ->> 'senderProofNonce', s.raw_payload ->> 'receiverEvidenceBlockSenderProofNonce', '') <> ''
                       )
                   )
-                ORDER BY s.created_at ASC
+                ORDER BY CASE WHEN s.direction = 'RECEIVE' THEN 0 ELSE 1 END, s.created_at ASC
                 LIMIT :limit
                 """;
         return jdbcClient.sql(sql)
