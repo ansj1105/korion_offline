@@ -1770,13 +1770,20 @@ public class SettlementApplicationService {
                 senderAuthorizationCompleted,
                 evaluation
         );
-        String terminalReasonCode = normalizeSettlementReasonCode(evaluation.status(), evaluation.reasonCode(), evaluation.conflictDetected());
+        String evaluatedReasonCode = normalizeSettlementReasonCode(evaluation.status(), evaluation.reasonCode(), evaluation.conflictDetected());
+        String terminalReasonCode = preserveFinancialHonorReasonCode(
+                localCompletedRejectedRetry,
+                financiallyHonored,
+                request.reasonCode(),
+                evaluatedReasonCode
+        );
         String settlementResultJson = settlementResultJson(
                 evaluation,
                 financiallyHonored,
                 receiverEvidenceConfirmed,
                 senderAuthorizationCompleted,
-                validationStartedFromPending
+                validationStartedFromPending,
+                terminalReasonCode
         );
         proofRepository.updateLifecycle(
                 proof.id(),
@@ -1899,12 +1906,15 @@ public class SettlementApplicationService {
             boolean financiallyHonored,
             boolean receiverEvidenceConfirmed,
             boolean senderAuthorizationCompleted,
-            boolean validationStartedFromPending
+            boolean validationStartedFromPending,
+            String terminalReasonCode
     ) {
         if (!financiallyHonored) {
             return evaluation.resultJson();
         }
         java.util.LinkedHashMap<String, Object> result = new java.util.LinkedHashMap<>(jsonService.readMap(evaluation.resultJson()));
+        result.put("reasonCode", terminalReasonCode);
+        result.put("evaluatedReasonCode", evaluation.reasonCode());
         result.put("financiallyHonored", true);
         result.put("financialPolicy", "LOCAL_VERIFIED_PENDING_HONORED");
         result.put("receiverEvidenceConfirmed", receiverEvidenceConfirmed);
@@ -1913,6 +1923,21 @@ public class SettlementApplicationService {
         result.put("originalSettlementStatus", evaluation.status().name());
         result.put("financialReleaseAction", "RELEASE");
         return jsonService.write(result);
+    }
+
+    private String preserveFinancialHonorReasonCode(
+            boolean localCompletedRejectedRetry,
+            boolean financiallyHonored,
+            String existingReasonCode,
+            String evaluatedReasonCode
+    ) {
+        if (!localCompletedRejectedRetry || !financiallyHonored) {
+            return evaluatedReasonCode;
+        }
+        if (existingReasonCode == null || existingReasonCode.isBlank()) {
+            return evaluatedReasonCode;
+        }
+        return existingReasonCode;
     }
 
     private boolean hasCompletedSenderAuthorization(OfflinePaymentProof proof) {
@@ -2168,6 +2193,10 @@ public class SettlementApplicationService {
                 && "RECEIVER".equalsIgnoreCase(proof.uploaderType())
                 && shouldAutoConfirmReceiverSettlement(proof);
         String financialReleaseAction = financiallyHonored ? "RELEASE" : evaluation.releaseAction();
+        String reasonCode = request.reasonCode() == null || request.reasonCode().isBlank()
+                ? evaluation.reasonCode()
+                : request.reasonCode();
+        String evaluatedReasonCode = evaluation.reasonCode();
 
         CoinManageSettlementPort.SettlementLedgerCommand ledgerCommand = settlementSyncCommandFactory.createLedgerCommand(
                 collateral,
@@ -2256,6 +2285,12 @@ public class SettlementApplicationService {
         ledgerCommandMap.put("releaseAction", ledgerCommand.releaseAction());
         ledgerCommandMap.put("conflictDetected", ledgerCommand.conflictDetected());
         ledgerCommandMap.put("financiallyHonored", ledgerCommand.financiallyHonored());
+        if (reasonCode != null && !reasonCode.isBlank()) {
+            ledgerCommandMap.put("reasonCode", reasonCode);
+        }
+        if (evaluatedReasonCode != null && !evaluatedReasonCode.isBlank()) {
+            ledgerCommandMap.put("evaluatedReasonCode", evaluatedReasonCode);
+        }
         ledgerCommandMap.put("proofFingerprint", ledgerCommand.proofFingerprint());
         ledgerCommandMap.put("newStateHash", ledgerCommand.newStateHash());
         ledgerCommandMap.put("previousHash", ledgerCommand.previousHash());
@@ -2264,6 +2299,12 @@ public class SettlementApplicationService {
         ledgerCommandMap.put("signature", ledgerCommand.signature());
         eventPayload.put("ledgerCommand", ledgerCommandMap);
         eventPayload.put("historyCommand", historyCommandMap);
+        if (reasonCode != null && !reasonCode.isBlank()) {
+            eventPayload.put("reasonCode", reasonCode);
+        }
+        if (evaluatedReasonCode != null && !evaluatedReasonCode.isBlank()) {
+            eventPayload.put("evaluatedReasonCode", evaluatedReasonCode);
+        }
         if (receiverHistoryCommand != null) {
             eventPayload.put("receiverHistoryCommand", Map.ofEntries(
                     Map.entry("settlementId", receiverHistoryCommand.settlementId()),

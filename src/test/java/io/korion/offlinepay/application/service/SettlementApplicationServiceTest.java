@@ -2706,6 +2706,15 @@ class SettlementApplicationServiceTest {
         assertEquals(0, result.skipped());
         verify(proofRepository).ensureReceivedUnsettledAmount(eq(proof.id()), any());
         verify(collateralRepository).deductLockedAndRemainingAmount(eq(collateral.id()), any());
+        verify(settlementRepository).update(
+                eq(rejectedRequest.id()),
+                eq(SettlementStatus.REJECTED),
+                eq("COUNTER_GAP"),
+                eq(false),
+                argThat(payload -> payload.contains("\"reasonCode\":\"COUNTER_GAP\"")
+                        && payload.contains("\"evaluatedReasonCode\":\"PAYLOAD_REQUIRED_FIELD_MISSING\"")
+                        && payload.contains("\"financiallyHonored\":true"))
+        );
         verify(eventBus).publishExternalSyncRequested(
                 eq("LEDGER_SYNC_REQUESTED"),
                 eq(rejectedRequest.id()),
@@ -2713,6 +2722,8 @@ class SettlementApplicationServiceTest {
                 eq(proof.id()),
                 argThat(payload -> payload.contains("\"financiallyHonored\":true")
                         && payload.contains("\"settlementStatus\":\"REJECTED\"")
+                        && payload.contains("\"reasonCode\":\"COUNTER_GAP\"")
+                        && payload.contains("\"evaluatedReasonCode\":\"PAYLOAD_REQUIRED_FIELD_MISSING\"")
                         && payload.contains("\"releaseAction\":\"RELEASE\"")),
                 anyString()
         );
