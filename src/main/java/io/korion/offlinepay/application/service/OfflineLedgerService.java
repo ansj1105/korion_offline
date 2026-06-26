@@ -5,11 +5,13 @@ import io.korion.offlinepay.application.port.CollateralOperationRepository;
 import io.korion.offlinepay.application.port.CollateralRepository;
 import io.korion.offlinepay.application.port.DeviceRepository;
 import io.korion.offlinepay.application.port.OfflinePaymentProofRepository;
+import io.korion.offlinepay.application.port.SettlementRepository;
 import io.korion.offlinepay.config.AppProperties;
 import io.korion.offlinepay.domain.model.CollateralLock;
 import io.korion.offlinepay.domain.model.CollateralOperation;
 import io.korion.offlinepay.domain.model.Device;
 import io.korion.offlinepay.domain.model.OfflinePaymentProof;
+import io.korion.offlinepay.domain.model.SettlementRequest;
 import io.korion.offlinepay.domain.status.CollateralOperationStatus;
 import io.korion.offlinepay.domain.status.OfflineProofStatus;
 import io.korion.offlinepay.application.service.settlement.OfflinePaySettlementFeeCalculator;
@@ -34,6 +36,7 @@ public class OfflineLedgerService {
     private final CollateralRepository collateralRepository;
     private final CollateralOperationRepository collateralOperationRepository;
     private final OfflinePaymentProofRepository offlinePaymentProofRepository;
+    private final SettlementRepository settlementRepository;
     private final OfflinePayDeviceIdentifierResolver deviceIdentifierResolver;
     private final AppProperties properties;
     private final JsonService jsonService;
@@ -44,6 +47,7 @@ public class OfflineLedgerService {
             CollateralRepository collateralRepository,
             CollateralOperationRepository collateralOperationRepository,
             OfflinePaymentProofRepository offlinePaymentProofRepository,
+            SettlementRepository settlementRepository,
             OfflinePayDeviceIdentifierResolver deviceIdentifierResolver,
             AppProperties properties,
             JsonService jsonService,
@@ -53,6 +57,7 @@ public class OfflineLedgerService {
         this.collateralRepository = collateralRepository;
         this.collateralOperationRepository = collateralOperationRepository;
         this.offlinePaymentProofRepository = offlinePaymentProofRepository;
+        this.settlementRepository = settlementRepository;
         this.deviceIdentifierResolver = deviceIdentifierResolver;
         this.properties = properties;
         this.jsonService = jsonService;
@@ -627,6 +632,9 @@ public class OfflineLedgerService {
         BigDecimal unsettledAmount = normalizeAmount(proof.receivedUnsettledAmount());
         if ((statusCode == PublicLedgerStatus.FAILED || statusCode == PublicLedgerStatus.REJECTED)
                 && unsettledAmount.compareTo(BigDecimal.ZERO) > 0) {
+            if (!isFinanciallyHonoredSettlement(proof)) {
+                return BigDecimal.ZERO;
+            }
             return normalizeReceivedAmount(proof, unsettledAmount);
         }
         if (statusCode == PublicLedgerStatus.SETTLED
@@ -649,6 +657,20 @@ public class OfflineLedgerService {
 
     private BigDecimal resolveReceivedSettledAmount(OfflinePaymentProof proof, JsonNode payload) {
         return normalizeReceivedAmount(proof, normalizeAmount(proof.receivedSettledAmount()));
+    }
+
+    private boolean isFinanciallyHonoredSettlement(OfflinePaymentProof proof) {
+        return settlementRepository.findLatestByProofId(proof.id())
+                .map(SettlementRequest::settlementResultJson)
+                .map(this::isFinanciallyHonoredSettlementResult)
+                .orElse(false);
+    }
+
+    private boolean isFinanciallyHonoredSettlementResult(String settlementResultJson) {
+        if (settlementResultJson == null || settlementResultJson.isBlank()) {
+            return false;
+        }
+        return jsonService.readTree(settlementResultJson).path("financiallyHonored").asBoolean(false);
     }
 
     private BigDecimal resolveReceivedDisplayAmount(

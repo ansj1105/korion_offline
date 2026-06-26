@@ -11,14 +11,17 @@ import io.korion.offlinepay.application.port.CollateralOperationRepository;
 import io.korion.offlinepay.application.port.CollateralRepository;
 import io.korion.offlinepay.application.port.DeviceRepository;
 import io.korion.offlinepay.application.port.OfflinePaymentProofRepository;
+import io.korion.offlinepay.application.port.SettlementRepository;
 import io.korion.offlinepay.config.AppProperties;
 import io.korion.offlinepay.domain.model.CollateralOperation;
 import io.korion.offlinepay.domain.model.Device;
 import io.korion.offlinepay.domain.model.OfflinePaymentProof;
+import io.korion.offlinepay.domain.model.SettlementRequest;
 import io.korion.offlinepay.domain.status.CollateralOperationStatus;
 import io.korion.offlinepay.domain.status.CollateralOperationType;
 import io.korion.offlinepay.domain.status.DeviceStatus;
 import io.korion.offlinepay.domain.status.OfflineProofStatus;
+import io.korion.offlinepay.domain.status.SettlementStatus;
 import io.korion.offlinepay.application.service.settlement.OfflinePaySettlementFeeCalculator;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
@@ -34,12 +37,14 @@ class OfflineLedgerServiceTest {
     private final CollateralRepository collateralRepository = Mockito.mock(CollateralRepository.class);
     private final CollateralOperationRepository collateralOperationRepository = Mockito.mock(CollateralOperationRepository.class);
     private final OfflinePaymentProofRepository proofRepository = Mockito.mock(OfflinePaymentProofRepository.class);
+    private final SettlementRepository settlementRepository = Mockito.mock(SettlementRepository.class);
     private final OfflinePayDeviceIdentifierResolver deviceIdentifierResolver = new OfflinePayDeviceIdentifierResolver(deviceRepository);
     private final OfflineLedgerService service = new OfflineLedgerService(
             deviceRepository,
             collateralRepository,
             collateralOperationRepository,
             proofRepository,
+            settlementRepository,
             deviceIdentifierResolver,
             new AppProperties("KORI", 0, 0, 0, null, null, null, null, null, null),
             new JsonService(new ObjectMapper()),
@@ -252,6 +257,8 @@ class OfflineLedgerServiceTest {
         when(deviceRepository.findUniqueActiveByDeviceIdSuffix("e7eaeaa7")).thenReturn(Optional.of(receiverDevice));
         when(proofRepository.findRecentByUserIdAndAssetCode(39L, "KORI", 2))
                 .thenReturn(List.of(settledProof, unsettledProof));
+        when(settlementRepository.findLatestByProofId(unsettledProof.id()))
+                .thenReturn(Optional.of(financiallyHonoredSettlement(unsettledProof.id())));
         when(collateralOperationRepository.findRecentByUserIdAndAssetCode(39L, "KORI", 2)).thenReturn(List.of());
         when(collateralRepository.findAggregateByUserIdAndAssetCode(39L, "KORI")).thenReturn(Optional.empty());
 
@@ -351,6 +358,7 @@ class OfflineLedgerServiceTest {
         when(deviceRepository.findUniqueActiveByDeviceIdSuffix("e7eaeaa7")).thenReturn(Optional.of(receiverDevice));
         when(proofRepository.findRecentByUserIdAndAssetCode(39L, "KORI", 31)).thenReturn(List.of(proof));
         when(proofRepository.findRecentByUserIdAndAssetCode(39L, "KORI", 300)).thenReturn(List.of(proof));
+        when(settlementRepository.findLatestByProofId(proof.id())).thenReturn(Optional.of(financiallyHonoredSettlement(proof.id())));
         when(collateralOperationRepository.findRecentByUserIdAndAssetCode(39L, "KORI", 31)).thenReturn(List.of());
         when(collateralOperationRepository.findRecentByUserIdAndAssetCode(39L, "KORI", 300)).thenReturn(List.of());
         when(collateralRepository.findAggregateByUserIdAndAssetCode(39L, "KORI")).thenReturn(Optional.empty());
@@ -363,6 +371,38 @@ class OfflineLedgerServiceTest {
         assertEquals("0.99900000", history.receivedItems().get(0).unsettledAmount());
         assertEquals("0.99900000", history.totalReceivedAmount());
         assertEquals("0.99900000", summary.unsettledReceivedAmount());
+        assertEquals(1, summary.failedCount());
+    }
+
+    @Test
+    void excludesRejectedReceivedProofWithPositiveUnsettledWhenNotFinanciallyHonored() {
+        String receiverDeviceId = "98db6beb-4ae1-4027-b9ee-507ce7eaeaa7";
+        Device receiverDevice = device(receiverDeviceId, 39L);
+        OfflinePaymentProof proof = rejectedProof(
+                "app-suffix:e7eaeaa7",
+                "SEND_INTERRUPTED",
+                new BigDecimal("2.99700000")
+        );
+        when(deviceRepository.findActiveByUserId(39L)).thenReturn(List.of(receiverDevice));
+        when(deviceRepository.findByDeviceId(receiverDeviceId)).thenReturn(Optional.of(receiverDevice));
+        when(deviceRepository.findByDeviceId("47ba2d8b-5b95-4510-8b23-007957e4fe46")).thenReturn(Optional.empty());
+        when(deviceRepository.findByDeviceId("app-suffix:e7eaeaa7")).thenReturn(Optional.empty());
+        when(deviceRepository.findUniqueActiveByDeviceIdSuffix("e7eaeaa7")).thenReturn(Optional.of(receiverDevice));
+        when(proofRepository.findRecentByUserIdAndAssetCode(39L, "KORI", 31)).thenReturn(List.of(proof));
+        when(proofRepository.findRecentByUserIdAndAssetCode(39L, "KORI", 300)).thenReturn(List.of(proof));
+        when(settlementRepository.findLatestByProofId(proof.id())).thenReturn(Optional.of(nonFinanciallyHonoredSettlement(proof.id())));
+        when(collateralOperationRepository.findRecentByUserIdAndAssetCode(39L, "KORI", 31)).thenReturn(List.of());
+        when(collateralOperationRepository.findRecentByUserIdAndAssetCode(39L, "KORI", 300)).thenReturn(List.of());
+        when(collateralRepository.findAggregateByUserIdAndAssetCode(39L, "KORI")).thenReturn(Optional.empty());
+
+        OfflineLedgerService.LedgerHistoryResponse history = service.getLedgerHistory(39L, "KORI", 200);
+        OfflineLedgerService.HubSummaryResponse summary = service.getHubSummary(receiverDeviceId, "KORI");
+
+        assertEquals(1, history.receivedItems().size());
+        assertEquals("FAILED", history.receivedItems().get(0).statusCode());
+        assertEquals("0", history.receivedItems().get(0).unsettledAmount());
+        assertEquals("0", history.totalReceivedAmount());
+        assertEquals("0", summary.unsettledReceivedAmount());
         assertEquals(1, summary.failedCount());
     }
 
@@ -792,6 +832,30 @@ class OfflineLedgerServiceTest {
                 null,
                 null,
                 null,
+                now,
+                now
+        );
+    }
+
+    private SettlementRequest financiallyHonoredSettlement(String proofId) {
+        return settlementRequest(proofId, "{\"financiallyHonored\":true}");
+    }
+
+    private SettlementRequest nonFinanciallyHonoredSettlement(String proofId) {
+        return settlementRequest(proofId, "{\"financiallyHonored\":false}");
+    }
+
+    private SettlementRequest settlementRequest(String proofId, String settlementResultJson) {
+        OffsetDateTime now = OffsetDateTime.parse("2026-05-19T04:45:04Z");
+        return new SettlementRequest(
+                "settlement-" + proofId,
+                "batch-" + proofId,
+                "collateral-id",
+                proofId,
+                SettlementStatus.REJECTED,
+                "COUNTER_GAP",
+                false,
+                settlementResultJson,
                 now,
                 now
         );
