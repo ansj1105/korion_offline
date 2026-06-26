@@ -2557,6 +2557,168 @@ class SettlementApplicationServiceTest {
     }
 
     @Test
+    void reconcileDirectLocalEvidenceHonorsRejectedCompletedProofAfterLateReceiverEvidence() {
+        long now = System.currentTimeMillis();
+        OfflinePayLocalEvidence receiverEvidence = new OfflinePayLocalEvidence(
+                null,
+                "voucher-late-receiver",
+                "req-late-receiver",
+                "RECEIVE",
+                "RECEIVER",
+                "receiver-device",
+                "sender-device",
+                "receiver-device",
+                new BigDecimal("2.00000000"),
+                58L,
+                "missing-counter-57-head",
+                "counter-58-head",
+                "nonce-late-receiver",
+                "signature-late-receiver",
+                "{\"voucherId\":\"voucher-late-receiver\"}",
+                java.util.Map.of("receiverEvidenceBlock", true),
+                "VERIFIED",
+                "matched receiver evidence",
+                null
+        );
+        CollateralLock collateral = new CollateralLock(
+                "11111111-1111-1111-1111-111111111111",
+                77L,
+                "sender-device",
+                "USDT",
+                new BigDecimal("150"),
+                new BigDecimal("100"),
+                "GENESIS",
+                1,
+                CollateralStatus.LOCKED,
+                "lock-late-receiver",
+                OffsetDateTime.now().plusDays(1),
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        OfflinePaymentProof previousProof = new OfflinePaymentProof(
+                "22222222-2222-2222-2222-222222222222",
+                "batch-previous",
+                "voucher-previous",
+                collateral.id(),
+                "sender-device",
+                "receiver-device",
+                77L,
+                88L,
+                1,
+                1,
+                56L,
+                "nonce-previous",
+                "counter-56-head",
+                "counter-55-head",
+                "signature-previous",
+                new BigDecimal("2.00000000"),
+                now - 60_000,
+                now + 600_000,
+                "{\"voucherId\":\"voucher-previous\"}",
+                "SENDER",
+                "{}",
+                OffsetDateTime.now()
+        );
+        OfflinePaymentProof proof = new OfflinePaymentProof(
+                "33333333-3333-3333-3333-333333333333",
+                "44444444-4444-4444-4444-444444444444",
+                "voucher-late-receiver",
+                collateral.id(),
+                "sender-device",
+                "receiver-device",
+                77L,
+                88L,
+                1,
+                1,
+                58L,
+                "nonce-late-receiver",
+                "counter-58-head",
+                "missing-counter-57-head",
+                "signature-late-receiver",
+                new BigDecimal("2.00000000"),
+                now,
+                now + 600_000,
+                "{\"voucherId\":\"voucher-late-receiver\"}",
+                "SENDER",
+                "{\"voucherId\":\"voucher-late-receiver\",\"deviceId\":\"sender-device\",\"counterpartyDeviceId\":\"receiver-device\",\"amount\":\"2.00000000\",\"expiresAt\":\""
+                        + (now + 600_000)
+                        + "\",\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"100\",\"uiMode\":\"SEND\",\"connectionType\":\"MANUAL_SELECTION\",\"paymentFlow\":\"BLE_PAYMENT\",\"senderAuthRequired\":true,\"senderLocalBlock\":true,\"localSagaStatus\":\"COMPLETE_ACKED\",\"ledgerExecutionMode\":\"INTERNAL_LEDGER_ONLY\",\"dualAmountEntered\":false,\"deviceTrustLevel\":\"HARDWARE_BACKED_VERIFIED\",\"deviceAttestationId\":\"attestation-001\",\"deviceAttestationVerdict\":\"HARDWARE_BACKED_VERIFIED\",\"serverVerifiedTrustLevel\":\"SERVER_VERIFIED\",\"serverAttestationVerifiedAt\":\"2026-06-11T23:58:00.000Z\",\"spendingProof\":{\"deviceId\":\"sender-device\",\"amount\":\"2.00000000\",\"monotonicCounter\":\"58\",\"nonce\":\"nonce-late-receiver\",\"newStateHash\":\"counter-58-head\",\"prevStateHash\":\"missing-counter-57-head\",\"signature\":\"signature-late-receiver\",\"timestamp\":\""
+                        + now
+                        + "\"}}",
+                OffsetDateTime.now()
+        );
+        SettlementRequest rejectedRequest = new SettlementRequest(
+                "55555555-5555-5555-5555-555555555555",
+                proof.batchId(),
+                collateral.id(),
+                proof.id(),
+                SettlementStatus.REJECTED,
+                "COUNTER_GAP",
+                false,
+                "{\"reasonCode\":\"COUNTER_GAP\",\"detail\":\"{\\\"actualCounter\\\":58,\\\"expectedCounter\\\":57}\"}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        Device senderDevice = new Device(
+                "row-sender-late-receiver",
+                "sender-device",
+                77L,
+                "public-key",
+                1,
+                DeviceStatus.ACTIVE,
+                VERIFIED_DEVICE_METADATA,
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        Device receiverDevice = new Device(
+                "row-receiver-late-receiver",
+                "receiver-device",
+                88L,
+                "receiver-public-key",
+                1,
+                DeviceStatus.ACTIVE,
+                VERIFIED_DEVICE_METADATA,
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+
+        when(localEvidenceRepository.findVerifiedSenderEvidenceAwaitingCarrier(25))
+                .thenReturn(java.util.List.of(receiverEvidence));
+        when(proofRepository.findByVoucherId("voucher-late-receiver")).thenReturn(Optional.of(proof));
+        when(settlementRepository.findLatestByProofId(proof.id())).thenReturn(Optional.of(rejectedRequest));
+        when(proofRepository.findById(proof.id())).thenReturn(Optional.of(proof));
+        when(collateralRepository.findById(collateral.id())).thenReturn(Optional.of(collateral));
+        when(collateralRepository.findAggregateByUserIdAndAssetCode(77L, "USDT")).thenReturn(Optional.of(collateral));
+        when(proofRepository.findBySenderDeviceUserAndAsset("sender-device", 77L, "USDT"))
+                .thenReturn(java.util.List.of(previousProof, proof));
+        when(deviceRepository.findByDeviceId("sender-device")).thenReturn(Optional.of(senderDevice));
+        when(deviceRepository.findByDeviceId("receiver-device")).thenReturn(Optional.of(receiverDevice));
+        when(localEvidenceRepository.existsMatchingReceiverEvidence(proof)).thenReturn(true);
+
+        SettlementApplicationService.DirectLocalEvidenceReconcileResult result =
+                service.reconcileDirectLocalEvidence(25);
+
+        assertEquals(1, result.candidates());
+        assertEquals(0, result.created());
+        assertEquals(1, result.reused());
+        assertEquals(1, result.rejected());
+        assertEquals(0, result.skipped());
+        verify(proofRepository).ensureReceivedUnsettledAmount(eq(proof.id()), any());
+        verify(collateralRepository).deductLockedAndRemainingAmount(eq(collateral.id()), any());
+        verify(eventBus).publishExternalSyncRequested(
+                eq("LEDGER_SYNC_REQUESTED"),
+                eq(rejectedRequest.id()),
+                eq(rejectedRequest.batchId()),
+                eq(proof.id()),
+                argThat(payload -> payload.contains("\"financiallyHonored\":true")
+                        && payload.contains("\"settlementStatus\":\"REJECTED\"")
+                        && payload.contains("\"releaseAction\":\"RELEASE\"")),
+                anyString()
+        );
+    }
+
+    @Test
     void getLocalEvidenceStatusReturnsAwaitingCarrierSummaryByVoucherId() {
         when(localEvidenceRepository.summarizeStatus(eq("voucher-status"), isNull(), any()))
                 .thenReturn(new OfflinePayLocalEvidenceRepository.LocalEvidenceStatus(

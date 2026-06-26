@@ -218,11 +218,31 @@ public class JdbcOfflinePayLocalEvidenceRepository implements OfflinePayLocalEvi
                 SELECT s.*
                 FROM offline_pay_local_evidence s
                 WHERE s.verification_status = 'VERIFIED'
-                  AND s.matched_proof_id IS NULL
-                  AND NOT EXISTS (
-                      SELECT 1
-                      FROM offline_payment_proofs p
-                      WHERE p.voucher_id = s.voucher_id
+                  AND (
+                      (
+                          s.matched_proof_id IS NULL
+                          AND NOT EXISTS (
+                              SELECT 1
+                              FROM offline_payment_proofs p
+                              WHERE p.voucher_id = s.voucher_id
+                          )
+                      )
+                      OR (
+                          s.direction = 'RECEIVE'
+                          AND EXISTS (
+                              SELECT 1
+                              FROM offline_payment_proofs p
+                              JOIN settlement_requests sr ON sr.proof_id = p.id
+                              WHERE p.voucher_id = s.voucher_id
+                                AND p.sender_device_id = s.sender_device_id
+                                AND p.receiver_device_id = s.receiver_device_id
+                                AND p.amount = s.amount
+                                AND p.status = 'REJECTED'
+                                AND sr.status = 'REJECTED'
+                                AND COALESCE(sr.conflict_detected, FALSE) = FALSE
+                                AND COALESCE(sr.settlement_result ->> 'financiallyHonored', 'false') <> 'true'
+                          )
+                      )
                   )
                   AND (
                       s.direction = 'SEND'

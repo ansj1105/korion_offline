@@ -203,7 +203,7 @@ public class SettlementApplicationService {
             }
             SettlementRequest request = settlementRepository.findLatestByProofId(proof.id())
                     .orElseThrow(() -> new IllegalStateException("settlement request not found for proof: " + proof.id()));
-            if (proof.status() != OfflineProofStatus.SETTLED || request.status() != SettlementStatus.SETTLED) {
+            if (!isReceiverSettlementConfirmable(proof, request)) {
                 skipped++;
                 continue;
             }
@@ -275,11 +275,6 @@ public class SettlementApplicationService {
         List<String> batchIds = new ArrayList<>();
         List<String> settlementIds = new ArrayList<>();
         for (OfflinePayLocalEvidence evidence : candidates) {
-            Optional<ProofSubmission> proofSubmission = toDirectEvidenceProofSubmission(evidence);
-            if (proofSubmission.isEmpty()) {
-                skipped++;
-                continue;
-            }
             Optional<OfflinePaymentProof> existingProof = proofRepository.findByVoucherId(evidence.voucherId());
             if (existingProof.isPresent()) {
                 Optional<SettlementRequest> request = settlementRepository.findLatestByProofId(existingProof.get().id());
@@ -287,7 +282,15 @@ public class SettlementApplicationService {
                     skipped++;
                     continue;
                 }
-                SettlementEvaluation evaluation = processSettlementRequest(request.get(), true);
+                SettlementRequest existingRequest = request.get();
+                boolean retryFinancialHonor = shouldRetryFinancialHonorAfterLateReceiverEvidence(existingProof.get(), existingRequest);
+                if (existingRequest.status() != SettlementStatus.PENDING
+                        && existingRequest.status() != SettlementStatus.VALIDATING
+                        && !retryFinancialHonor) {
+                    skipped++;
+                    continue;
+                }
+                SettlementEvaluation evaluation = processSettlementRequest(existingRequest, true, retryFinancialHonor);
                 settlementIds.add(request.get().id());
                 reused++;
                 if (evaluation.status() == SettlementStatus.SETTLED) {
@@ -297,6 +300,11 @@ public class SettlementApplicationService {
                         || evaluation.status() == SettlementStatus.CONFLICT) {
                     rejected++;
                 }
+                continue;
+            }
+            Optional<ProofSubmission> proofSubmission = toDirectEvidenceProofSubmission(evidence);
+            if (proofSubmission.isEmpty()) {
+                skipped++;
                 continue;
             }
             String idempotencyKey = "direct-local-evidence:" + evidence.voucherId();
@@ -342,12 +350,16 @@ public class SettlementApplicationService {
         for (OfflineSaga saga : staleSagas) {
             String settlementId = saga.referenceId();
             SettlementRequest request = settlementRepository.findById(settlementId).orElse(null);
-            if (request == null || request.status() != SettlementStatus.SETTLED) {
+            if (request == null) {
                 skipped++;
                 continue;
             }
             OfflinePaymentProof proof = proofRepository.findById(request.proofId()).orElse(null);
             if (proof == null || proof.receiverDeviceId() == null || proof.receiverDeviceId().isBlank()) {
+                skipped++;
+                continue;
+            }
+            if (!isReceiverSettlementConfirmable(proof, request)) {
                 skipped++;
                 continue;
             }
@@ -719,9 +731,14 @@ public class SettlementApplicationService {
                 .flatMap(proof -> settlementRepository.findLatestByProofId(proof.id())
                         .map(request -> Map.entry(proof, request)))
                 .map(entry -> {
+                    OfflinePaymentProof proof = entry.getKey();
                     SettlementRequest request = entry.getValue();
                     if (request.status() == SettlementStatus.PENDING || request.status() == SettlementStatus.VALIDATING) {
                         processSettlementRequest(request, true);
+                        return true;
+                    }
+                    if (shouldRetryFinancialHonorAfterLateReceiverEvidence(proof, request)) {
+                        processSettlementRequest(request, true, true);
                         return true;
                     }
                     return false;
@@ -882,8 +899,11 @@ public class SettlementApplicationService {
                 SettlementRequest request = settlementRepository.findLatestByProofId(existing.id())
                         .orElseThrow(() -> new IllegalStateException("settlement request not found for proof: " + existingProofId));
                 saveLocalEvidence(command, submission, existing.id(), "VERIFIED", "matched receiver evidence");
-                if (request.status() == SettlementStatus.PENDING || request.status() == SettlementStatus.VALIDATING) {
-                    processSettlementRequest(request, true);
+                boolean retryFinancialHonor = shouldRetryFinancialHonorAfterLateReceiverEvidence(existing, request);
+                if (request.status() == SettlementStatus.PENDING
+                        || request.status() == SettlementStatus.VALIDATING
+                        || retryFinancialHonor) {
+                    processSettlementRequest(request, true, retryFinancialHonor);
                     request = settlementRepository.findLatestByProofId(existing.id())
                             .orElseThrow(() -> new IllegalStateException("settlement request not found for proof: " + existingProofId));
                     existing = proofRepository.findById(existing.id())
@@ -1264,7 +1284,7 @@ public class SettlementApplicationService {
     }
 
     private void preserveReceivedUnsettledAmount(OfflinePaymentProof proof, SettlementRequest request) {
-        if (proof.status() == OfflineProofStatus.SETTLED && request.status() == SettlementStatus.SETTLED) {
+        if (isReceiverSettlementConfirmable(proof, request)) {
             proofRepository.ensureReceivedUnsettledAmount(proof.id(), calculateReceiverAmount(proof, resolveProofAssetCode(proof)));
         }
     }
@@ -1385,7 +1405,11 @@ public class SettlementApplicationService {
     }
 
     private void handleReceiverOnlineConfirmation(OfflinePaymentProof proof, SettlementRequest request) {
-        if (proof.status() != OfflineProofStatus.SETTLED || request.status() != SettlementStatus.SETTLED) {
+        boolean financiallyHonored = isFinanciallyHonoredSettlement(proof, request);
+        if (proof.status() != OfflineProofStatus.SETTLED && !financiallyHonored) {
+            return;
+        }
+        if (request.status() != SettlementStatus.SETTLED && !financiallyHonored) {
             return;
         }
         OfflineSaga saga = offlineSagaRepository
@@ -1417,7 +1441,7 @@ public class SettlementApplicationService {
                 false,
                 receiverDevice,
                 true,
-                false
+                financiallyHonored
         );
         CoinManageSettlementPort.SettlementLedgerResult receiverLedgerResult =
                 coinManageSettlementPort.finalizeSettlement(receiverLedgerCommand);
@@ -1537,6 +1561,24 @@ public class SettlementApplicationService {
     private boolean hasReceivedUnsettledAmount(OfflinePaymentProof proof) {
         return proof.receivedUnsettledAmount() != null
                 && proof.receivedUnsettledAmount().compareTo(BigDecimal.ZERO) > 0;
+    }
+
+    private boolean isReceiverSettlementConfirmable(OfflinePaymentProof proof, SettlementRequest request) {
+        if (proof == null || request == null) {
+            return false;
+        }
+        if (proof.status() == OfflineProofStatus.SETTLED && request.status() == SettlementStatus.SETTLED) {
+            return true;
+        }
+        return isFinanciallyHonoredSettlement(proof, request);
+    }
+
+    private boolean isFinanciallyHonoredSettlement(OfflinePaymentProof proof, SettlementRequest request) {
+        return proof != null
+                && request != null
+                && request.status() == SettlementStatus.REJECTED
+                && !request.conflictDetected()
+                && isFinanciallyHonored(request.settlementResultJson());
     }
 
     @Transactional
@@ -1690,6 +1732,14 @@ public class SettlementApplicationService {
     }
 
     private SettlementEvaluation processSettlementRequest(SettlementRequest request, boolean receiverEvidenceMatched) {
+        return processSettlementRequest(request, receiverEvidenceMatched, false);
+    }
+
+    private SettlementEvaluation processSettlementRequest(
+            SettlementRequest request,
+            boolean receiverEvidenceMatched,
+            boolean localCompletedRejectedRetry
+    ) {
         OfflinePaymentProof proof = proofRepository.findById(request.proofId())
                 .orElseThrow(() -> new IllegalArgumentException("proof not found: " + request.proofId()));
         CollateralLock collateral = collateralRepository.findById(request.collateralId())
@@ -1707,7 +1757,7 @@ public class SettlementApplicationService {
                 )
         );
 
-        boolean validationStartedFromPending = isServerValidationPending(request);
+        boolean validationStartedFromPending = isServerValidationPending(request) || localCompletedRejectedRetry;
         boolean receiverEvidenceConfirmed = markVerifiedEvidenceForProof(proof, receiverEvidenceMatched);
 
         proofRepository.updateLifecycle(proof.id(), OfflineProofStatus.CONSUMED_PENDING_SETTLEMENT, null, true, false, false);
@@ -1821,6 +1871,27 @@ public class SettlementApplicationService {
                 && senderAuthorizationCompleted
                 && evaluation.status() == SettlementStatus.REJECTED
                 && !evaluation.conflictDetected();
+    }
+
+    private boolean shouldRetryFinancialHonorAfterLateReceiverEvidence(
+            OfflinePaymentProof proof,
+            SettlementRequest request
+    ) {
+        if (request.status() != SettlementStatus.REJECTED || request.conflictDetected()) {
+            return false;
+        }
+        if (isFinanciallyHonored(request.settlementResultJson())) {
+            return false;
+        }
+        return hasCompletedSenderAuthorization(proof)
+                && localEvidenceRepository.existsMatchingReceiverEvidence(proof);
+    }
+
+    private boolean isFinanciallyHonored(String settlementResultJson) {
+        if (settlementResultJson == null || settlementResultJson.isBlank()) {
+            return false;
+        }
+        return jsonService.readTree(settlementResultJson).path("financiallyHonored").asBoolean(false);
     }
 
     private String settlementResultJson(

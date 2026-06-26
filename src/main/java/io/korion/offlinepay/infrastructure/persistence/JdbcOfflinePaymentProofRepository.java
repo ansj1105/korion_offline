@@ -146,14 +146,17 @@ public class JdbcOfflinePaymentProofRepository implements OfflinePaymentProofRep
                 .set("received_unsettled_amount", ":receivedAmount")
                 .touchUpdatedAt()
                 .where("id", QueryBuilder.Op.EQ, ":id")
-                .where("status", QueryBuilder.Op.EQ, ":status")
+                .where("status", QueryBuilder.Op.IN, "(:statuses)")
                 .where("received_unsettled_amount", QueryBuilder.Op.EQ, "0")
                 .where("received_settled_amount", QueryBuilder.Op.EQ, "0")
                 .where("amount", QueryBuilder.Op.GT, "0")
                 .build();
         return jdbcClient.sql(sql)
                 .param("id", java.util.UUID.fromString(proofId))
-                .param("status", OfflineProofStatus.SETTLED.name())
+                .param("statuses", java.util.List.of(
+                        OfflineProofStatus.SETTLED.name(),
+                        OfflineProofStatus.REJECTED.name()
+                ))
                 .param("receivedAmount", receivedAmount)
                 .update();
     }
