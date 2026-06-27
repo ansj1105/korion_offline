@@ -1824,11 +1824,18 @@ public class SettlementApplicationService {
                 evaluation.status() == SettlementStatus.SETTLED
         );
         if (evaluation.status() == SettlementStatus.SETTLED || financiallyHonored) {
-            proofRepository.ensureReceivedUnsettledAmount(
-                    proof.id(),
-                    calculateReceiverAmount(proof, settlementCollateralScope.assetCode())
-            );
-            deductSettlementAmountAcrossCollateralScope(collateral, proof, request, evaluation.status(), financiallyHonored);
+            boolean financialSideEffectsApplied = !wasAlreadyFinanciallyCommitted(request)
+                    && settlementRepository.markFinancialSideEffectsApplied(
+                            request.id(),
+                            financialSideEffectsAppliedJson(proof, request, evaluation.status(), financiallyHonored, terminalReasonCode)
+                    );
+            if (financialSideEffectsApplied) {
+                proofRepository.ensureReceivedUnsettledAmount(
+                        proof.id(),
+                        calculateReceiverAmount(proof, settlementCollateralScope.assetCode())
+                );
+                deductSettlementAmountAcrossCollateralScope(collateral, proof, request, evaluation.status(), financiallyHonored);
+            }
         }
         settlementRepository.update(
                 request.id(),
@@ -1904,6 +1911,31 @@ public class SettlementApplicationService {
 
     private boolean isServerValidationPending(SettlementRequest request) {
         return request.status() == SettlementStatus.PENDING || request.status() == SettlementStatus.VALIDATING;
+    }
+
+    private boolean wasAlreadyFinanciallyCommitted(SettlementRequest request) {
+        return request.status() == SettlementStatus.SETTLED
+                || (request.status() == SettlementStatus.REJECTED
+                        && isFinanciallyHonored(request.settlementResultJson()));
+    }
+
+    private String financialSideEffectsAppliedJson(
+            OfflinePaymentProof proof,
+            SettlementRequest request,
+            SettlementStatus settlementStatus,
+            boolean financiallyHonored,
+            String reasonCode
+    ) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("financialSideEffectsApplied", true);
+        result.put("financialSideEffectsSettlementId", request.id());
+        result.put("financialSideEffectsProofId", proof.id());
+        result.put("financialSideEffectsVoucherId", proof.voucherId());
+        result.put("financialSideEffectsStatus", settlementStatus.name());
+        result.put("financiallyHonored", financiallyHonored);
+        result.put("financialSideEffectsReasonCode", reasonCode == null ? "" : reasonCode);
+        result.put("financialSideEffectsAppliedAt", OffsetDateTime.now().toString());
+        return jsonService.write(result);
     }
 
     private boolean shouldFinanciallyHonorLocalPendingSettlement(

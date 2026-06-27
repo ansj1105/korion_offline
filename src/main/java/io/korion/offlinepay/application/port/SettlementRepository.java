@@ -18,6 +18,8 @@ public interface SettlementRepository {
 
     boolean existsOpenByCollateralId(String collateralId);
 
+    boolean markFinancialSideEffectsApplied(String settlementId, String settlementResultJson);
+
     void update(String settlementId, SettlementStatus status, String reasonCode, boolean conflictDetected, String settlementResultJson);
 
     void updateReceiverConfirmationDeadline(String settlementId, OffsetDateTime deadlineAt);

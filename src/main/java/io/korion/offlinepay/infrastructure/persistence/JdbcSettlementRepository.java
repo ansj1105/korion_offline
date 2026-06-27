@@ -101,6 +101,33 @@ public class JdbcSettlementRepository implements SettlementRepository {
     }
 
     @Override
+    public boolean markFinancialSideEffectsApplied(String settlementId, String settlementResultJson) {
+        String sql = QueryBuilder.update("settlement_requests")
+                .set("settlement_result", "settlement_result || CAST(:settlementResult AS jsonb)")
+                .touchUpdatedAt()
+                .where("id", QueryBuilder.Op.EQ, ":id")
+                .where("COALESCE(settlement_result ->> 'financialSideEffectsApplied', 'false') <> 'true'")
+                .where("""
+                        NOT EXISTS (
+                            SELECT 1
+                            FROM settlements
+                            WHERE settlements.settlement_id = settlement_requests.id
+                              AND (
+                                  settlements.status = 'SETTLED'
+                                  OR COALESCE(settlements.detail ->> 'financiallyHonored', 'false') = 'true'
+                                  OR COALESCE(settlements.detail ->> 'financialSideEffectsApplied', 'false') = 'true'
+                              )
+                        )
+                        """)
+                .build();
+        int updated = jdbcClient.sql(sql)
+                .param("id", java.util.UUID.fromString(settlementId))
+                .param("settlementResult", settlementResultJson == null || settlementResultJson.isBlank() ? "{}" : settlementResultJson)
+                .update();
+        return updated > 0;
+    }
+
+    @Override
     public void update(String settlementId, SettlementStatus status, String reasonCode, boolean conflictDetected, String settlementResultJson) {
         String normalizedReasonCode = normalizeReasonCode(status, reasonCode, conflictDetected);
         String sql = QueryBuilder.update("settlement_requests")

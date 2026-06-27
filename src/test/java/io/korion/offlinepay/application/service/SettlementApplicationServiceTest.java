@@ -194,6 +194,8 @@ class SettlementApplicationServiceTest {
                 OffsetDateTime.now(),
                 OffsetDateTime.now()
         ));
+        Mockito.lenient().when(settlementRepository.markFinancialSideEffectsApplied(anyString(), anyString()))
+                .thenReturn(true);
     }
 
     @Test
@@ -3109,6 +3111,126 @@ class SettlementApplicationServiceTest {
         verify(proofRepository).ensureReceivedUnsettledAmount("proof-1", new BigDecimal("100.000000"));
         verify(issuedProofVerificationService, never()).markConsumed(any());
         assertEquals(SettlementStatus.SETTLED, result.status());
+    }
+
+    @Test
+    void finalizeSettlementDoesNotRepeatFinancialSideEffectsWhenMarkerAlreadyApplied() {
+        SettlementRequest request = new SettlementRequest(
+                "settlement-financial-guard",
+                "batch-financial-guard",
+                "collateral-financial-guard",
+                "proof-financial-guard",
+                SettlementStatus.VALIDATING,
+                null,
+                false,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        CollateralLock collateral = new CollateralLock(
+                "collateral-financial-guard",
+                77L,
+                "device-1",
+                "USDT",
+                new BigDecimal("150"),
+                new BigDecimal("100"),
+                "GENESIS",
+                1,
+                CollateralStatus.LOCKED,
+                "lock-financial-guard",
+                OffsetDateTime.now().plusDays(1),
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        SettlementRequest settled = new SettlementRequest(
+                "settlement-financial-guard",
+                "batch-financial-guard",
+                "collateral-financial-guard",
+                "proof-financial-guard",
+                SettlementStatus.SETTLED,
+                null,
+                false,
+                "{\"releaseAction\":\"RELEASE\",\"financialSideEffectsApplied\":true}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        String proofHash = spendingProofHashService.computeNewStateHash(
+                "GENESIS",
+                new BigDecimal("10"),
+                1L,
+                "device-1",
+                "nonce-financial-guard"
+        );
+        long proofTimestamp = System.currentTimeMillis();
+        long proofExpiresAt = proofTimestamp + 60_000;
+        OfflinePaymentProof proof = new OfflinePaymentProof(
+                "proof-financial-guard",
+                "batch-financial-guard",
+                "voucher-financial-guard",
+                "collateral-financial-guard",
+                "device-1",
+                "device-2",
+                77L,
+                88L,
+                1,
+                1,
+                1L,
+                "nonce-financial-guard",
+                proofHash,
+                "GENESIS",
+                "local_sig_financial_guard",
+                new BigDecimal("10"),
+                proofTimestamp,
+                proofExpiresAt,
+                "{\"voucherId\":\"voucher-financial-guard\",\"counterpartyDeviceId\":\"device-2\"}",
+                "SENDER",
+                "{\"voucherId\":\"voucher-financial-guard\",\"deviceId\":\"device-1\",\"counterpartyDeviceId\":\"device-2\",\"amount\":\"10\",\"expiresAt\":\""
+                        + proofExpiresAt
+                        + "\",\"network\":\"TRC-20\",\"token\":\"USDT\",\"availableAmount\":\"100\",\"uiMode\":\"SEND\",\"connectionType\":\"FAST_CONTACT\",\"paymentFlow\":\"FAST_PAYMENT\",\"senderAuthRequired\":true,\"ledgerExecutionMode\":\"INTERNAL_LEDGER_ONLY\",\"dualAmountEntered\":false,\"deviceTrustLevel\":\"HARDWARE_BACKED_VERIFIED\",\"deviceAttestationId\":\"attestation-001\",\"deviceAttestationVerdict\":\"HARDWARE_BACKED_VERIFIED\",\"serverVerifiedTrustLevel\":\"SERVER_VERIFIED\",\"serverAttestationVerifiedAt\":\"2026-06-11T23:58:00.000Z\",\"spendingProof\":{\"deviceId\":\"device-1\",\"amount\":\"10\",\"monotonicCounter\":\"1\",\"nonce\":\"nonce-financial-guard\",\"newStateHash\":\""
+                        + proofHash
+                        + "\",\"prevStateHash\":\"GENESIS\",\"signature\":\"local_sig_financial_guard\",\"timestamp\":\""
+                        + proofTimestamp
+                        + "\"}}",
+                OffsetDateTime.now()
+        );
+        Device device = new Device(
+                "row-financial-guard",
+                "device-1",
+                77L,
+                "public-key",
+                1,
+                DeviceStatus.ACTIVE,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+
+        when(settlementRepository.findById("settlement-financial-guard"))
+                .thenReturn(Optional.of(request))
+                .thenReturn(Optional.of(settled));
+        when(settlementRepository.markFinancialSideEffectsApplied(eq("settlement-financial-guard"), anyString()))
+                .thenReturn(false);
+        when(collateralRepository.findById("collateral-financial-guard")).thenReturn(Optional.of(collateral));
+        when(proofRepository.findById("proof-financial-guard")).thenReturn(Optional.of(proof));
+        when(proofRepository.findByCollateralId("collateral-financial-guard")).thenReturn(java.util.List.of(proof));
+        when(deviceRepository.findByDeviceId("device-1")).thenReturn(Optional.of(device));
+        when(deviceRepository.findByDeviceId("device-2")).thenReturn(Optional.empty());
+        when(settlementResultRepository.existsByVoucherIdExcludingSettlementId(
+                "voucher-financial-guard",
+                "settlement-financial-guard"
+        )).thenReturn(false);
+
+        SettlementRequest result = service.finalizeSettlement("settlement-financial-guard");
+
+        assertEquals(SettlementStatus.SETTLED, result.status());
+        verify(settlementRepository).markFinancialSideEffectsApplied(
+                eq("settlement-financial-guard"),
+                argThat(payload -> payload.contains("\"financialSideEffectsApplied\":true")
+                        && payload.contains("\"financialSideEffectsSettlementId\":\"settlement-financial-guard\""))
+        );
+        verify(proofRepository, never()).ensureReceivedUnsettledAmount(anyString(), any());
+        verify(collateralRepository, never()).deductRemainingAmount(anyString(), any());
     }
 
     @Test
