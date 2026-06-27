@@ -22,26 +22,4 @@ final class CollateralAvailabilityCalculator {
         return totalBalance.subtract(collateralAmount).max(BigDecimal.ZERO);
     }
 
-    static BigDecimal capByLedgerAvailableAmount(
-            BigDecimal additionalCollateralAvailableAmount,
-            BigDecimal ledgerAvailableAmount,
-            BigDecimal ledgerLockedAmount,
-            BigDecimal ledgerOfflinePayPendingAmount
-    ) {
-        BigDecimal available = additionalCollateralAvailableAmount == null
-                ? BigDecimal.ZERO
-                : additionalCollateralAvailableAmount.max(BigDecimal.ZERO);
-        BigDecimal ledgerAvailable = ledgerAvailableAmount == null ? BigDecimal.ZERO : ledgerAvailableAmount.max(BigDecimal.ZERO);
-        BigDecimal ledgerLocked = ledgerLockedAmount == null ? BigDecimal.ZERO : ledgerLockedAmount.max(BigDecimal.ZERO);
-        BigDecimal ledgerOfflinePayPending = ledgerOfflinePayPendingAmount == null
-                ? BigDecimal.ZERO
-                : ledgerOfflinePayPendingAmount.max(BigDecimal.ZERO);
-        boolean ledgerHasOfflinePayFootprint = ledgerAvailable.signum() > 0
-                || ledgerLocked.signum() > 0
-                || ledgerOfflinePayPending.signum() > 0;
-        if (ledgerHasOfflinePayFootprint && ledgerAvailable.compareTo(available) < 0) {
-            return ledgerAvailable;
-        }
-        return available;
-    }
 }

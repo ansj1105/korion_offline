@@ -77,7 +77,7 @@ public class CollateralApplicationService {
                 ? BigDecimal.ZERO
                 : aggregate.lockedAmount().max(BigDecimal.ZERO);
         BigDecimal additionalCollateralAvailableAmount =
-                resolveAdditionalCollateralAvailableAmount(command.userId(), assetCode, walletSnapshot, currentCollateralAmount);
+                resolveAdditionalCollateralAvailableAmount(walletSnapshot, currentCollateralAmount);
         if (command.amount() == null || command.amount().signum() <= 0) {
             throw new IllegalArgumentException("collateral amount is required");
         }
@@ -125,35 +125,13 @@ public class CollateralApplicationService {
     }
 
     private BigDecimal resolveAdditionalCollateralAvailableAmount(
-            long userId,
-            String assetCode,
             FoxCoinWalletSnapshotPort.WalletSnapshot walletSnapshot,
             BigDecimal currentCollateralAmount
     ) {
-        BigDecimal additionalCollateralAvailableAmount =
-                CollateralAvailabilityCalculator.resolveAdditionalCollateralAvailableAmount(
-                        walletSnapshot,
-                        currentCollateralAmount
-                );
-        CoinManageCollateralPort.BalanceSnapshot ledgerSnapshot =
-                coinManageCollateralPort.getBalanceSnapshot(userId, assetCode);
-        return CollateralAvailabilityCalculator.capByLedgerAvailableAmount(
-                additionalCollateralAvailableAmount,
-                parsePositiveAmount(ledgerSnapshot.availableBalance()),
-                parsePositiveAmount(ledgerSnapshot.lockedBalance()),
-                parsePositiveAmount(ledgerSnapshot.offlinePayPendingBalance())
+        return CollateralAvailabilityCalculator.resolveAdditionalCollateralAvailableAmount(
+                walletSnapshot,
+                currentCollateralAmount
         );
-    }
-
-    private BigDecimal parsePositiveAmount(String value) {
-        try {
-            if (value == null || value.isBlank()) {
-                return BigDecimal.ZERO;
-            }
-            return new BigDecimal(value.trim()).max(BigDecimal.ZERO);
-        } catch (RuntimeException ignored) {
-            return BigDecimal.ZERO;
-        }
     }
 
     @Transactional(readOnly = true)

@@ -256,7 +256,7 @@ class OfflineSnapshotServiceTest {
     }
 
     @Test
-    void currentSnapshotCapsTopupAvailabilityByCoinManageLedgerAvailable() {
+    void currentSnapshotDoesNotCapTopupAvailabilityByCoinManageLedgerAvailable() {
         DeviceRepository deviceRepository = mock(DeviceRepository.class);
         CollateralRepository collateralRepository = mock(CollateralRepository.class);
         IssuedOfflineProofRepository issuedOfflineProofRepository = mock(IssuedOfflineProofRepository.class);
@@ -333,7 +333,7 @@ class OfflineSnapshotServiceTest {
         OfflineSnapshotService.CurrentSnapshot snapshot = service.getCurrentSnapshot(175L, "device-175", "KORI");
 
         assertNotNull(snapshot.wallet());
-        assertEquals("3.296700", snapshot.wallet().additionalCollateralAvailableAmount());
+        assertEquals("11.11670000", snapshot.wallet().additionalCollateralAvailableAmount());
     }
 
     @Test

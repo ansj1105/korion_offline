@@ -602,7 +602,9 @@ public class OfflineLedgerService {
     private PublicLedgerStatus toPublicLedgerStatus(OfflinePaymentProof proof, boolean receiverSettled) {
         return switch (proof.status()) {
             case FAILED -> PublicLedgerStatus.FAILED;
-            case REJECTED -> toRejectedPublicLedgerStatus(proof.reasonCode());
+            case REJECTED -> isFinanciallyHonoredSettlement(proof)
+                    ? isReceivedSettlementClosed(proof) ? PublicLedgerStatus.SETTLED : PublicLedgerStatus.CONFIRMED
+                    : toRejectedPublicLedgerStatus(proof.reasonCode());
             case EXPIRED -> PublicLedgerStatus.EXPIRED;
             case CONFLICTED -> PublicLedgerStatus.LOCKED;
             case SETTLED -> receiverSettled ? PublicLedgerStatus.SETTLED : PublicLedgerStatus.CONFIRMED;
@@ -611,11 +613,11 @@ public class OfflineLedgerService {
     }
 
     private boolean isReceivedSettlementClosed(OfflinePaymentProof proof) {
-        if (proof.status() != OfflineProofStatus.SETTLED) {
-            return false;
-        }
         if (normalizeAmount(proof.receivedSettledAmount()).compareTo(BigDecimal.ZERO) > 0) {
             return true;
+        }
+        if (proof.status() != OfflineProofStatus.SETTLED) {
+            return false;
         }
         return normalizeAmount(proof.receivedUnsettledAmount()).compareTo(BigDecimal.ZERO) <= 0;
     }

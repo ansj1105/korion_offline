@@ -55,30 +55,63 @@ public class ProofChainValidator {
             return ChainValidationResult.success();
         }
 
-        OfflinePaymentProof lastProof = existingProofs.stream()
+        OfflinePaymentProof predecessor = existingProofs.stream()
+                .filter(existing -> existing.monotonicCounter() == incomingProof.monotonicCounter() - 1)
                 .max(Comparator.comparingLong(OfflinePaymentProof::monotonicCounter))
-                .orElseThrow();
-        if (incomingProof.monotonicCounter() != lastProof.monotonicCounter() + 1) {
-            return new ChainValidationResult(
-                    false,
-                    OfflinePayReasonCode.COUNTER_GAP,
-                    jsonService.write(Map.of(
-                            "expectedCounter", lastProof.monotonicCounter() + 1,
-                            "actualCounter", incomingProof.monotonicCounter()
-                    ))
-            );
-        }
-        if (!lastProof.newStateHash().equals(incomingProof.prevStateHash())) {
+                .orElse(null);
+        if (predecessor == null) {
+            OfflinePaymentProof lastLowerProof = existingProofs.stream()
+                    .filter(existing -> existing.monotonicCounter() < incomingProof.monotonicCounter())
+                    .max(Comparator.comparingLong(OfflinePaymentProof::monotonicCounter))
+                    .orElse(null);
+            if (lastLowerProof == null) {
+                if (incomingProof.monotonicCounter() != 1) {
+                    return new ChainValidationResult(false, OfflinePayReasonCode.INVALID_GENESIS_COUNTER, "{}");
+                }
+                if (!matchesInitialStateRoot(collateral, incomingProof)) {
+                    return new ChainValidationResult(false, OfflinePayReasonCode.INVALID_GENESIS_LINK, "{}");
+                }
+            } else {
+                return counterGap(lastLowerProof.monotonicCounter() + 1, incomingProof.monotonicCounter());
+            }
+        } else if (!predecessor.newStateHash().equals(incomingProof.prevStateHash())) {
             return new ChainValidationResult(
                     false,
                     OfflinePayReasonCode.INVALID_PREVIOUS_HASH,
                     jsonService.write(Map.of(
-                            "expectedPreviousHash", lastProof.newStateHash(),
+                            "expectedPreviousHash", predecessor.newStateHash(),
                             "actualPreviousHash", incomingProof.prevStateHash()
                     ))
             );
         }
+
+        OfflinePaymentProof successor = existingProofs.stream()
+                .filter(existing -> existing.monotonicCounter() == incomingProof.monotonicCounter() + 1)
+                .min(Comparator.comparingLong(OfflinePaymentProof::monotonicCounter))
+                .orElse(null);
+        if (successor != null && !incomingProof.newStateHash().equals(successor.prevStateHash())) {
+            return new ChainValidationResult(
+                    false,
+                    OfflinePayReasonCode.INVALID_PREVIOUS_HASH,
+                    jsonService.write(Map.of(
+                            "expectedSuccessorPreviousHash", incomingProof.newStateHash(),
+                            "actualSuccessorPreviousHash", successor.prevStateHash(),
+                            "successorCounter", successor.monotonicCounter()
+                    ))
+            );
+        }
         return ChainValidationResult.success();
+    }
+
+    private ChainValidationResult counterGap(long expectedCounter, long actualCounter) {
+        return new ChainValidationResult(
+                false,
+                OfflinePayReasonCode.COUNTER_GAP,
+                jsonService.write(Map.of(
+                        "expectedCounter", expectedCounter,
+                        "actualCounter", actualCounter
+                ))
+        );
     }
 
     private boolean matchesInitialStateRoot(CollateralLock collateral, OfflinePaymentProof incomingProof) {

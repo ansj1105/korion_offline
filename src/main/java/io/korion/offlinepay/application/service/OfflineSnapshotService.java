@@ -345,14 +345,6 @@ public class OfflineSnapshotService {
                             snapshot,
                             currentCollateralAmount
                     );
-            CoinManageCollateralPort.BalanceSnapshot ledgerSnapshot =
-                    coinManageCollateralPort.getBalanceSnapshot(userId, assetCode);
-            additionalCollateralAvailableAmount = CollateralAvailabilityCalculator.capByLedgerAvailableAmount(
-                    additionalCollateralAvailableAmount,
-                    parsePositiveAmount(ledgerSnapshot.availableBalance()),
-                    parsePositiveAmount(ledgerSnapshot.lockedBalance()),
-                    parsePositiveAmount(ledgerSnapshot.offlinePayPendingBalance())
-            );
             return new WalletSnapshot(
                     snapshot.userId(),
                     snapshot.assetCode(),
@@ -364,17 +356,6 @@ public class OfflineSnapshotService {
             );
         } catch (Exception ignored) {
             return null;
-        }
-    }
-
-    private java.math.BigDecimal parsePositiveAmount(String value) {
-        if (value == null || value.isBlank()) {
-            return java.math.BigDecimal.ZERO;
-        }
-        try {
-            return new java.math.BigDecimal(value).max(java.math.BigDecimal.ZERO);
-        } catch (NumberFormatException exception) {
-            return java.math.BigDecimal.ZERO;
         }
     }
 

@@ -139,6 +139,21 @@ class ProofChainValidatorTest {
     }
 
     @Test
+    void validateAcceptsOutOfOrderProofWhenNeighboringHashLinksMatch() {
+        CollateralLock collateral = collateral("collateral-out-of-order", "device-1", "AGGREGATED");
+        String hash42 = hashService.computeNewStateHash("hash-41", new BigDecimal("1"), 42, "device-1", "nonce-42");
+        String hash43 = hashService.computeNewStateHash(hash42, new BigDecimal("1"), 43, "device-1", "nonce-43");
+        String hash44 = hashService.computeNewStateHash(hash43, new BigDecimal("1"), 44, "device-1", "nonce-44");
+        OfflinePaymentProof proof42 = proof("proof-42", "collateral-out-of-order", "device-1", 42, "hash-41", hash42, "nonce-42");
+        OfflinePaymentProof proof43 = proof("proof-43", "collateral-out-of-order", "device-1", 43, hash42, hash43, "nonce-43");
+        OfflinePaymentProof proof44 = proof("proof-44", "collateral-out-of-order", "device-1", 44, hash43, hash44, "nonce-44");
+
+        ChainValidationResult result = validator.validate(collateral, List.of(proof42, proof44), proof43);
+
+        assertTrue(result.valid());
+    }
+
+    @Test
     void validateAcceptsLegacyDeviceScopedGenesisWhenCollateralStartsAtGenesis() {
         CollateralLock collateral = collateral("collateral-legacy", "device-1", "GENESIS");
         String previousHash = "GENESIS:device:device-1";

@@ -1,6 +1,7 @@
 package io.korion.offlinepay.application.service;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -242,7 +243,7 @@ class CollateralApplicationServiceTest {
     }
 
     @Test
-    void createCollateralCapsTopupByCoinManageAvailableBalance() {
+    void createCollateralUsesFoxyaAvailableAmountWithoutCoinManageCap() {
         OffsetDateTime now = OffsetDateTime.parse("2026-06-08T00:00:00Z");
         CollateralLock aggregate = new CollateralLock(
                 "aggregate",
@@ -272,25 +273,59 @@ class CollateralApplicationServiceTest {
                         "FOX_CLIENT_VISIBLE_AVAILABLE_KORI_EXCLUDING_OFFLINE_COLLATERAL",
                         now.toString()
                 ));
-        when(coinManageCollateralPort.getBalanceSnapshot(1L, "KORI"))
-                .thenReturn(new CoinManageCollateralPort.BalanceSnapshot("160.464387", "0.000000", "16.000000"));
+        CollateralOperation operation = new CollateralOperation(
+                "topup-operation",
+                null,
+                1L,
+                "device-1",
+                "KORI",
+                CollateralOperationType.TOPUP,
+                new BigDecimal("195.464387"),
+                CollateralOperationStatus.REQUESTED,
+                "topup:device-1:key",
+                null,
+                "{}",
+                now,
+                now
+        );
+        when(collateralOperationRepository.saveRequested(
+                any(),
+                eq(1L),
+                eq("device-1"),
+                eq("KORI"),
+                eq(CollateralOperationType.TOPUP),
+                eq(new BigDecimal("195.464387")),
+                anyString(),
+                anyString()
+        )).thenReturn(operation);
+
+        service.createCollateral(new CollateralApplicationService.CreateCollateralCommand(
+                1L,
+                "device-1",
+                new BigDecimal("195.464387"),
+                "KORI",
+                "GENESIS",
+                1,
+                Map.of(),
+                "topup-at-foxya-available"
+        ));
 
         try {
             service.createCollateral(new CollateralApplicationService.CreateCollateralCommand(
                     1L,
                     "device-1",
-                    new BigDecimal("195.464387"),
+                    new BigDecimal("195.464388"),
                     "KORI",
                     "GENESIS",
                     1,
                     Map.of(),
-                    "topup-over-ledger-available"
+                    "topup-above-foxya-available"
             ));
         } catch (IllegalArgumentException exception) {
             assertTrue(exception.getMessage().contains("exceeds foxya canonical snapshot balance"));
             return;
         }
 
-        throw new AssertionError("top-up above coin_manage available balance must be rejected");
+        throw new AssertionError("top-up above foxya available balance must be rejected");
     }
 }

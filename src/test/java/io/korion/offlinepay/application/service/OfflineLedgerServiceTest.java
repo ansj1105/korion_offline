@@ -343,7 +343,7 @@ class OfflineLedgerServiceTest {
     }
 
     @Test
-    void keepsFinanciallyHonoredRejectedReceivedProofInUnsettledSummaryAndRows() {
+    void mapsFinanciallyHonoredRejectedReceivedProofToConfirmedUnsettledSummaryAndRows() {
         String receiverDeviceId = "98db6beb-4ae1-4027-b9ee-507ce7eaeaa7";
         Device receiverDevice = device(receiverDeviceId, 39L);
         OfflinePaymentProof proof = rejectedProof(
@@ -367,11 +367,11 @@ class OfflineLedgerServiceTest {
         OfflineLedgerService.HubSummaryResponse summary = service.getHubSummary(receiverDeviceId, "KORI");
 
         assertEquals(1, history.receivedItems().size());
-        assertEquals("FAILED", history.receivedItems().get(0).statusCode());
+        assertEquals("CONFIRMED", history.receivedItems().get(0).statusCode());
         assertEquals("0.99900000", history.receivedItems().get(0).unsettledAmount());
         assertEquals("0.99900000", history.totalReceivedAmount());
         assertEquals("0.99900000", summary.unsettledReceivedAmount());
-        assertEquals(1, summary.failedCount());
+        assertEquals(0, summary.failedCount());
     }
 
     @Test
