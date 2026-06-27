@@ -395,6 +395,44 @@ class SettlementResponseFactoryTest {
     }
 
     @Test
+    void requestDetailMapsFinanciallyHonoredRejectedSettlementToConfirmedUntilReceiverWalletSettlement() {
+        SettlementRequest request = financiallyHonoredRejectedRequest();
+        OfflinePaymentProof proof = settledProofWithReceiverAmounts(new BigDecimal("1.00000000"), BigDecimal.ZERO, null);
+
+        var response = factory.toDetailResponse(new SettlementApplicationService.SettlementDetailView(
+                request,
+                null,
+                null,
+                proof,
+                null
+        ));
+
+        assertEquals("CONFIRMED", response.status());
+        assertTrue(response.financiallyHonored());
+    }
+
+    @Test
+    void requestDetailMapsFinanciallyHonoredReceiverWalletSettledProofToSettled() {
+        SettlementRequest request = financiallyHonoredRejectedRequest();
+        OfflinePaymentProof proof = settledProofWithReceiverAmounts(
+                BigDecimal.ZERO,
+                new BigDecimal("1.00000000"),
+                OffsetDateTime.parse("2026-06-08T00:11:00Z")
+        );
+
+        var response = factory.toDetailResponse(new SettlementApplicationService.SettlementDetailView(
+                request,
+                null,
+                null,
+                proof,
+                null
+        ));
+
+        assertEquals("SETTLED", response.status());
+        assertTrue(response.financiallyHonored());
+    }
+
+    @Test
     void finalizeResponseMapsServerValidatedSettlementToConfirmed() {
         assertEquals("CONFIRMED", factory.toFinalizeResponse(settledRequest()).status());
     }
@@ -451,6 +489,21 @@ class SettlementResponseFactoryTest {
                 "SETTLED",
                 false,
                 "{}",
+                OffsetDateTime.parse("2026-06-08T00:00:00Z"),
+                OffsetDateTime.parse("2026-06-08T00:10:00Z")
+        );
+    }
+
+    private SettlementRequest financiallyHonoredRejectedRequest() {
+        return new SettlementRequest(
+                "settlement-financially-honored",
+                "batch-1",
+                "collateral-1",
+                "proof-1",
+                SettlementStatus.REJECTED,
+                "COUNTER_GAP",
+                false,
+                jsonService.write(java.util.Map.of("financiallyHonored", true)),
                 OffsetDateTime.parse("2026-06-08T00:00:00Z"),
                 OffsetDateTime.parse("2026-06-08T00:10:00Z")
         );

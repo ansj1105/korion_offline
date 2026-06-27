@@ -194,13 +194,15 @@ public class SettlementResponseFactory {
         String sagaCurrentStep = settlementSaga == null ? null : settlementSaga.currentStep();
         String senderHistoryStatus = resolveSenderHistoryStatus(sagaCurrentStep);
         String receiverHistoryStatus = resolveReceiverHistoryStatus(sagaCurrentStep, proof);
+        boolean financiallyHonored = isFinanciallyHonored(settlementRequest);
         return new SettlementRequestDetailResponse(
                 settlementRequest.id(),
                 settlementRequest.batchId(),
                 settlementRequest.proofId(),
-                normalizePublicSettlementStatus(settlementRequest.status(), proof),
+                normalizePublicSettlementStatus(settlementRequest.status(), proof, financiallyHonored),
                 settlementRequest.reasonCode(),
                 settlementRequest.conflictDetected(),
+                financiallyHonored,
                 settlementRequest.updatedAt() == null ? null : settlementRequest.updatedAt().toString(),
                 settlementSaga == null || settlementSaga.status() == null ? null : normalizePublicSagaStatus(settlementSaga.status()),
                 settlementSaga == null ? null : settlementSaga.currentStep(),
@@ -233,12 +235,23 @@ public class SettlementResponseFactory {
     }
 
     private String normalizePublicSettlementStatus(SettlementStatus status) {
-        return normalizePublicSettlementStatus(status, null);
+        return normalizePublicSettlementStatus(status, null, false);
     }
 
     private String normalizePublicSettlementStatus(SettlementStatus status, OfflinePaymentProof proof) {
+        return normalizePublicSettlementStatus(status, proof, false);
+    }
+
+    private String normalizePublicSettlementStatus(
+            SettlementStatus status,
+            OfflinePaymentProof proof,
+            boolean financiallyHonored
+    ) {
         if (status == null) {
             return "PENDING";
+        }
+        if (status == SettlementStatus.REJECTED && financiallyHonored) {
+            return isReceiverWalletSettled(proof) ? "SETTLED" : "CONFIRMED";
         }
         return switch (status) {
             case PENDING, VALIDATING -> "PENDING";
@@ -332,6 +345,13 @@ public class SettlementResponseFactory {
             return "SYNCED";
         }
         return "PENDING";
+    }
+
+    private boolean isFinanciallyHonored(SettlementRequest settlementRequest) {
+        if (settlementRequest == null || settlementRequest.settlementResultJson() == null || settlementRequest.settlementResultJson().isBlank()) {
+            return false;
+        }
+        return jsonService.readTree(settlementRequest.settlementResultJson()).path("financiallyHonored").asBoolean(false);
     }
 
     private String textOrNull(JsonNode node, String field) {

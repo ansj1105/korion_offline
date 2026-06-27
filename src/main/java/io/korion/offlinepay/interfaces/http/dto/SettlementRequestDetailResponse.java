@@ -13,6 +13,7 @@ public record SettlementRequestDetailResponse(
         String status,
         String reasonCode,
         boolean conflictDetected,
+        Boolean financiallyHonored,
         String updatedAt,
         // Public saga projection. Internal saga states remain available through sagaStep/recoveryMode.
         String sagaStatus,
