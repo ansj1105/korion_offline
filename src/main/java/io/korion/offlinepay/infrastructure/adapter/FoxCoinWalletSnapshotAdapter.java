@@ -33,7 +33,7 @@ public class FoxCoinWalletSnapshotAdapter implements FoxCoinWalletSnapshotPort {
         return new WalletSnapshot(
                 userId,
                 stringValue(response.get("currencyCode"), assetCode),
-                decimalValue(response.get("totalBalance")),
+                requiredDecimalValue(response.get("totalBalance"), "totalBalance"),
                 decimalValue(response.get("lockedBalance")),
                 stringValue(response.get("canonicalBasis"), "FOX_INTERNAL_KORI_BALANCE"),
                 stringValue(response.get("refreshedAt"), "")
@@ -52,6 +52,21 @@ public class FoxCoinWalletSnapshotAdapter implements FoxCoinWalletSnapshotPort {
         if (value == null) {
             return BigDecimal.ZERO;
         }
-        return new BigDecimal(String.valueOf(value));
+        String text = String.valueOf(value).trim();
+        if (text.isEmpty()) {
+            return BigDecimal.ZERO;
+        }
+        return new BigDecimal(text);
+    }
+
+    private static BigDecimal requiredDecimalValue(Object value, String fieldName) {
+        if (value == null) {
+            throw new IllegalStateException("fox_coin wallet snapshot missing required field: " + fieldName);
+        }
+        String text = String.valueOf(value).trim();
+        if (text.isEmpty()) {
+            throw new IllegalStateException("fox_coin wallet snapshot empty required field: " + fieldName);
+        }
+        return new BigDecimal(text);
     }
 }
