@@ -11,6 +11,7 @@ import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.korion.offlinepay.application.port.CollateralRepository;
+import io.korion.offlinepay.application.port.CoinManageCollateralPort;
 import io.korion.offlinepay.application.port.DeviceRepository;
 import io.korion.offlinepay.application.port.IssuedOfflineProofRepository;
 import io.korion.offlinepay.config.AppProperties;
@@ -32,6 +33,7 @@ class IssuedProofApplicationServiceTest {
 
     private final DeviceRepository deviceRepository = Mockito.mock(DeviceRepository.class);
     private final CollateralRepository collateralRepository = Mockito.mock(CollateralRepository.class);
+    private final CoinManageCollateralPort coinManageCollateralPort = Mockito.mock(CoinManageCollateralPort.class);
     private final IssuedOfflineProofRepository issuedOfflineProofRepository = Mockito.mock(IssuedOfflineProofRepository.class);
     private final ProofIssuerSignatureService proofIssuerSignatureService = Mockito.mock(ProofIssuerSignatureService.class);
     private final JsonService jsonService = new JsonService(new ObjectMapper());
@@ -41,6 +43,7 @@ class IssuedProofApplicationServiceTest {
     private final IssuedProofApplicationService service = new IssuedProofApplicationService(
             deviceRepository,
             collateralRepository,
+            coinManageCollateralPort,
             issuedOfflineProofRepository,
             proofIssuerSignatureService,
             jsonService,
@@ -51,6 +54,8 @@ class IssuedProofApplicationServiceTest {
     @BeforeEach
     void setUp() {
         when(proofIssuerSignatureService.verify(anyString(), anyString(), anyString())).thenReturn(true);
+        when(coinManageCollateralPort.getBalanceSnapshot(anyLong(), anyString()))
+                .thenReturn(new CoinManageCollateralPort.BalanceSnapshot("0", "0", "0", false));
     }
 
     @Test
@@ -107,6 +112,63 @@ class IssuedProofApplicationServiceTest {
         assertThat(envelope.collateralLockId()).isEqualTo("large-lock");
         assertThat(envelope.collateralLockIds()).containsExactly("small-lock", "large-lock");
         assertThat(envelope.usableAmount()).isEqualTo("100");
+    }
+
+    @Test
+    void capsIssuedProofUsableAmountByCoinManagePendingWhenLedgerHasFootprint() {
+        when(properties.assetCode()).thenReturn("KORI");
+        when(proofIssuerSignatureService.keyId()).thenReturn("issuer-1");
+        when(proofIssuerSignatureService.publicKey()).thenReturn("issuer-public-key");
+        when(proofIssuerSignatureService.sign(anyString())).thenReturn("issuer-signature");
+        when(deviceRepository.findByUserIdAndDeviceId(35L, "new-device"))
+                .thenReturn(Optional.of(device(35L, "new-device")));
+        when(collateralRepository.findActiveByUserIdAndAssetCode(35L, "KORI"))
+                .thenReturn(List.of(
+                        collateral("small-lock", 35L, "old-device", "10"),
+                        collateral("large-lock", 35L, "old-device", "90")
+                ));
+        when(coinManageCollateralPort.getBalanceSnapshot(35L, "KORI"))
+                .thenReturn(new CoinManageCollateralPort.BalanceSnapshot("5", "0", "70", true));
+        when(issuedOfflineProofRepository.save(
+                anyString(),
+                anyLong(),
+                anyString(),
+                anyString(),
+                anyString(),
+                any(BigDecimal.class),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString(),
+                any(IssuedProofStatus.class),
+                nullable(OffsetDateTime.class)
+        )).thenAnswer(invocation -> new IssuedOfflineProof(
+                invocation.getArgument(0),
+                invocation.getArgument(1),
+                invocation.getArgument(2),
+                invocation.getArgument(3),
+                invocation.getArgument(4),
+                invocation.getArgument(5),
+                invocation.getArgument(6),
+                invocation.getArgument(7),
+                invocation.getArgument(8),
+                invocation.getArgument(9),
+                invocation.getArgument(10),
+                invocation.getArgument(11),
+                null,
+                invocation.getArgument(12),
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        ));
+
+        IssuedProofApplicationService.IssuedProofEnvelope envelope = service.issue(
+                new IssuedProofApplicationService.IssueCommand(35L, "new-device", "KORI")
+        );
+
+        assertThat(envelope.collateralLockIds()).containsExactly("small-lock", "large-lock");
+        assertThat(envelope.usableAmount()).isEqualTo("70");
+        assertThat(envelope.issuedPayload()).contains("\"usableAmount\":\"70\"");
     }
 
     @Test

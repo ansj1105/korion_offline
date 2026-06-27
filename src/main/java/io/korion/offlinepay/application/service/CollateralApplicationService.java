@@ -71,18 +71,16 @@ public class CollateralApplicationService {
                         assetCode
                 )
                 .orElse(null);
-        FoxCoinWalletSnapshotPort.WalletSnapshot walletSnapshot =
-                foxCoinWalletSnapshotPort.getCanonicalWalletSnapshot(command.userId(), assetCode);
         BigDecimal currentCollateralAmount = aggregate == null
                 ? BigDecimal.ZERO
                 : aggregate.lockedAmount().max(BigDecimal.ZERO);
         BigDecimal additionalCollateralAvailableAmount =
-                resolveAdditionalCollateralAvailableAmount(walletSnapshot, currentCollateralAmount);
+                resolveAdditionalCollateralAvailableAmount(command.userId(), assetCode, currentCollateralAmount);
         if (command.amount() == null || command.amount().signum() <= 0) {
             throw new IllegalArgumentException("collateral amount is required");
         }
         if (command.amount().compareTo(additionalCollateralAvailableAmount) > 0) {
-            throw new IllegalArgumentException("collateral amount exceeds foxya canonical snapshot balance");
+            throw new IllegalArgumentException("collateral amount exceeds coin_manage available balance");
         }
         int policyVersion = command.policyVersion() == null ? 1 : command.policyVersion();
         String initialStateRoot = command.initialStateRoot() == null || command.initialStateRoot().isBlank()
@@ -125,12 +123,28 @@ public class CollateralApplicationService {
     }
 
     private BigDecimal resolveAdditionalCollateralAvailableAmount(
-            FoxCoinWalletSnapshotPort.WalletSnapshot walletSnapshot,
+            long userId,
+            String assetCode,
             BigDecimal currentCollateralAmount
     ) {
-        return CollateralAvailabilityCalculator.resolveAdditionalCollateralAvailableAmount(
+        CoinManageCollateralPort.BalanceSnapshot balanceSnapshot =
+                coinManageCollateralPort.getBalanceSnapshot(userId, assetCode);
+        FoxCoinWalletSnapshotPort.WalletSnapshot walletSnapshot = balanceSnapshot.hasLedgerFootprint()
+                ? null
+                : foxCoinWalletSnapshotPort.getCanonicalWalletSnapshot(userId, assetCode);
+        return CollateralLedgerAmountResolver.resolveAdditionalCollateralAvailableAmount(
+                balanceSnapshot,
                 walletSnapshot,
                 currentCollateralAmount
+        );
+    }
+
+    private BigDecimal resolveReleaseAvailableAmount(long userId, String assetCode, BigDecimal offlineRemainingAmount) {
+        CoinManageCollateralPort.BalanceSnapshot balanceSnapshot =
+                coinManageCollateralPort.getBalanceSnapshot(userId, assetCode);
+        return CollateralLedgerAmountResolver.resolveSpendableCollateralAmount(
+                balanceSnapshot,
+                offlineRemainingAmount
         );
     }
 
@@ -177,7 +191,9 @@ public class CollateralApplicationService {
         if (command.amount() == null || command.amount().signum() <= 0) {
             throw new IllegalArgumentException("release amount is required");
         }
-        if (command.amount().compareTo(aggregate.remainingAmount()) > 0) {
+        BigDecimal releaseAvailableAmount =
+                resolveReleaseAvailableAmount(command.userId(), requestedCollateral.assetCode(), aggregate.remainingAmount());
+        if (command.amount().compareTo(releaseAvailableAmount) > 0) {
             throw new IllegalArgumentException("release amount exceeds remaining collateral");
         }
 

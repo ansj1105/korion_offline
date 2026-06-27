@@ -194,7 +194,7 @@ class OfflineSnapshotServiceTest {
                         "2026-03-31T00:00:00Z"
                 ));
         when(coinManageCollateralPort.getBalanceSnapshot(1L, "KORI"))
-                .thenReturn(new CoinManageCollateralPort.BalanceSnapshot("999.000000", "0.000000", "0.000000"));
+                .thenReturn(new CoinManageCollateralPort.BalanceSnapshot("999.000000", "0.000000", "20.00000000", true));
         JsonService jsonService = new JsonService(new com.fasterxml.jackson.databind.ObjectMapper());
         OfflineSnapshotService service = new OfflineSnapshotService(
                 deviceRepository,
@@ -237,11 +237,11 @@ class OfflineSnapshotServiceTest {
         assertEquals("device-1", snapshot.collateral().deviceId());
         assertNotNull(snapshot.wallet());
         assertEquals("76.00000000", snapshot.collateral().lockedAmount());
-        assertEquals("23.00000000", snapshot.collateral().remainingAmount());
+        assertEquals("20.00000000", snapshot.collateral().remainingAmount());
         assertEquals("76.00000000", snapshot.collateral().collateralTotal());
         assertEquals("0", snapshot.collateral().unsettledOutgoing());
-        assertEquals("23.00000000", snapshot.collateral().availableForPay());
-        assertEquals("122.253587460317457206", snapshot.wallet().additionalCollateralAvailableAmount());
+        assertEquals("20.00000000", snapshot.collateral().availableForPay());
+        assertEquals("999.000000", snapshot.wallet().additionalCollateralAvailableAmount());
 
         OfflineSnapshotService.CurrentSnapshot localizedSnapshot = service.getCurrentSnapshot(
                 1L,
@@ -256,7 +256,7 @@ class OfflineSnapshotServiceTest {
     }
 
     @Test
-    void currentSnapshotDoesNotCapTopupAvailabilityByCoinManageLedgerAvailable() {
+    void currentSnapshotUsesCoinManageLedgerAvailableForTopupAvailability() {
         DeviceRepository deviceRepository = mock(DeviceRepository.class);
         CollateralRepository collateralRepository = mock(CollateralRepository.class);
         IssuedOfflineProofRepository issuedOfflineProofRepository = mock(IssuedOfflineProofRepository.class);
@@ -293,7 +293,7 @@ class OfflineSnapshotServiceTest {
                         "2026-05-31T10:00:00Z"
                 ));
         when(coinManageCollateralPort.getBalanceSnapshot(175L, "KORI"))
-                .thenReturn(new CoinManageCollateralPort.BalanceSnapshot("3.296700", "0.000000", "0.000000"));
+                .thenReturn(new CoinManageCollateralPort.BalanceSnapshot("3.296700", "0.000000", "0.000000", true));
         JsonService jsonService = new JsonService(new com.fasterxml.jackson.databind.ObjectMapper());
         OfflineSnapshotService service = new OfflineSnapshotService(
                 deviceRepository,
@@ -333,11 +333,92 @@ class OfflineSnapshotServiceTest {
         OfflineSnapshotService.CurrentSnapshot snapshot = service.getCurrentSnapshot(175L, "device-175", "KORI");
 
         assertNotNull(snapshot.wallet());
-        assertEquals("11.11670000", snapshot.wallet().additionalCollateralAvailableAmount());
+        assertEquals("3.296700", snapshot.wallet().additionalCollateralAvailableAmount());
     }
 
     @Test
-    void currentSnapshotKeepsFoxyaTopupAvailabilityWhenLedgerIsNotBootstrappedYet() {
+    void currentSnapshotDoesNotReportZeroTopupAvailabilityWhenCoinManageSnapshotFails() {
+        DeviceRepository deviceRepository = mock(DeviceRepository.class);
+        CollateralRepository collateralRepository = mock(CollateralRepository.class);
+        IssuedOfflineProofRepository issuedOfflineProofRepository = mock(IssuedOfflineProofRepository.class);
+        FoxCoinWalletSnapshotPort foxCoinWalletSnapshotPort = mock(FoxCoinWalletSnapshotPort.class);
+        CoinManageCollateralPort coinManageCollateralPort = mock(CoinManageCollateralPort.class);
+
+        when(deviceRepository.findByUserIdAndDeviceId(1L, "device-1")).thenReturn(Optional.empty());
+        when(issuedOfflineProofRepository.findLatestActiveByUserIdAndDeviceIdAndAssetCode(1L, "device-1", "KORI"))
+                .thenReturn(Optional.empty());
+        when(collateralRepository.findAggregateByUserIdAndAssetCode(1L, "KORI"))
+                .thenReturn(Optional.of(new CollateralLock(
+                        "collateral-1",
+                        1L,
+                        "AGGREGATED",
+                        "KORI",
+                        new BigDecimal("16.00000000"),
+                        new BigDecimal("14.00000000"),
+                        "AGGREGATED",
+                        1,
+                        CollateralStatus.LOCKED,
+                        "lock-1",
+                        OffsetDateTime.parse("2026-06-01T00:00:00Z"),
+                        "{}",
+                        OffsetDateTime.parse("2026-05-31T00:00:00Z"),
+                        OffsetDateTime.parse("2026-05-31T10:00:00Z")
+                )));
+        when(foxCoinWalletSnapshotPort.getCanonicalWalletSnapshot(1L, "KORI"))
+                .thenReturn(new FoxCoinWalletSnapshotPort.WalletSnapshot(
+                        1L,
+                        "KORI",
+                        new BigDecimal("197.343487"),
+                        BigDecimal.ZERO,
+                        "FOX_CLIENT_VISIBLE_TOTAL_KORI",
+                        "2026-06-01T00:00:00Z"
+                ));
+        when(coinManageCollateralPort.getBalanceSnapshot(1L, "KORI"))
+                .thenThrow(new IllegalStateException("coin_manage unavailable"));
+        JsonService jsonService = new JsonService(new com.fasterxml.jackson.databind.ObjectMapper());
+        OfflineSnapshotService service = new OfflineSnapshotService(
+                deviceRepository,
+                collateralRepository,
+                issuedOfflineProofRepository,
+                mock(OfflinePaymentProofRepository.class),
+                foxCoinWalletSnapshotPort,
+                coinManageCollateralPort,
+                new AppProperties(
+                        "KORI",
+                        24,
+                        20,
+                        1000,
+                        null,
+                        new AppProperties.CoinManage("http://localhost:3000", "secret", 5000),
+                        new AppProperties.FoxCoin("http://localhost:8080", "secret", 5000),
+                        null,
+                        null,
+                        new AppProperties.Worker(false, "worker", 60000, 3)
+                ),
+                jsonService,
+                new JsonPayloadCanonicalizationService(jsonService),
+                new ProofIssuerSignatureService(new AppProperties(
+                        "KORI",
+                        24,
+                        20,
+                        1000,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null
+                ))
+        );
+
+        OfflineSnapshotService.CurrentSnapshot snapshot = service.getCurrentSnapshot(1L, "device-1", "KORI");
+
+        assertNotNull(snapshot.collateral());
+        assertNull(snapshot.wallet());
+    }
+
+    @Test
+    void currentSnapshotKeepsFoxyaTopupAvailabilityWhenLedgerHasNoFootprintYet() {
         DeviceRepository deviceRepository = mock(DeviceRepository.class);
         CollateralRepository collateralRepository = mock(CollateralRepository.class);
         IssuedOfflineProofRepository issuedOfflineProofRepository = mock(IssuedOfflineProofRepository.class);
@@ -359,7 +440,7 @@ class OfflineSnapshotServiceTest {
                         "2026-06-24T00:00:00Z"
                 ));
         when(coinManageCollateralPort.getBalanceSnapshot(1762L, "KORI"))
-                .thenReturn(new CoinManageCollateralPort.BalanceSnapshot("0.000000", "0.000000", "0.000000"));
+                .thenReturn(new CoinManageCollateralPort.BalanceSnapshot("0.000000", "0.000000", "0.000000", false));
         JsonService jsonService = new JsonService(new com.fasterxml.jackson.databind.ObjectMapper());
         OfflineSnapshotService service = new OfflineSnapshotService(
                 deviceRepository,
@@ -476,7 +557,7 @@ class OfflineSnapshotServiceTest {
                         "2026-06-11T21:42:05Z"
                 ));
         when(coinManageCollateralPort.getBalanceSnapshot(39L, "KORI"))
-                .thenReturn(new CoinManageCollateralPort.BalanceSnapshot("999.000000", "0.000000", "0.000000"));
+                .thenReturn(new CoinManageCollateralPort.BalanceSnapshot("999.000000", "0.000000", "10.00000000", true));
         JsonService jsonService = new JsonService(new com.fasterxml.jackson.databind.ObjectMapper());
         OfflineSnapshotService service = new OfflineSnapshotService(
                 deviceRepository,

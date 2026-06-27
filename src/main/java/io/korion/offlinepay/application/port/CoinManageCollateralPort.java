@@ -14,5 +14,5 @@ public interface CoinManageCollateralPort {
 
     record ReleaseCollateralResult(String releaseId, String status) {}
 
-    record BalanceSnapshot(String availableBalance, String lockedBalance, String offlinePayPendingBalance) {}
+    record BalanceSnapshot(String availableBalance, String lockedBalance, String offlinePayPendingBalance, boolean hasLedgerFootprint) {}
 }

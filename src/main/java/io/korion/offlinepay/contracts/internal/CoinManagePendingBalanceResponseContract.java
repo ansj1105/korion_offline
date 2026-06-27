@@ -6,5 +6,6 @@ public record CoinManagePendingBalanceResponseContract(
         String assetCode,
         String availableBalance,
         String lockedBalance,
-        String offlinePayPendingBalance
+        String offlinePayPendingBalance,
+        Boolean hasLedgerFootprint
 ) {}

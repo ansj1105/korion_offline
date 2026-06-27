@@ -1,6 +1,7 @@
 package io.korion.offlinepay.application.service;
 
 import io.korion.offlinepay.application.port.CollateralRepository;
+import io.korion.offlinepay.application.port.CoinManageCollateralPort;
 import io.korion.offlinepay.application.port.DeviceRepository;
 import io.korion.offlinepay.application.port.IssuedOfflineProofRepository;
 import io.korion.offlinepay.config.AppProperties;
@@ -33,6 +34,7 @@ public class IssuedProofApplicationService {
 
     private final DeviceRepository deviceRepository;
     private final CollateralRepository collateralRepository;
+    private final CoinManageCollateralPort coinManageCollateralPort;
     private final IssuedOfflineProofRepository issuedOfflineProofRepository;
     private final ProofIssuerSignatureService proofIssuerSignatureService;
     private final JsonService jsonService;
@@ -42,6 +44,7 @@ public class IssuedProofApplicationService {
     public IssuedProofApplicationService(
             DeviceRepository deviceRepository,
             CollateralRepository collateralRepository,
+            CoinManageCollateralPort coinManageCollateralPort,
             IssuedOfflineProofRepository issuedOfflineProofRepository,
             ProofIssuerSignatureService proofIssuerSignatureService,
             JsonService jsonService,
@@ -50,6 +53,7 @@ public class IssuedProofApplicationService {
     ) {
         this.deviceRepository = deviceRepository;
         this.collateralRepository = collateralRepository;
+        this.coinManageCollateralPort = coinManageCollateralPort;
         this.issuedOfflineProofRepository = issuedOfflineProofRepository;
         this.proofIssuerSignatureService = proofIssuerSignatureService;
         this.jsonService = jsonService;
@@ -68,9 +72,13 @@ public class IssuedProofApplicationService {
         List<CollateralLock> collaterals = resolveIssuableCollaterals(command.userId(), normalizedAssetCode);
         CollateralLock collateral = selectPrimaryCollateral(collaterals)
                 .orElseThrow(() -> new IllegalArgumentException("collateral unavailable for asset: " + normalizedAssetCode));
-        BigDecimal usableAmount = collaterals.stream()
+        BigDecimal offlineUsableAmount = collaterals.stream()
                 .map(CollateralLock::remainingAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal usableAmount = resolveIssuedProofUsableAmount(command.userId(), normalizedAssetCode, offlineUsableAmount);
+        if (usableAmount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException("collateral unavailable for asset: " + normalizedAssetCode);
+        }
         List<String> collateralLockIds = collaterals.stream()
                 .map(CollateralLock::id)
                 .toList();
@@ -164,6 +172,15 @@ public class IssuedProofApplicationService {
 
     private List<CollateralLock> resolveIssuableCollaterals(long userId, String assetCode) {
         return collateralRepository.findActiveByUserIdAndAssetCode(userId, assetCode);
+    }
+
+    private BigDecimal resolveIssuedProofUsableAmount(long userId, String assetCode, BigDecimal offlineUsableAmount) {
+        CoinManageCollateralPort.BalanceSnapshot balanceSnapshot =
+                coinManageCollateralPort.getBalanceSnapshot(userId, assetCode);
+        return CollateralLedgerAmountResolver.resolveSpendableCollateralAmount(
+                balanceSnapshot,
+                offlineUsableAmount
+        );
     }
 
     @Scheduled(fixedDelayString = "${offline-pay.worker.collateral-device-sync-delay-ms:60000}")

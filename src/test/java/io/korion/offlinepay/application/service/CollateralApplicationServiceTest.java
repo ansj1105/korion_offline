@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -133,6 +134,8 @@ class CollateralApplicationServiceTest {
         when(deviceRepository.findByUserIdAndDeviceId(1L, "device-1")).thenReturn(Optional.of(activeDevice(now)));
         when(collateralRepository.findById(requestedCollateral.id())).thenReturn(Optional.of(requestedCollateral));
         when(collateralRepository.findAggregateByUserIdAndAssetCode(1L, "KORI")).thenReturn(Optional.of(aggregate));
+        when(coinManageCollateralPort.getBalanceSnapshot(1L, "KORI"))
+                .thenReturn(new CoinManageCollateralPort.BalanceSnapshot("90.000000", "0.000000", "10.000000", true));
         when(collateralRepository.findActiveByUserIdAndAssetCode(1L, "KORI")).thenReturn(List.of(activeCollateral));
         when(collateralOperationRepository.saveRequested(
                 eq(activeCollateral.id()),
@@ -174,6 +177,52 @@ class CollateralApplicationServiceTest {
                 eq(operation.referenceId()),
                 anyString()
         );
+    }
+
+    @Test
+    void releaseCollateralRejectsAmountAboveCoinManagePendingWhenLedgerHasFootprint() {
+        OffsetDateTime now = OffsetDateTime.parse("2026-06-08T00:00:00Z");
+        CollateralLock requestedCollateral = new CollateralLock(
+                "13a46c26-96fc-4375-85cc-58b55c8229df",
+                1L,
+                "device-1",
+                "KORI",
+                new BigDecimal("10.000000"),
+                new BigDecimal("10.000000"),
+                "GENESIS",
+                1,
+                CollateralStatus.LOCKED,
+                "topup:device-1:key",
+                now.plusHours(1),
+                "{}",
+                now,
+                now
+        );
+
+        when(deviceRepository.findByUserIdAndDeviceId(1L, "device-1")).thenReturn(Optional.of(activeDevice(now)));
+        when(collateralRepository.findById(requestedCollateral.id())).thenReturn(Optional.of(requestedCollateral));
+        when(collateralRepository.findAggregateByUserIdAndAssetCode(1L, "KORI")).thenReturn(Optional.of(requestedCollateral));
+        when(coinManageCollateralPort.getBalanceSnapshot(1L, "KORI"))
+                .thenReturn(new CoinManageCollateralPort.BalanceSnapshot("95.000000", "0.000000", "5.000000", true));
+
+        try {
+            service.releaseCollateral(
+                    requestedCollateral.id(),
+                    new CollateralApplicationService.ReleaseCollateralCommand(
+                            1L,
+                            "device-1",
+                            new BigDecimal("6.000000"),
+                            "manual_release",
+                            Map.of(),
+                            "test"
+                    )
+            );
+        } catch (IllegalArgumentException exception) {
+            assertTrue(exception.getMessage().contains("release amount exceeds remaining collateral"));
+            return;
+        }
+
+        throw new AssertionError("release above coin_manage offline_pay_pending must be rejected");
     }
 
     private Device activeDevice(OffsetDateTime now) {
@@ -243,7 +292,7 @@ class CollateralApplicationServiceTest {
     }
 
     @Test
-    void createCollateralUsesFoxyaAvailableAmountWithoutCoinManageCap() {
+    void createCollateralUsesCoinManageAvailableAmountWhenLedgerHasFootprint() {
         OffsetDateTime now = OffsetDateTime.parse("2026-06-08T00:00:00Z");
         CollateralLock aggregate = new CollateralLock(
                 "aggregate",
@@ -273,6 +322,8 @@ class CollateralApplicationServiceTest {
                         "FOX_CLIENT_VISIBLE_AVAILABLE_KORI_EXCLUDING_OFFLINE_COLLATERAL",
                         now.toString()
                 ));
+        when(coinManageCollateralPort.getBalanceSnapshot(1L, "KORI"))
+                .thenReturn(new CoinManageCollateralPort.BalanceSnapshot("195.464387", "0.000000", "16.000000", true));
         CollateralOperation operation = new CollateralOperation(
                 "topup-operation",
                 null,
@@ -309,6 +360,7 @@ class CollateralApplicationServiceTest {
                 Map.of(),
                 "topup-at-foxya-available"
         ));
+        verify(foxCoinWalletSnapshotPort, never()).getCanonicalWalletSnapshot(1L, "KORI");
 
         try {
             service.createCollateral(new CollateralApplicationService.CreateCollateralCommand(
@@ -322,10 +374,10 @@ class CollateralApplicationServiceTest {
                     "topup-above-foxya-available"
             ));
         } catch (IllegalArgumentException exception) {
-            assertTrue(exception.getMessage().contains("exceeds foxya canonical snapshot balance"));
+            assertTrue(exception.getMessage().contains("exceeds coin_manage available balance"));
             return;
         }
 
-        throw new AssertionError("top-up above foxya available balance must be rejected");
+        throw new AssertionError("top-up above coin_manage available balance must be rejected");
     }
 }

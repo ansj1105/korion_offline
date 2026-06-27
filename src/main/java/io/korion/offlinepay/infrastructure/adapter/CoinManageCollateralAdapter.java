@@ -94,7 +94,8 @@ public class CoinManageCollateralAdapter implements CoinManageCollateralPort {
         return new BalanceSnapshot(
                 response.availableBalance(),
                 response.lockedBalance(),
-                response.offlinePayPendingBalance()
+                response.offlinePayPendingBalance(),
+                Boolean.TRUE.equals(response.hasLedgerFootprint())
         );
     }
 

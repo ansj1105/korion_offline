@@ -97,6 +97,9 @@ public class OfflineSnapshotService {
                 normalizedAssetCode,
                 collateral == null ? null : collateral.lockedAmount()
         );
+        java.math.BigDecimal spendableCollateralAmount = collateral == null
+                ? java.math.BigDecimal.ZERO
+                : resolveSpendableCollateralAmount(userId, normalizedAssetCode, collateral.remainingAmount());
         return new CurrentSnapshot(
                 userId,
                 deviceId,
@@ -108,10 +111,10 @@ public class OfflineSnapshotService {
                         deviceId,
                         collateral.assetCode(),
                         collateral.lockedAmount().toPlainString(),
-                        collateral.remainingAmount().toPlainString(),
+                        spendableCollateralAmount.toPlainString(),
                         collateral.lockedAmount().toPlainString(),
                         "0",
-                        collateral.remainingAmount().toPlainString(),
+                        spendableCollateralAmount.toPlainString(),
                         collateral.policyVersion(),
                         collateral.status().name(),
                         collateral.initialStateRoot(),
@@ -341,10 +344,7 @@ public class OfflineSnapshotService {
                     ? java.math.BigDecimal.ZERO
                     : collateralLockedAmount.max(java.math.BigDecimal.ZERO);
             java.math.BigDecimal additionalCollateralAvailableAmount =
-                    CollateralAvailabilityCalculator.resolveAdditionalCollateralAvailableAmount(
-                            snapshot,
-                            currentCollateralAmount
-                    );
+                    resolveAdditionalCollateralAvailableAmount(userId, assetCode, snapshot, currentCollateralAmount);
             return new WalletSnapshot(
                     snapshot.userId(),
                     snapshot.assetCode(),
@@ -356,6 +356,38 @@ public class OfflineSnapshotService {
             );
         } catch (Exception ignored) {
             return null;
+        }
+    }
+
+    private java.math.BigDecimal resolveAdditionalCollateralAvailableAmount(
+            long userId,
+            String assetCode,
+            FoxCoinWalletSnapshotPort.WalletSnapshot walletSnapshot,
+            java.math.BigDecimal currentCollateralAmount
+    ) {
+        CoinManageCollateralPort.BalanceSnapshot balanceSnapshot =
+                coinManageCollateralPort.getBalanceSnapshot(userId, assetCode);
+        return CollateralLedgerAmountResolver.resolveAdditionalCollateralAvailableAmount(
+                balanceSnapshot,
+                walletSnapshot,
+                currentCollateralAmount
+        );
+    }
+
+    private java.math.BigDecimal resolveSpendableCollateralAmount(
+            long userId,
+            String assetCode,
+            java.math.BigDecimal offlineRemainingAmount
+    ) {
+        try {
+            CoinManageCollateralPort.BalanceSnapshot balanceSnapshot =
+                    coinManageCollateralPort.getBalanceSnapshot(userId, assetCode);
+            return CollateralLedgerAmountResolver.resolveSpendableCollateralAmount(
+                    balanceSnapshot,
+                    offlineRemainingAmount
+            );
+        } catch (Exception ignored) {
+            return CollateralLedgerAmountResolver.parseNonNegativeAmount(offlineRemainingAmount);
         }
     }
 
