@@ -681,6 +681,12 @@ public class OfflineLedgerService {
             BigDecimal receivedUnsettledAmount,
             PublicLedgerStatus statusCode
     ) {
+        if (statusCode == PublicLedgerStatus.FAILED
+                || statusCode == PublicLedgerStatus.REJECTED
+                || statusCode == PublicLedgerStatus.EXPIRED) {
+            // Settlement failed/rejected/expired: receiver got nothing; avoid showing the gross send amount.
+            return BigDecimal.ZERO;
+        }
         if (statusCode == PublicLedgerStatus.SETTLED) {
             BigDecimal settledAmount = resolveReceivedSettledAmount(proof, payload);
             if (settledAmount.compareTo(BigDecimal.ZERO) > 0) {

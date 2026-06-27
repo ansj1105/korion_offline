@@ -400,6 +400,7 @@ class OfflineLedgerServiceTest {
 
         assertEquals(1, history.receivedItems().size());
         assertEquals("FAILED", history.receivedItems().get(0).statusCode());
+        assertEquals("+0", history.receivedItems().get(0).amount());
         assertEquals("0", history.receivedItems().get(0).unsettledAmount());
         assertEquals("0", history.totalReceivedAmount());
         assertEquals("0", summary.unsettledReceivedAmount());
@@ -423,6 +424,7 @@ class OfflineLedgerServiceTest {
 
         assertEquals(1, response.receivedItems().size());
         assertEquals("FAILED", response.receivedItems().get(0).statusCode());
+        assertEquals("+0", response.receivedItems().get(0).amount());
         assertEquals("0", response.receivedItems().get(0).unsettledAmount());
         assertEquals("0", response.receivedItems().get(0).settledAmount());
         assertEquals("0", response.totalReceivedAmount());
