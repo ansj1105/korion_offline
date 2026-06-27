@@ -226,11 +226,13 @@ class OfflineLedgerServiceTest {
         assertEquals("Offline Receive Settlement", response.receivedItems().get(0).transactionType());
         assertEquals("SETTLED", response.receivedItems().get(0).statusCode());
         assertEquals("+0.999000", response.receivedItems().get(0).amount());
+        assertEquals("0.000000", response.receivedItems().get(0).balance());
         assertEquals("0", response.receivedItems().get(0).unsettledAmount());
         assertEquals("0", response.receivedItems().get(0).settledAmount());
         assertEquals("Offline Receive", response.receivedItems().get(1).transactionType());
         assertEquals("SETTLED", response.receivedItems().get(1).statusCode());
         assertEquals("+0.999000", response.receivedItems().get(1).amount());
+        assertEquals("0.999000", response.receivedItems().get(1).balance());
         assertEquals("0", response.receivedItems().get(1).unsettledAmount());
         assertEquals("SETTLED", response.receivedItems().get(1).receivedSettlementState());
         assertEquals("0", response.totalReceivedAmount());
