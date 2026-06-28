@@ -263,7 +263,7 @@ class SettlementWorkerTest {
     }
 
     @Test
-    void receiverHistoryFailureRequestsLedgerAndFoxyaCompensation() {
+    void receiverHistoryFailureKeepsLedgerSettledAndRetriesHistoryOnly() {
         AppProperties properties = new AppProperties(
                 "USDT",
                 24,
@@ -333,22 +333,39 @@ class SettlementWorkerTest {
 
         worker.poll();
 
-        verify(eventBus).publishExternalSyncRequested(
+        verify(eventBus, never()).publishExternalSyncRequested(
                 eq("LEDGER_COMPENSATION_REQUESTED"),
+                Mockito.anyString(),
+                Mockito.anyString(),
+                Mockito.anyString(),
+                Mockito.anyString(),
+                Mockito.anyString()
+        );
+        verify(offlineSagaService, never()).markCompensationRequired(
+                Mockito.any(),
+                Mockito.anyString(),
+                Mockito.anyString(),
+                Mockito.anyString(),
+                Mockito.anyMap()
+        );
+        verify(offlineSagaService).markDeadLettered(
+                eq(io.korion.offlinepay.domain.status.OfflineSagaType.SETTLEMENT),
+                eq("settlement-1"),
+                eq("HISTORY_SYNC_FAILED"),
+                eq("HISTORY_SYNC_FAIL"),
+                Mockito.anyMap()
+        );
+        verify(reconciliationCaseRepository).save(
                 eq("settlement-1"),
                 eq("batch-1"),
                 eq("proof-1"),
-                Mockito.argThat(payload -> payload != null
-                        && payload.contains("OFFLINE_PAY_COMPENSATION")
-                        && payload.contains("\"transferRef\":\"settlement-1:C\"")),
-                anyString()
-        );
-        verify(offlineSagaService).markCompensationRequired(
-                eq(io.korion.offlinepay.domain.status.OfflineSagaType.SETTLEMENT),
-                eq("settlement-1"),
-                eq("COMPENSATION_REQUIRED"),
+                Mockito.any(),
+                eq("HISTORY_SYNC_FAILED"),
+                eq(io.korion.offlinepay.domain.status.ReconciliationCaseStatus.OPEN),
                 eq("HISTORY_SYNC_FAIL"),
-                Mockito.anyMap()
+                Mockito.argThat(detail -> detail != null
+                        && detail.contains("\"syncTarget\":\"FOXYA_HISTORY\"")
+                        && detail.contains("\"nextAction\":\"RETRY_EXTERNAL_SYNC\""))
         );
         verify(proofRepository, never()).markReceivedCollateralSettled(
                 Mockito.anyList(),

@@ -414,35 +414,19 @@ public class SettlementExternalSyncWorker {
         boolean retryable = OfflineFailurePolicy.isRetryable(failureClass);
         if (OfflineWorkflowEventType.HISTORY_SYNC_REQUESTED.name().equals(message.eventType())
                 || OfflineWorkflowEventType.RECEIVER_HISTORY_SYNC_REQUESTED.name().equals(message.eventType())) {
-            JsonNode compensationCommandNode = payload.path("compensationCommand");
-            Object compensationCommand = compensationCommandNode;
-            if (compensationCommandNode.isMissingNode() || compensationCommandNode.isNull() || !compensationCommandNode.isObject()) {
-                compensationCommand = toCompensationPayload(payload.path("ledgerCommand"), reasonCode);
-            }
-            offlineSagaService.markCompensationRequired(
+            offlineSagaService.markDeadLettered(
                     OfflineSagaType.SETTLEMENT,
                     message.settlementId(),
-                    "COMPENSATION_REQUIRED",
+                    caseType,
                     reasonCode,
                     Map.of(
                             "settlementId", message.settlementId(),
                             "batchId", message.batchId(),
                             "proofId", message.proofId(),
                             "errorMessage", errorMessage,
-                            "eventType", message.eventType()
+                            "eventType", message.eventType(),
+                            "syncTarget", resolveSyncTarget(message.eventType())
                     )
-            );
-            eventBus.publishExternalSyncRequested(
-                    OfflineWorkflowEventType.LEDGER_COMPENSATION_REQUESTED.name(),
-                    message.settlementId(),
-                    message.batchId(),
-                    message.proofId(),
-                    jsonService.write(buildCompensationEventPayload(
-                            message,
-                            compensationCommand,
-                            payload.path("historyCompensationCommand")
-                    )),
-                    OffsetDateTime.now().toString()
             );
         } else if (retryable) {
             offlineSagaService.markDeadLettered(
