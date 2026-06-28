@@ -1,6 +1,7 @@
 package io.korion.offlinepay.application.service;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -223,6 +224,59 @@ class CollateralApplicationServiceTest {
         }
 
         throw new AssertionError("release above coin_manage offline_pay_pending must be rejected");
+    }
+
+    @Test
+    void releaseCollateralDoesNotUseAvailableBalanceAsReleasableCollateral() {
+        OffsetDateTime now = OffsetDateTime.parse("2026-06-08T00:00:00Z");
+        CollateralLock requestedCollateral = new CollateralLock(
+                "13a46c26-96fc-4375-85cc-58b55c8229df",
+                1L,
+                "device-1",
+                "KORI",
+                new BigDecimal("10.000000"),
+                new BigDecimal("10.000000"),
+                "GENESIS",
+                1,
+                CollateralStatus.LOCKED,
+                "topup:device-1:key",
+                now.plusHours(1),
+                "{}",
+                now,
+                now
+        );
+
+        when(deviceRepository.findByUserIdAndDeviceId(1L, "device-1")).thenReturn(Optional.of(activeDevice(now)));
+        when(collateralRepository.findById(requestedCollateral.id())).thenReturn(Optional.of(requestedCollateral));
+        when(collateralRepository.findAggregateByUserIdAndAssetCode(1L, "KORI")).thenReturn(Optional.of(requestedCollateral));
+        when(coinManageCollateralPort.getBalanceSnapshot(1L, "KORI"))
+                .thenReturn(new CoinManageCollateralPort.BalanceSnapshot("100.000000", "0.000000", "0.000000", true));
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, () ->
+                service.releaseCollateral(
+                        requestedCollateral.id(),
+                        new CollateralApplicationService.ReleaseCollateralCommand(
+                                1L,
+                                "device-1",
+                                new BigDecimal("1.000000"),
+                                "manual_release",
+                                Map.of(),
+                                "test"
+                        )
+                )
+        );
+
+        assertTrue(exception.getMessage().contains("release amount exceeds remaining collateral"));
+        verify(collateralOperationRepository, never()).saveRequested(
+                anyString(),
+                eq(1L),
+                eq("device-1"),
+                eq("KORI"),
+                eq(CollateralOperationType.RELEASE),
+                any(),
+                anyString(),
+                anyString()
+        );
     }
 
     private Device activeDevice(OffsetDateTime now) {
