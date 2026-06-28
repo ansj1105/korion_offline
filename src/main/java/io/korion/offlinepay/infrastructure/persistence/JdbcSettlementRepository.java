@@ -101,9 +101,22 @@ public class JdbcSettlementRepository implements SettlementRepository {
     }
 
     @Override
+    public boolean hasFinancialSideEffectsApplied(String settlementId) {
+        String sql = QueryBuilder.select("settlement_requests", "COUNT(*)")
+                .where("id", QueryBuilder.Op.EQ, ":id")
+                .where("COALESCE(settlement_result ->> 'financialSideEffectsApplied', 'false') = 'true'")
+                .build();
+        Integer count = jdbcClient.sql(sql)
+                .param("id", java.util.UUID.fromString(settlementId))
+                .query(Integer.class)
+                .single();
+        return count != null && count > 0;
+    }
+
+    @Override
     public boolean markFinancialSideEffectsApplied(String settlementId, String settlementResultJson) {
         String sql = QueryBuilder.update("settlement_requests")
-                .set("settlement_result", "settlement_result || CAST(:settlementResult AS jsonb)")
+                .set("settlement_result", "COALESCE(settlement_result, '{}'::jsonb) || CAST(:settlementResult AS jsonb)")
                 .touchUpdatedAt()
                 .where("id", QueryBuilder.Op.EQ, ":id")
                 .where("COALESCE(settlement_result ->> 'financialSideEffectsApplied', 'false') <> 'true'")
@@ -134,7 +147,7 @@ public class JdbcSettlementRepository implements SettlementRepository {
                 .set("status", ":status")
                 .set("reason_code", ":reasonCode")
                 .set("conflict_detected", ":conflictDetected")
-                .set("settlement_result", "settlement_result || CAST(:settlementResult AS jsonb)")
+                .set("settlement_result", "COALESCE(settlement_result, '{}'::jsonb) || CAST(:settlementResult AS jsonb)")
                 .touchUpdatedAt()
                 .where("id", QueryBuilder.Op.EQ, ":id")
                 .build();
@@ -165,7 +178,7 @@ public class JdbcSettlementRepository implements SettlementRepository {
         String normalizedReasonCode = requireReasonCode(reasonCode, "receiver confirmation expiry");
         String sql = QueryBuilder.update("settlement_requests")
                 .set("reason_code", ":reasonCode")
-                .set("settlement_result", "settlement_result || CAST(:settlementResult AS jsonb)")
+                .set("settlement_result", "COALESCE(settlement_result, '{}'::jsonb) || CAST(:settlementResult AS jsonb)")
                 .set("receiver_confirmation_expired_at", "COALESCE(receiver_confirmation_expired_at, NOW())")
                 .touchUpdatedAt()
                 .where("id", QueryBuilder.Op.EQ, ":id")

@@ -3114,7 +3114,7 @@ class SettlementApplicationServiceTest {
     }
 
     @Test
-    void finalizeSettlementDoesNotRepeatFinancialSideEffectsWhenMarkerAlreadyApplied() {
+    void finalizeSettlementDoesNotReevaluateWhenFinancialSideEffectsAlreadyApplied() {
         SettlementRequest request = new SettlementRequest(
                 "settlement-financial-guard",
                 "batch-financial-guard",
@@ -3123,7 +3123,7 @@ class SettlementApplicationServiceTest {
                 SettlementStatus.VALIDATING,
                 null,
                 false,
-                "{}",
+                "{\"financialSideEffectsApplied\":true}",
                 OffsetDateTime.now(),
                 OffsetDateTime.now()
         );
@@ -3209,6 +3209,7 @@ class SettlementApplicationServiceTest {
         when(settlementRepository.findById("settlement-financial-guard"))
                 .thenReturn(Optional.of(request))
                 .thenReturn(Optional.of(settled));
+        when(settlementRepository.hasFinancialSideEffectsApplied("settlement-financial-guard")).thenReturn(true);
         when(settlementRepository.markFinancialSideEffectsApplied(eq("settlement-financial-guard"), anyString()))
                 .thenReturn(false);
         when(collateralRepository.findById("collateral-financial-guard")).thenReturn(Optional.of(collateral));
@@ -3224,10 +3225,28 @@ class SettlementApplicationServiceTest {
         SettlementRequest result = service.finalizeSettlement("settlement-financial-guard");
 
         assertEquals(SettlementStatus.SETTLED, result.status());
-        verify(settlementRepository).markFinancialSideEffectsApplied(
+        verify(settlementRepository, never()).markFinancialSideEffectsApplied(anyString(), anyString());
+        verify(settlementRepository).update(
                 eq("settlement-financial-guard"),
-                argThat(payload -> payload.contains("\"financialSideEffectsApplied\":true")
-                        && payload.contains("\"financialSideEffectsSettlementId\":\"settlement-financial-guard\""))
+                eq(SettlementStatus.SETTLED),
+                anyString(),
+                eq(false),
+                argThat(payload -> payload.contains("\"financialSideEffectsApplied\":true"))
+        );
+        verify(settlementResultRepository).save(
+                eq("settlement-financial-guard"),
+                eq("batch-financial-guard"),
+                eq(proof),
+                eq(SettlementStatus.SETTLED),
+                anyString(),
+                argThat(payload -> payload.contains("\"financialSideEffectsApplied\":true")),
+                eq(new BigDecimal("10"))
+        );
+        verify(offlineSagaService).markProcessing(
+                eq(OfflineSagaType.SETTLEMENT),
+                eq("settlement-financial-guard"),
+                eq("EXTERNAL_SYNC_REQUESTED"),
+                any()
         );
         verify(proofRepository, never()).ensureReceivedUnsettledAmount(anyString(), any());
         verify(collateralRepository, never()).deductRemainingAmount(anyString(), any());

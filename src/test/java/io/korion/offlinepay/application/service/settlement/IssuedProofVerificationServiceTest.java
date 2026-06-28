@@ -117,7 +117,7 @@ class IssuedProofVerificationServiceTest {
     void verifyAcceptsCanonicalSignedPayloadAfterJsonbReordersFields() {
         IssuedProofFixture fixture = buildCanonicalIssuedProofFixture(false);
         String reorderedPayload = """
-                {"nonce":"proof-nonce-1","userId":77,"proofId":"issued-proof-1","deviceId":"device-1","issuedAt":"%s","assetCode":"USDT","expiresAt":"%s","issuerKeyId":"%s","usableAmount":"500.000000","devicePublicKey":"sender-device-public-key","collateralLockId":"collateral-1","subjectBindingKey":"%s"}
+                {"nonce":"proof-nonce-1","userId":77,"proofId":"issued-proof-1","deviceId":"device-1","issuedAt":"%s","assetCode":"USDT","expiresAt":"%s","issuerKeyId":"%s","usableAmount":"500.000000","devicePublicKey":"sender-device-public-key","collateralLockId":"collateral-1","collateralLockIds":["collateral-1"],"subjectBindingKey":"%s"}
                 """.formatted(
                 text(fixture.signedPayload(), "issuedAt"),
                 text(fixture.signedPayload(), "expiresAt"),
@@ -180,6 +180,24 @@ class IssuedProofVerificationServiceTest {
     }
 
     @Test
+    void verifyAcceptsAggregateIssuedProofWhenEarlierLocksWereFullySpent() {
+        IssuedProofFixture fixture = buildIssuedProofFixture(false, false, OffsetDateTime.now().plusHours(1), List.of(
+                "spent-collateral-1",
+                "spent-collateral-2",
+                "collateral-1"
+        ));
+        when(issuedOfflineProofRepository.findById("issued-proof-1")).thenReturn(Optional.of(fixture.issuedProof()));
+        when(collateralRepository.findActiveByUserIdAndAssetCode(77L, "USDT"))
+                .thenReturn(List.of(activeCollateral("collateral-1", "490.000000")));
+
+        IssuedProofVerificationService.VerificationResult result = service.verify(
+                buildIncomingProof(fixture.issuedProof(), fixture.signedPayload())
+        );
+
+        assertTrue(result.valid());
+    }
+
+    @Test
     void verifyRejectsIssuedProofWhenBackingCollateralIsBelowPaymentAmount() {
         IssuedOfflineProof issuedProof = buildIssuedProof(false);
         when(issuedOfflineProofRepository.findById("issued-proof-1")).thenReturn(Optional.of(issuedProof));
@@ -207,12 +225,22 @@ class IssuedProofVerificationServiceTest {
     }
 
     private IssuedProofFixture buildIssuedProofFixture(boolean tamperSignature, boolean canonicalSignature, OffsetDateTime expiresAt) {
+        return buildIssuedProofFixture(tamperSignature, canonicalSignature, expiresAt, List.of("collateral-1"));
+    }
+
+    private IssuedProofFixture buildIssuedProofFixture(
+            boolean tamperSignature,
+            boolean canonicalSignature,
+            OffsetDateTime expiresAt,
+            List<String> collateralLockIds
+    ) {
         Map<String, Object> issuedPayloadMap = new LinkedHashMap<>();
         issuedPayloadMap.put("proofId", "issued-proof-1");
         issuedPayloadMap.put("userId", 77L);
         issuedPayloadMap.put("subjectBindingKey", IssuedProofApplicationService.buildSubjectBindingKey(77L, "USDT"));
         issuedPayloadMap.put("deviceId", "device-1");
         issuedPayloadMap.put("collateralLockId", "collateral-1");
+        issuedPayloadMap.put("collateralLockIds", collateralLockIds);
         issuedPayloadMap.put("assetCode", "USDT");
         issuedPayloadMap.put("usableAmount", "500.000000");
         issuedPayloadMap.put("issuedAt", OffsetDateTime.now().toString());

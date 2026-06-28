@@ -1767,10 +1767,17 @@ public class SettlementApplicationService {
             boolean receiverEvidenceMatched,
             boolean localCompletedRejectedRetry
     ) {
-        OfflinePaymentProof proof = proofRepository.findById(request.proofId())
-                .orElseThrow(() -> new IllegalArgumentException("proof not found: " + request.proofId()));
-        CollateralLock collateral = collateralRepository.findById(request.collateralId())
-                .orElseThrow(() -> new IllegalArgumentException("collateral not found: " + request.collateralId()));
+        String proofId = request.proofId();
+        OfflinePaymentProof proof = proofRepository.findById(proofId)
+                .orElseThrow(() -> new IllegalArgumentException("proof not found: " + proofId));
+        boolean financialSideEffectsAlreadyApplied = isFinancialSideEffectsApplied(request.settlementResultJson())
+                || settlementRepository.hasFinancialSideEffectsApplied(request.id());
+        if (financialSideEffectsAlreadyApplied) {
+            return recoverAlreadyFinanciallyCommittedSettlement(request, proof);
+        }
+        String collateralId = request.collateralId();
+        CollateralLock collateral = collateralRepository.findById(collateralId)
+                .orElseThrow(() -> new IllegalArgumentException("collateral not found: " + collateralId));
         offlineSagaService.markProcessing(
                 OfflineSagaType.SETTLEMENT,
                 request.id(),
@@ -1799,6 +1806,11 @@ public class SettlementApplicationService {
                 senderAuthorizationCompleted,
                 evaluation
         );
+        if (evaluation.status() != SettlementStatus.SETTLED
+                && !financiallyHonored
+                && settlementRepository.hasFinancialSideEffectsApplied(request.id())) {
+            return recoverAlreadyFinanciallyCommittedSettlement(request, proof);
+        }
         String evaluatedReasonCode = normalizeSettlementReasonCode(evaluation.status(), evaluation.reasonCode(), evaluation.conflictDetected());
         String terminalReasonCode = preserveFinancialHonorReasonCode(
                 localCompletedRejectedRetry,
@@ -1914,9 +1926,94 @@ public class SettlementApplicationService {
     }
 
     private boolean wasAlreadyFinanciallyCommitted(SettlementRequest request) {
+        return hasTerminalFinancialCommitStatus(request)
+                || isFinancialSideEffectsApplied(request.settlementResultJson());
+    }
+
+    private boolean hasTerminalFinancialCommitStatus(SettlementRequest request) {
         return request.status() == SettlementStatus.SETTLED
                 || (request.status() == SettlementStatus.REJECTED
                         && isFinanciallyHonored(request.settlementResultJson()));
+    }
+
+    private SettlementEvaluation alreadyFinanciallyCommittedEvaluation(
+            SettlementRequest request,
+            OfflinePaymentProof proof
+    ) {
+        SettlementStatus status = request.status() == SettlementStatus.REJECTED
+                && isFinanciallyHonored(request.settlementResultJson())
+                ? SettlementStatus.REJECTED
+                : SettlementStatus.SETTLED;
+        String reasonCode = request.reasonCode() == null || request.reasonCode().isBlank()
+                ? OfflinePayReasonCode.SETTLED
+                : request.reasonCode();
+        return new SettlementEvaluation(
+                status,
+                false,
+                reasonCode,
+                request.settlementResultJson(),
+                proof.amount(),
+                "ADJUST"
+        );
+    }
+
+    private SettlementEvaluation recoverAlreadyFinanciallyCommittedSettlement(
+            SettlementRequest request,
+            OfflinePaymentProof proof
+    ) {
+        SettlementEvaluation evaluation = alreadyFinanciallyCommittedEvaluation(request, proof);
+        if (hasTerminalFinancialCommitStatus(request)) {
+            return evaluation;
+        }
+
+        CollateralLock collateral = collateralRepository.findById(request.collateralId())
+                .orElseThrow(() -> new IllegalArgumentException("collateral not found: " + request.collateralId()));
+        String reasonCode = normalizeSettlementReasonCode(evaluation.status(), evaluation.reasonCode(), evaluation.conflictDetected());
+        String resultJson = request.settlementResultJson() == null || request.settlementResultJson().isBlank()
+                ? "{}"
+                : request.settlementResultJson();
+        boolean financiallyHonored = isFinanciallyHonored(resultJson);
+        settlementRepository.update(
+                request.id(),
+                evaluation.status(),
+                reasonCode,
+                evaluation.conflictDetected(),
+                resultJson
+        );
+        settlementResultRepository.save(
+                request.id(),
+                request.batchId(),
+                proof,
+                evaluation.status(),
+                reasonCode,
+                resultJson,
+                evaluation.settledAmount()
+        );
+        String sequenceAnchorReason = resolveSequenceAnchorReason(
+                proof,
+                financiallyHonored,
+                hasCompletedSenderAuthorization(proof),
+                reasonCode
+        );
+        if (sequenceAnchorReason != null) {
+            proofRepository.markSequenceAnchor(proof.id(), sequenceAnchorReason);
+        }
+        offlineSagaService.markProcessing(
+                OfflineSagaType.SETTLEMENT,
+                request.id(),
+                "EXTERNAL_SYNC_REQUESTED",
+                Map.of(
+                        "settlementId", request.id(),
+                        "batchId", request.batchId(),
+                        "proofId", proof.id(),
+                        "collateralId", collateral.id(),
+                        "reasonCode", reasonCode,
+                        "financiallyHonored", financiallyHonored,
+                        "recoveredFinancialSideEffects", true
+                )
+        );
+        syncExternalSettlement(collateral, proof, request, evaluation, financiallyHonored);
+        return evaluation;
     }
 
     private String financialSideEffectsAppliedJson(
@@ -1999,6 +2096,13 @@ public class SettlementApplicationService {
             return false;
         }
         return jsonService.readTree(settlementResultJson).path("financiallyHonored").asBoolean(false);
+    }
+
+    private boolean isFinancialSideEffectsApplied(String settlementResultJson) {
+        if (settlementResultJson == null || settlementResultJson.isBlank()) {
+            return false;
+        }
+        return jsonService.readTree(settlementResultJson).path("financialSideEffectsApplied").asBoolean(false);
     }
 
     private String settlementResultJson(

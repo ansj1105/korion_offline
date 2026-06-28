@@ -209,13 +209,15 @@ public class IssuedProofVerificationService {
             Optional<CollateralLock> matched = activeCollaterals.stream()
                     .filter(collateral -> collateralId.equals(collateral.id()))
                     .findFirst();
-            if (matched.isEmpty()) {
+            if (matched.isEmpty() && issuedProof.collateralId().equals(collateralId)) {
                 return Optional.of(VerificationResult.invalid(
                         OfflinePayReasonCode.ISSUED_PROOF_STATUS_INVALID,
                         "issued proof collateral is not active"
                 ));
             }
-            activeBackingRemaining = activeBackingRemaining.add(matched.get().remainingAmount());
+            if (matched.isPresent()) {
+                activeBackingRemaining = activeBackingRemaining.add(matched.get().remainingAmount());
+            }
         }
         if (activeBackingRemaining.compareTo(paymentAmount) < 0) {
             return Optional.of(VerificationResult.invalid(
