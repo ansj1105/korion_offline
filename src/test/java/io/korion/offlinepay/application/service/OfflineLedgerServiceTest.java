@@ -178,9 +178,9 @@ class OfflineLedgerServiceTest {
         OfflineLedgerService.HubSummaryResponse response = service.getHubSummary(deviceId, "KORI");
 
         assertEquals("116.090087", response.convertibleCollateralAmount());
-        assertEquals("148.000000", response.onlineCollateralAvailableAmount());
+        assertEquals("55.000000", response.onlineCollateralAvailableAmount());
         assertEquals("55.000000", response.offlineCollateralAvailableAmount());
-        assertEquals(response.totalCollateralAmount(), response.onlineCollateralAvailableAmount());
+        assertEquals(response.offlineAvailableAmount(), response.onlineCollateralAvailableAmount());
         assertEquals(response.offlineAvailableAmount(), response.offlineCollateralAvailableAmount());
     }
 

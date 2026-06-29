@@ -270,7 +270,7 @@ public class OfflineLedgerService {
                 offlineAvailableAmount.toPlainString(),
                 totalCollateralAmount.toPlainString(),
                 convertibleCollateralAmount.toPlainString(),
-                totalCollateralAmount.toPlainString(),
+                offlineAvailableAmount.toPlainString(),
                 offlineAvailableAmount.toPlainString(),
                 failedCount,
                 pendingCount,
