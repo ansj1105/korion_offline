@@ -3,7 +3,9 @@ package io.korion.offlinepay.application.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.korion.offlinepay.application.port.CollateralOperationRepository;
 import io.korion.offlinepay.application.port.CollateralRepository;
+import io.korion.offlinepay.application.port.CoinManageCollateralPort;
 import io.korion.offlinepay.application.port.DeviceRepository;
+import io.korion.offlinepay.application.port.FoxCoinWalletSnapshotPort;
 import io.korion.offlinepay.application.port.OfflinePaymentProofRepository;
 import io.korion.offlinepay.application.port.SettlementRepository;
 import io.korion.offlinepay.config.AppProperties;
@@ -37,6 +39,8 @@ public class OfflineLedgerService {
     private final CollateralOperationRepository collateralOperationRepository;
     private final OfflinePaymentProofRepository offlinePaymentProofRepository;
     private final SettlementRepository settlementRepository;
+    private final CoinManageCollateralPort coinManageCollateralPort;
+    private final FoxCoinWalletSnapshotPort foxCoinWalletSnapshotPort;
     private final OfflinePayDeviceIdentifierResolver deviceIdentifierResolver;
     private final AppProperties properties;
     private final JsonService jsonService;
@@ -48,6 +52,8 @@ public class OfflineLedgerService {
             CollateralOperationRepository collateralOperationRepository,
             OfflinePaymentProofRepository offlinePaymentProofRepository,
             SettlementRepository settlementRepository,
+            CoinManageCollateralPort coinManageCollateralPort,
+            FoxCoinWalletSnapshotPort foxCoinWalletSnapshotPort,
             OfflinePayDeviceIdentifierResolver deviceIdentifierResolver,
             AppProperties properties,
             JsonService jsonService,
@@ -58,6 +64,8 @@ public class OfflineLedgerService {
         this.collateralOperationRepository = collateralOperationRepository;
         this.offlinePaymentProofRepository = offlinePaymentProofRepository;
         this.settlementRepository = settlementRepository;
+        this.coinManageCollateralPort = coinManageCollateralPort;
+        this.foxCoinWalletSnapshotPort = foxCoinWalletSnapshotPort;
         this.deviceIdentifierResolver = deviceIdentifierResolver;
         this.properties = properties;
         this.jsonService = jsonService;
@@ -242,16 +250,48 @@ public class OfflineLedgerService {
             }
         }
 
+        BigDecimal offlineAvailableAmount = collateral == null
+                ? BigDecimal.ZERO
+                : normalizeAmount(collateral.remainingAmount());
+        BigDecimal totalCollateralAmount = collateral == null
+                ? BigDecimal.ZERO
+                : normalizeAmount(collateral.lockedAmount());
+        BigDecimal convertibleCollateralAmount = resolveAdditionalCollateralAvailableAmount(
+                device.userId(),
+                normalizedAssetCode,
+                totalCollateralAmount
+        );
+
         return new HubSummaryResponse(
                 device.deviceId(),
                 device.userId(),
                 normalizedAssetCode,
                 unsettledReceivedAmount.max(BigDecimal.ZERO).toPlainString(),
-                collateral == null ? "0" : normalizeAmount(collateral.remainingAmount()).toPlainString(),
-                collateral == null ? "0" : normalizeAmount(collateral.lockedAmount()).toPlainString(),
+                offlineAvailableAmount.toPlainString(),
+                totalCollateralAmount.toPlainString(),
+                convertibleCollateralAmount.toPlainString(),
+                totalCollateralAmount.toPlainString(),
+                offlineAvailableAmount.toPlainString(),
                 failedCount,
                 pendingCount,
                 OffsetDateTime.now().toString()
+        );
+    }
+
+    private BigDecimal resolveAdditionalCollateralAvailableAmount(
+            long userId,
+            String assetCode,
+            BigDecimal currentCollateralAmount
+    ) {
+        CoinManageCollateralPort.BalanceSnapshot balanceSnapshot =
+                coinManageCollateralPort.getBalanceSnapshot(userId, assetCode);
+        FoxCoinWalletSnapshotPort.WalletSnapshot walletSnapshot = balanceSnapshot.hasLedgerFootprint()
+                ? null
+                : foxCoinWalletSnapshotPort.getCanonicalWalletSnapshot(userId, assetCode);
+        return CollateralLedgerAmountResolver.resolveAdditionalCollateralAvailableAmount(
+                balanceSnapshot,
+                walletSnapshot,
+                currentCollateralAmount
         );
     }
 
@@ -898,6 +938,9 @@ public class OfflineLedgerService {
             String unsettledReceivedAmount,
             String offlineAvailableAmount,
             String totalCollateralAmount,
+            String convertibleCollateralAmount,
+            String onlineCollateralAvailableAmount,
+            String offlineCollateralAvailableAmount,
             int failedCount,
             int pendingCount,
             String refreshedAt

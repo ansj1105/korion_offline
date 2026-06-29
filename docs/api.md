@@ -1309,7 +1309,7 @@ components:
 
     HubSummaryResponse:
       type: object
-      required: [deviceId, userId, assetCode, unsettledReceivedAmount, offlineAvailableAmount, totalCollateralAmount, failedCount, pendingCount, refreshedAt]
+      required: [deviceId, userId, assetCode, unsettledReceivedAmount, offlineAvailableAmount, totalCollateralAmount, convertibleCollateralAmount, onlineCollateralAvailableAmount, offlineCollateralAvailableAmount, failedCount, pendingCount, refreshedAt]
       properties:
         deviceId: { type: string }
         userId: { type: integer, format: int64 }
@@ -1323,6 +1323,15 @@ components:
         totalCollateralAmount:
           type: string
           description: 서버 승인 총 담보금.
+        convertibleCollateralAmount:
+          type: string
+          description: 서버 기준 담보 전환 가능 금액. current snapshot wallet `additionalCollateralAvailableAmount`와 같은 기준이다.
+        onlineCollateralAvailableAmount:
+          type: string
+          description: 서버 기준 온라인 사용 가능 담보금. `totalCollateralAmount`와 같은 값이다.
+        offlineCollateralAvailableAmount:
+          type: string
+          description: 서버 기준 오프라인 결제 가능 담보금. `offlineAvailableAmount`와 같은 값이다.
         failedCount: { type: integer }
         pendingCount: { type: integer }
         refreshedAt: { type: string, format: date-time }

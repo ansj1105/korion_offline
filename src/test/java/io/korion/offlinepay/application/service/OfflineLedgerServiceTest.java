@@ -9,16 +9,20 @@ import static org.mockito.Mockito.when;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.korion.offlinepay.application.port.CollateralOperationRepository;
 import io.korion.offlinepay.application.port.CollateralRepository;
+import io.korion.offlinepay.application.port.CoinManageCollateralPort;
 import io.korion.offlinepay.application.port.DeviceRepository;
+import io.korion.offlinepay.application.port.FoxCoinWalletSnapshotPort;
 import io.korion.offlinepay.application.port.OfflinePaymentProofRepository;
 import io.korion.offlinepay.application.port.SettlementRepository;
 import io.korion.offlinepay.config.AppProperties;
+import io.korion.offlinepay.domain.model.CollateralLock;
 import io.korion.offlinepay.domain.model.CollateralOperation;
 import io.korion.offlinepay.domain.model.Device;
 import io.korion.offlinepay.domain.model.OfflinePaymentProof;
 import io.korion.offlinepay.domain.model.SettlementRequest;
 import io.korion.offlinepay.domain.status.CollateralOperationStatus;
 import io.korion.offlinepay.domain.status.CollateralOperationType;
+import io.korion.offlinepay.domain.status.CollateralStatus;
 import io.korion.offlinepay.domain.status.DeviceStatus;
 import io.korion.offlinepay.domain.status.OfflineProofStatus;
 import io.korion.offlinepay.domain.status.SettlementStatus;
@@ -28,6 +32,7 @@ import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
@@ -38,6 +43,8 @@ class OfflineLedgerServiceTest {
     private final CollateralOperationRepository collateralOperationRepository = Mockito.mock(CollateralOperationRepository.class);
     private final OfflinePaymentProofRepository proofRepository = Mockito.mock(OfflinePaymentProofRepository.class);
     private final SettlementRepository settlementRepository = Mockito.mock(SettlementRepository.class);
+    private final CoinManageCollateralPort coinManageCollateralPort = Mockito.mock(CoinManageCollateralPort.class);
+    private final FoxCoinWalletSnapshotPort foxCoinWalletSnapshotPort = Mockito.mock(FoxCoinWalletSnapshotPort.class);
     private final OfflinePayDeviceIdentifierResolver deviceIdentifierResolver = new OfflinePayDeviceIdentifierResolver(deviceRepository);
     private final OfflineLedgerService service = new OfflineLedgerService(
             deviceRepository,
@@ -45,11 +52,19 @@ class OfflineLedgerServiceTest {
             collateralOperationRepository,
             proofRepository,
             settlementRepository,
+            coinManageCollateralPort,
+            foxCoinWalletSnapshotPort,
             deviceIdentifierResolver,
             new AppProperties("KORI", 0, 0, 0, null, null, null, null, null, null),
             new JsonService(new ObjectMapper()),
             new OfflinePaySettlementFeeCalculator()
     );
+
+    @BeforeEach
+    void setUpBalanceSnapshot() {
+        when(coinManageCollateralPort.getBalanceSnapshot(Mockito.anyLong(), Mockito.anyString()))
+                .thenReturn(new CoinManageCollateralPort.BalanceSnapshot("0", "0", "0", true));
+    }
 
     @Test
     void hubProjectionRejectsDeviceOwnedByDifferentUserWhenExpectedUserIsProvided() {
@@ -145,6 +160,43 @@ class OfflineLedgerServiceTest {
         assertEquals("0", response.unsettledReceivedAmount());
         assertEquals(0, response.pendingCount());
         assertEquals(0, response.failedCount());
+    }
+
+    @Test
+    void hubSummaryExposesSingleCollateralBalanceBasis() {
+        String deviceId = "98db6beb-4ae1-4027-b9ee-507ce7eaeaa7";
+        Device device = device(deviceId, 39L);
+        when(deviceRepository.findByDeviceId(deviceId)).thenReturn(Optional.of(device));
+        when(deviceRepository.findActiveByUserId(39L)).thenReturn(List.of(device));
+        when(proofRepository.findRecentByUserIdAndAssetCode(39L, "KORI", 300)).thenReturn(List.of());
+        when(collateralOperationRepository.findRecentByUserIdAndAssetCode(39L, "KORI", 300)).thenReturn(List.of());
+        when(collateralRepository.findAggregateByUserIdAndAssetCode(39L, "KORI"))
+                .thenReturn(Optional.of(collateral("148.000000", "55.000000")));
+        when(coinManageCollateralPort.getBalanceSnapshot(39L, "KORI"))
+                .thenReturn(new CoinManageCollateralPort.BalanceSnapshot("116.090087", "0", "55.000000", true));
+
+        OfflineLedgerService.HubSummaryResponse response = service.getHubSummary(deviceId, "KORI");
+
+        assertEquals("116.090087", response.convertibleCollateralAmount());
+        assertEquals("148.000000", response.onlineCollateralAvailableAmount());
+        assertEquals("55.000000", response.offlineCollateralAvailableAmount());
+        assertEquals(response.totalCollateralAmount(), response.onlineCollateralAvailableAmount());
+        assertEquals(response.offlineAvailableAmount(), response.offlineCollateralAvailableAmount());
+    }
+
+    @Test
+    void hubSummaryDoesNotHideCanonicalBalanceBasisFailures() {
+        String deviceId = "98db6beb-4ae1-4027-b9ee-507ce7eaeaa7";
+        Device device = device(deviceId, 39L);
+        when(deviceRepository.findByDeviceId(deviceId)).thenReturn(Optional.of(device));
+        when(deviceRepository.findActiveByUserId(39L)).thenReturn(List.of(device));
+        when(proofRepository.findRecentByUserIdAndAssetCode(39L, "KORI", 300)).thenReturn(List.of());
+        when(collateralOperationRepository.findRecentByUserIdAndAssetCode(39L, "KORI", 300)).thenReturn(List.of());
+        when(collateralRepository.findAggregateByUserIdAndAssetCode(39L, "KORI")).thenReturn(Optional.empty());
+        when(coinManageCollateralPort.getBalanceSnapshot(39L, "KORI"))
+                .thenThrow(new IllegalStateException("coin_manage balance snapshot unavailable"));
+
+        assertThrows(IllegalStateException.class, () -> service.getHubSummary(deviceId, "KORI"));
     }
 
     @Test
@@ -517,6 +569,26 @@ class OfflineLedgerServiceTest {
                 "public-key",
                 1,
                 DeviceStatus.ACTIVE,
+                "{}",
+                now,
+                now
+        );
+    }
+
+    private CollateralLock collateral(String lockedAmount, String remainingAmount) {
+        OffsetDateTime now = OffsetDateTime.parse("2026-05-19T04:45:04Z");
+        return new CollateralLock(
+                "collateral-row",
+                39L,
+                "device-id",
+                "KORI",
+                new BigDecimal(lockedAmount),
+                new BigDecimal(remainingAmount),
+                "state-root",
+                1,
+                CollateralStatus.LOCKED,
+                "external-lock",
+                null,
                 "{}",
                 now,
                 now

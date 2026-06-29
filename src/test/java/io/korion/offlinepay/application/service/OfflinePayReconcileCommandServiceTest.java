@@ -167,6 +167,9 @@ class OfflinePayReconcileCommandServiceTest {
                 unsettled,
                 available,
                 "12.000000",
+                "88.000000",
+                "12.000000",
+                available,
                 0,
                 pendingCount,
                 now.toString()
