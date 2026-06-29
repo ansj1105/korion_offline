@@ -43,7 +43,6 @@ class JdbcOfflinePaymentProofRepositoryTest {
         assertTrue(sql.contains("settlement_requests.settlement_result ->> 'financiallyHonored'"));
         assertTrue(sql.contains("settlements.status = 'SETTLED'"));
         assertTrue(sql.contains("settlements.detail ->> 'financiallyHonored'"));
-        assertTrue(sql.contains("settlements.detail ->> 'financialSideEffectsApplied'"));
         assertDoesNotThrow(() -> NamedParameterUtils.parseSqlStatement(sql));
     }
 }

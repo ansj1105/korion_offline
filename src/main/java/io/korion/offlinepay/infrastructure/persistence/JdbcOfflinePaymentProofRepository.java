@@ -524,7 +524,6 @@ public class JdbcOfflinePaymentProofRepository implements OfflinePaymentProofRep
                         OR COALESCE(settlement_requests.settlement_result ->> 'financiallyHonored', 'false') = 'true'
                         OR settlements.status = 'SETTLED'
                         OR COALESCE(settlements.detail ->> 'financiallyHonored', 'false') = 'true'
-                        OR COALESCE(settlements.detail ->> 'financialSideEffectsApplied', 'false') = 'true'
                       )
                 )
                 """;
