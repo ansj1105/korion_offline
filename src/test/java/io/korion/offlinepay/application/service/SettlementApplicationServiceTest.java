@@ -59,6 +59,7 @@ import io.korion.offlinepay.domain.model.OfflineSaga;
 import io.korion.offlinepay.domain.model.ReconciliationCase;
 import io.korion.offlinepay.domain.model.SettlementBatch;
 import io.korion.offlinepay.domain.model.SettlementRequest;
+import io.korion.offlinepay.domain.reason.OfflinePayReasonCode;
 import io.korion.offlinepay.domain.status.CollateralStatus;
 import io.korion.offlinepay.domain.status.CollateralOperationStatus;
 import io.korion.offlinepay.domain.status.CollateralOperationType;
@@ -1247,7 +1248,7 @@ class SettlementApplicationServiceTest {
     }
 
     @Test
-    void submitBatchRejectsReceiverOnlyEvidenceBeforeCreatingProof() {
+    void submitBatchAcceptsReceiverOnlyEvidenceAndRecordsMissingSenderProof() {
         long now = System.currentTimeMillis();
         SettlementApplicationService.ProofSubmission submission = new SettlementApplicationService.ProofSubmission(
                 "voucher-receiver-only",
@@ -1281,50 +1282,274 @@ class SettlementApplicationServiceTest {
                         java.util.Map.entry("receiverSettlementAutoEnabled", false)
                 )
         );
+        SettlementBatch createdBatch = new SettlementBatch(
+                "batch-receiver-only",
+                "receiver-device",
+                "idempotency-receiver-only",
+                SettlementBatchStatus.CREATED,
+                null,
+                1,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        SettlementBatch uploadedBatch = new SettlementBatch(
+                "batch-receiver-only",
+                "receiver-device",
+                "idempotency-receiver-only",
+                SettlementBatchStatus.UPLOADED,
+                null,
+                1,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        CollateralLock collateral = new CollateralLock(
+                "collateral-receiver-only",
+                77L,
+                "sender-device",
+                "KORI",
+                new BigDecimal("150"),
+                new BigDecimal("100"),
+                "GENESIS",
+                1,
+                CollateralStatus.LOCKED,
+                "lock-receiver-only",
+                OffsetDateTime.now().plusDays(1),
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        OfflinePaymentProof proof = new OfflinePaymentProof(
+                "proof-receiver-only",
+                "batch-receiver-only",
+                "voucher-receiver-only",
+                "collateral-receiver-only",
+                "sender-device",
+                "receiver-device",
+                77L,
+                88L,
+                1,
+                1,
+                8L,
+                "nonce-receiver-only",
+                "hash-receiver-only",
+                "GENESIS",
+                "signature-receiver-only",
+                new BigDecimal("4.20000000"),
+                now,
+                now + 60_000,
+                "{}",
+                "RECEIVER",
+                "{}",
+                OffsetDateTime.now()
+        );
+        SettlementRequest request = new SettlementRequest(
+                "settlement-receiver-only",
+                "batch-receiver-only",
+                "collateral-receiver-only",
+                "proof-receiver-only",
+                SettlementStatus.PENDING,
+                null,
+                false,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
         when(proofRepository.findByVoucherId("voucher-receiver-only")).thenReturn(Optional.empty());
+        when(batchRepository.findByIdempotencyKey("idempotency-receiver-only")).thenReturn(Optional.empty());
+        when(batchRepository.save(anyString(), anyString(), any(), any(), anyInt(), anyString())).thenReturn(createdBatch);
+        when(collateralRepository.findById("collateral-receiver-only")).thenReturn(Optional.of(collateral));
+        when(deviceRepository.findByDeviceId("receiver-device")).thenReturn(Optional.of(new Device(
+                "row-receiver-only",
+                "receiver-device",
+                88L,
+                "receiver-public-key",
+                1,
+                DeviceStatus.ACTIVE,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        )));
+        when(proofRepository.save(
+                anyString(), anyString(), anyString(), anyString(), anyString(),
+                anyLong(), anyLong(),
+                anyInt(), anyInt(), anyLong(), anyString(), anyString(), anyString(), anyString(),
+                any(), anyLong(), anyLong(), anyString(), anyString(), anyString(), anyString()
+        )).thenReturn(proof);
+        when(settlementRepository.save(anyString(), anyString(), anyString(), any(), any(), anyBoolean(), anyString()))
+                .thenReturn(request);
+        when(batchRepository.findById("batch-receiver-only")).thenReturn(Optional.of(uploadedBatch));
 
-        IllegalArgumentException exception = assertThrows(
-                IllegalArgumentException.class,
-                () -> service.submitBatch(new SettlementApplicationService.SubmitSettlementBatchCommand(
-                        SettlementApplicationService.UploaderType.RECEIVER,
-                        "receiver-device",
-                        "idempotency-receiver-only",
-                        java.util.List.of(submission),
-                        "BLE_OFFLINE_SYNC"
-                ))
-        );
+        SettlementBatch result = service.submitBatch(new SettlementApplicationService.SubmitSettlementBatchCommand(
+                SettlementApplicationService.UploaderType.RECEIVER,
+                "receiver-device",
+                "idempotency-receiver-only",
+                java.util.List.of(submission),
+                "BLE_OFFLINE_SYNC"
+        ));
 
-        assertTrue(exception.getMessage().contains("receiver settlement requires existing sender proof"));
-        verify(batchRepository, never()).save(
+        assertEquals(SettlementBatchStatus.UPLOADED, result.status());
+        verify(proofRepository).save(
+                eq("batch-receiver-only"),
+                eq("voucher-receiver-only"),
+                eq("collateral-receiver-only"),
+                eq("sender-device"),
+                eq("receiver-device"),
+                eq(77L),
+                eq(88L),
+                eq(1),
+                eq(1),
+                eq(8L),
+                eq("nonce-receiver-only"),
+                eq("hash-receiver-only"),
+                eq("GENESIS"),
+                eq("signature-receiver-only"),
+                eq(new BigDecimal("4.20000000")),
+                eq(now),
+                eq(now + 60_000),
+                eq("{}"),
+                eq("RECEIVER"),
                 anyString(),
-                anyString(),
-                any(SettlementBatchStatus.class),
-                any(),
-                anyInt(),
-                anyString()
+                argThat(rawPayload ->
+                        rawPayload.contains("\"senderProofPresent\":false")
+                                && rawPayload.contains("\"senderProofMissingRecorded\":true")
+                                && rawPayload.contains("\"receiverSettlementWithoutSenderProof\":true")
+                )
         );
+        verify(localEvidenceRepository).save(argThat(evidence ->
+                "proof-receiver-only".equals(evidence.proofId())
+                        && "RECEIVE".equals(evidence.direction())
+                        && "receiver evidence stored without sender proof".equals(evidence.verificationDetail())
+                        && Boolean.TRUE.equals(evidence.rawPayload().get("receiverSettlementWithoutSenderProof"))
+        ));
+    }
+
+    @Test
+    void submitBatchAttachesLateSenderProofToReceiverOnlyEvidence() {
+        long now = System.currentTimeMillis();
+        OfflinePaymentProof existingReceiverProof = new OfflinePaymentProof(
+                "proof-late-sender-match",
+                "batch-existing-late-sender-match",
+                "voucher-late-sender-match",
+                "collateral-late-sender-match",
+                "sender-device",
+                "receiver-device",
+                77L,
+                88L,
+                1,
+                1,
+                21L,
+                "nonce-late-sender-match-receiver",
+                "hash-late-sender-match",
+                "GENESIS",
+                "receiver-signature-late-sender-match",
+                new BigDecimal("3.30000000"),
+                now,
+                now + 60_000,
+                "{}",
+                "RECEIVER",
+                "BLE",
+                OfflineProofStatus.UPLOADED,
+                null,
+                BigDecimal.ZERO,
+                BigDecimal.ZERO,
+                null,
+                null,
+                null,
+                "{\"receiverSettlementWithoutSenderProof\":true,\"senderProofPresent\":false}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now(),
+                null,
+                null,
+                null,
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        SettlementApplicationService.ProofSubmission senderSubmission = new SettlementApplicationService.ProofSubmission(
+                "voucher-late-sender-match",
+                "collateral-late-sender-match",
+                "sender-device",
+                "receiver-device",
+                1,
+                1,
+                22L,
+                "nonce-late-sender-match-sender",
+                "hash-late-sender-match",
+                "GENESIS",
+                "sender-signature-late-sender-match",
+                new BigDecimal("3.30000000"),
+                now,
+                now + 60_000,
+                "{}",
+                java.util.Map.ofEntries(
+                        java.util.Map.entry("requestId", "req-late-sender-match"),
+                        java.util.Map.entry("senderLocalBlock", true),
+                        java.util.Map.entry("senderLocalBlockVoucherId", "voucher-late-sender-match"),
+                        java.util.Map.entry("senderLocalBlockAmount", "3.30000000"),
+                        java.util.Map.entry("senderLocalBlockSenderDeviceId", "sender-device"),
+                        java.util.Map.entry("senderLocalBlockReceiverDeviceId", "receiver-device"),
+                        java.util.Map.entry("senderProofPresent", true),
+                        java.util.Map.entry("senderLocalBlockNonce", "nonce-late-sender-match-sender"),
+                        java.util.Map.entry("senderLocalBlockSignature", "sender-signature-late-sender-match"),
+                        java.util.Map.entry("senderLocalBlockNewHash", "hash-late-sender-match"),
+                        java.util.Map.entry("senderLocalBlockPrevHash", "GENESIS"),
+                        java.util.Map.entry("senderLocalBlockCounter", 22L)
+                )
+        );
+        SettlementBatch createdBatch = new SettlementBatch(
+                "batch-late-sender-match",
+                "sender-device",
+                "idempotency-late-sender-match",
+                SettlementBatchStatus.CREATED,
+                null,
+                1,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        SettlementBatch settledBatch = new SettlementBatch(
+                "batch-late-sender-match",
+                "sender-device",
+                "idempotency-late-sender-match",
+                SettlementBatchStatus.SETTLED,
+                OfflinePayReasonCode.SETTLED,
+                1,
+                "{}",
+                OffsetDateTime.now(),
+                OffsetDateTime.now()
+        );
+        when(proofRepository.findByVoucherId("voucher-late-sender-match")).thenReturn(Optional.of(existingReceiverProof));
+        when(batchRepository.findByIdempotencyKey("idempotency-late-sender-match")).thenReturn(Optional.empty());
+        when(batchRepository.save(anyString(), anyString(), any(), any(), anyInt(), anyString())).thenReturn(createdBatch);
+        when(batchRepository.findById("batch-late-sender-match")).thenReturn(Optional.of(settledBatch));
+
+        SettlementBatch result = service.submitBatch(new SettlementApplicationService.SubmitSettlementBatchCommand(
+                SettlementApplicationService.UploaderType.SENDER,
+                "sender-device",
+                "idempotency-late-sender-match",
+                java.util.List.of(senderSubmission),
+                "BLE_OFFLINE_SYNC"
+        ));
+
+        assertEquals(SettlementBatchStatus.SETTLED, result.status());
+        verify(proofRepository).attachSenderProof(
+                eq("proof-late-sender-match"),
+                argThat(payload ->
+                        payload.contains("\"senderLocalBlock\":true")
+                                && payload.contains("\"senderProofPresent\":true")
+                )
+        );
+        verify(localEvidenceRepository).save(argThat(evidence ->
+                "proof-late-sender-match".equals(evidence.proofId())
+                        && "SEND".equals(evidence.direction())
+                        && "late sender proof matched receiver evidence".equals(evidence.verificationDetail())
+        ));
         verify(proofRepository, never()).save(
-                anyString(),
-                anyString(),
-                anyString(),
-                anyString(),
-                anyString(),
-                anyLong(),
-                anyLong(),
-                anyInt(),
-                anyInt(),
-                anyLong(),
-                anyString(),
-                anyString(),
-                anyString(),
-                anyString(),
-                any(),
-                anyLong(),
-                anyLong(),
-                anyString(),
-                anyString(),
-                anyString(),
-                anyString()
+                anyString(), anyString(), anyString(), anyString(), anyString(),
+                anyLong(), anyLong(),
+                anyInt(), anyInt(), anyLong(), anyString(), anyString(), anyString(), anyString(),
+                any(), anyLong(), anyLong(), anyString(), anyString(), anyString(), anyString()
         );
     }
 

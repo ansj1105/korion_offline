@@ -156,6 +156,31 @@ public class JdbcOfflinePaymentProofRepository implements OfflinePaymentProofRep
     }
 
     @Override
+    public int attachSenderProof(String proofId, String senderProofPayloadJson) {
+        requireNonBlank(proofId, "proofId");
+        requireNonBlank(senderProofPayloadJson, "senderProofPayloadJson");
+        String markerJson = """
+                {
+                  "senderProofPresent": true,
+                  "senderProofMissingRecorded": false,
+                  "lateSenderProofMatched": true,
+                  "senderProofOptionalForReceiverSettlement": true
+                }
+                """;
+        String sql = QueryBuilder.update("offline_payment_proofs")
+                .set("payload", "jsonb_set(COALESCE(payload, '{}'::jsonb) || CAST(:markerJson AS jsonb), '{matchedSenderProof}', CAST(:senderProofPayload AS jsonb), true)")
+                .set("raw_payload", "jsonb_set(COALESCE(raw_payload, '{}'::jsonb) || CAST(:markerJson AS jsonb), '{matchedSenderProof}', CAST(:senderProofPayload AS jsonb), true)")
+                .touchUpdatedAt()
+                .where("id", QueryBuilder.Op.EQ, ":id")
+                .build();
+        return jdbcClient.sql(sql)
+                .param("id", java.util.UUID.fromString(proofId))
+                .param("markerJson", markerJson)
+                .param("senderProofPayload", senderProofPayloadJson)
+                .update();
+    }
+
+    @Override
     public int ensureReceivedUnsettledAmount(String proofId, java.math.BigDecimal receivedAmount) {
         String sql = QueryBuilder.update("offline_payment_proofs")
                 .set("received_unsettled_amount", ":receivedAmount")

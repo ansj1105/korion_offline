@@ -34,6 +34,8 @@ public interface OfflinePaymentProofRepository {
 
     void markSequenceAnchor(String proofId, String reasonCode);
 
+    int attachSenderProof(String proofId, String senderProofPayloadJson);
+
     int ensureReceivedUnsettledAmount(String proofId, BigDecimal receivedAmount);
 
     java.util.Optional<OfflinePaymentProof> findById(String proofId);

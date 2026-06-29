@@ -881,10 +881,10 @@ public class SettlementApplicationService {
             if (existing != null && isReceiverConfirmation(command, submission, existing)) {
                 continue;
             }
-            assertProofSubmissionNotReplayed(submission);
-            if (command.uploaderType() == UploaderType.RECEIVER && existing == null && hasReceiverLocalBlock(submission)) {
-                throw new IllegalArgumentException("receiver settlement requires existing sender proof: " + submission.voucherId());
+            if (existing != null && isLateSenderProofForReceiverSettlement(command, submission, existing)) {
+                continue;
             }
+            assertProofSubmissionNotReplayed(submission);
         }
 
         SettlementBatchFactory.SettlementBatchDraft batchDraft = settlementBatchFactory.createDraft(command);
@@ -902,6 +902,7 @@ public class SettlementApplicationService {
 
         List<String> requestIds = new ArrayList<>();
         int receiverConfirmationCount = 0;
+        int existingProofUpdateCount = 0;
         for (ProofSubmission submission : command.proofs()) {
             OfflinePaymentProof existing = proofRepository.findByVoucherId(submission.voucherId()).orElse(null);
             if (existing != null && isReceiverConfirmation(command, submission, existing)) {
@@ -932,6 +933,20 @@ public class SettlementApplicationService {
                 receiverConfirmationCount++;
                 continue;
             }
+            if (existing != null && isLateSenderProofForReceiverSettlement(command, submission, existing)) {
+                proofRepository.attachSenderProof(existing.id(), jsonService.write(submission.payload()));
+                saveLocalEvidence(
+                        command,
+                        submission,
+                        existing.id(),
+                        "VERIFIED",
+                        "late sender proof matched receiver evidence"
+                );
+                settlementRepository.findLatestByProofId(existing.id())
+                        .ifPresent(request -> requestIds.add(request.id()));
+                existingProofUpdateCount++;
+                continue;
+            }
 
             CollateralLock collateral = collateralRepository.findById(submission.collateralId())
                     .orElseThrow(() -> new IllegalArgumentException("collateral not found: " + submission.collateralId()));
@@ -939,6 +954,11 @@ public class SettlementApplicationService {
                     .orElseThrow(() -> new IllegalArgumentException("receiver device not found: " + submission.receiverDeviceId()));
             long senderUserId = resolveSenderUserId(submission, collateral);
             long receiverUserId = resolveReceiverUserId(submission, receiverDevice);
+            boolean receiverSettlementWithoutSenderProof = command.uploaderType() == UploaderType.RECEIVER
+                    && hasReceiverLocalBlock(submission);
+            Map<String, Object> proofPayload = receiverSettlementWithoutSenderProof
+                    ? receiverSettlementWithoutSenderProofPayload(submission.payload())
+                    : submission.payload();
 
             OfflinePaymentProof proof = proofRepository.save(
                     batch.id(),
@@ -960,10 +980,19 @@ public class SettlementApplicationService {
                     submission.expiresAtMs(),
                     submission.canonicalPayload(),
                     command.uploaderType().name(),
-                    extractChannelType(submission.payload()),
-                    jsonService.write(submission.payload())
+                    extractChannelType(proofPayload),
+                    jsonService.write(proofPayload)
             );
-            saveLocalEvidence(command, submission, proof.id(), "PENDING", "sender evidence stored before receiver match");
+            saveLocalEvidence(
+                    command,
+                    submission,
+                    proof.id(),
+                    "PENDING",
+                    receiverSettlementWithoutSenderProof
+                            ? "receiver evidence stored without sender proof"
+                            : "sender evidence stored before receiver match",
+                    proofPayload
+            );
 
             SettlementRequest request = settlementRepository.save(
                     batch.id(),
@@ -988,7 +1017,7 @@ public class SettlementApplicationService {
             );
         }
 
-        if (receiverConfirmationCount == command.proofs().size()) {
+        if (receiverConfirmationCount + existingProofUpdateCount == command.proofs().size()) {
             batchRepository.updateStatus(
                     batch.id(),
                     SettlementBatchStatus.SETTLED,
@@ -997,6 +1026,7 @@ public class SettlementApplicationService {
                             "requestIds", requestIds,
                             "triggerMode", command.triggerMode() == null || command.triggerMode().isBlank() ? "MANUAL" : command.triggerMode(),
                             "receiverConfirmationCount", receiverConfirmationCount,
+                            "lateSenderProofMatchCount", existingProofUpdateCount,
                             "finalizedAt", OffsetDateTime.now().toString()
                     ))
             );
@@ -1032,6 +1062,19 @@ public class SettlementApplicationService {
                 || Boolean.TRUE.equals(payload.get("receiverEvidenceBlock")));
     }
 
+    private Map<String, Object> receiverSettlementWithoutSenderProofPayload(Map<String, Object> payload) {
+        Map<String, Object> enriched = new LinkedHashMap<>();
+        if (payload != null) {
+            enriched.putAll(payload);
+        }
+        enriched.putIfAbsent("senderProofPresent", false);
+        enriched.putIfAbsent("senderProofMissingRecorded", true);
+        enriched.putIfAbsent("receiverSettlementWithoutSenderProof", true);
+        enriched.putIfAbsent("senderProofOptionalForReceiverSettlement", true);
+        enriched.putIfAbsent("receiverSettlementProofPolicy", "RECEIVER_EVIDENCE_ALLOWED_WITHOUT_SENDER_PROOF");
+        return enriched;
+    }
+
     private void saveLocalEvidence(
             SubmitSettlementBatchCommand command,
             ProofSubmission submission,
@@ -1039,7 +1082,17 @@ public class SettlementApplicationService {
             String verificationStatus,
             String verificationDetail
     ) {
-        Map<String, Object> payload = submission.payload();
+        saveLocalEvidence(command, submission, proofId, verificationStatus, verificationDetail, submission.payload());
+    }
+
+    private void saveLocalEvidence(
+            SubmitSettlementBatchCommand command,
+            ProofSubmission submission,
+            String proofId,
+            String verificationStatus,
+            String verificationDetail,
+            Map<String, Object> payload
+    ) {
         if (payload == null) {
             return;
         }
@@ -1412,6 +1465,28 @@ public class SettlementApplicationService {
                 && equalsText(existing.signature(), submission.signature())
                 && equalsText(existing.nonce(), submission.nonce())
                 && existing.monotonicCounter() == submission.counter()
+                && existing.amount().compareTo(submission.amount()) == 0;
+    }
+
+    private boolean isLateSenderProofForReceiverSettlement(
+            SubmitSettlementBatchCommand command,
+            ProofSubmission submission,
+            OfflinePaymentProof existing
+    ) {
+        if (command.uploaderType() != UploaderType.SENDER) {
+            return false;
+        }
+        if (!"RECEIVER".equalsIgnoreCase(existing.uploaderType())) {
+            return false;
+        }
+        JsonNode existingPayload = jsonService.readTree(existing.rawPayloadJson());
+        if (!existingPayload.path("receiverSettlementWithoutSenderProof").asBoolean(false)) {
+            return false;
+        }
+        return equalsText(existing.voucherId(), submission.voucherId())
+                && equalsText(existing.collateralId(), submission.collateralId())
+                && equalsText(existing.senderDeviceId(), submission.senderDeviceId())
+                && equalsText(existing.receiverDeviceId(), submission.receiverDeviceId())
                 && existing.amount().compareTo(submission.amount()) == 0;
     }
 
@@ -2182,6 +2257,9 @@ public class SettlementApplicationService {
     }
 
     private SettlementEvaluation evaluateProof(OfflinePaymentProof proof, CollateralLock collateral, String settlementId) {
+        if (isReceiverSettlementWithoutSenderProof(proof)) {
+            return receiverSettlementWithoutSenderProofEvaluation(proof, collateral);
+        }
         try {
             proofSchemaValidator.validate(proof);
         } catch (IllegalArgumentException exception) {
@@ -2251,6 +2329,36 @@ public class SettlementApplicationService {
         );
 
         return settlementPolicyEvaluator.evaluate(proof, collateral, device);
+    }
+
+    private boolean isReceiverSettlementWithoutSenderProof(OfflinePaymentProof proof) {
+        JsonNode payload = jsonService.readTree(proof.rawPayloadJson());
+        return "RECEIVER".equalsIgnoreCase(proof.uploaderType())
+                && payload.path("receiverSettlementWithoutSenderProof").asBoolean(false)
+                && !payload.path("senderProofPresent").asBoolean(false);
+    }
+
+    private SettlementEvaluation receiverSettlementWithoutSenderProofEvaluation(
+            OfflinePaymentProof proof,
+            CollateralLock collateral
+    ) {
+        return new SettlementEvaluation(
+                SettlementStatus.SETTLED,
+                false,
+                null,
+                jsonService.write(Map.ofEntries(
+                        Map.entry("reasonCode", OfflinePayReasonCode.SETTLED),
+                        Map.entry("voucherId", proof.voucherId()),
+                        Map.entry("collateralId", collateral.id()),
+                        Map.entry("senderProofPresent", false),
+                        Map.entry("senderProofMissingRecorded", true),
+                        Map.entry("receiverSettlementWithoutSenderProof", true),
+                        Map.entry("senderProofOptionalForReceiverSettlement", true),
+                        Map.entry("settlementPolicy", "RECEIVER_EVIDENCE_ALLOWED_WITHOUT_SENDER_PROOF")
+                )),
+                proof.amount(),
+                "RELEASE"
+        );
     }
 
     private List<OfflinePaymentProof> findExistingProofChain(CollateralLock collateral, OfflinePaymentProof proof) {
