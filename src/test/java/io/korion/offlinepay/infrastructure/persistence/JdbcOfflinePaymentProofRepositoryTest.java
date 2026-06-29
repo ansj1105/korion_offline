@@ -33,4 +33,17 @@ class JdbcOfflinePaymentProofRepositoryTest {
         assertTrue(sql.contains(":senderDeviceId"));
         assertDoesNotThrow(() -> NamedParameterUtils.parseSqlStatement(sql));
     }
+
+    @Test
+    void finalizedReceivedUnsettledCandidatesIncludeHonoredSettlements() {
+        String sql = JdbcOfflinePaymentProofRepository.finalizedReceivedUnsettledCandidatesSql(25);
+
+        assertTrue(sql.contains("offline_payment_proofs.received_unsettled_amount > 0"));
+        assertTrue(sql.contains("settlement_requests.status = 'SETTLED'"));
+        assertTrue(sql.contains("settlement_requests.settlement_result ->> 'financiallyHonored'"));
+        assertTrue(sql.contains("settlements.status = 'SETTLED'"));
+        assertTrue(sql.contains("settlements.detail ->> 'financiallyHonored'"));
+        assertTrue(sql.contains("settlements.detail ->> 'financialSideEffectsApplied'"));
+        assertDoesNotThrow(() -> NamedParameterUtils.parseSqlStatement(sql));
+    }
 }

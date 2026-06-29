@@ -66,9 +66,16 @@ public interface OfflinePaymentProofRepository {
 
     java.util.List<OfflinePaymentProof> findOrphanReceivedUnsettledCandidates(java.time.OffsetDateTime cutoff, int size);
 
+    java.util.List<OfflinePaymentProof> findFinalizedReceivedUnsettledCandidates(int size);
+
     int markReceivedCollateralSettled(
             java.util.List<String> proofIds,
             String operationId,
+            String referenceId
+    );
+
+    int markReceivedUnsettledAsSettledForFinalizedSettlements(
+            java.util.List<String> proofIds,
             String referenceId
     );
 }

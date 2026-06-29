@@ -16,6 +16,7 @@ import org.springframework.stereotype.Component;
 public class OrphanReceivedUnsettledCleanupWorker {
 
     private static final Logger log = LoggerFactory.getLogger(OrphanReceivedUnsettledCleanupWorker.class);
+    private static final DateTimeFormatter HOURLY_REFERENCE_FORMAT = DateTimeFormatter.ofPattern("yyyyMMddHH");
 
     private final OfflinePaymentProofRepository proofRepository;
     private final AppProperties properties;
@@ -57,6 +58,36 @@ public class OrphanReceivedUnsettledCleanupWorker {
                 candidates.size(),
                 settled,
                 cutoff,
+                referenceId,
+                proofIds
+        );
+    }
+
+    @Scheduled(
+            cron = "${offline-pay.worker.settled-received-unsettled-cleanup-cron:0 0 * * * *}",
+            zone = "${offline-pay.worker.settled-received-unsettled-cleanup-zone:UTC}"
+    )
+    public void cleanupFinalizedReceivedUnsettled() {
+        if (!properties.worker().enabled()) {
+            return;
+        }
+
+        List<OfflinePaymentProof> candidates = proofRepository.findFinalizedReceivedUnsettledCandidates(
+                properties.worker().settledReceivedUnsettledCleanupLimit()
+        );
+        if (candidates.isEmpty()) {
+            return;
+        }
+
+        List<String> proofIds = candidates.stream()
+                .map(OfflinePaymentProof::id)
+                .toList();
+        String referenceId = "finalized-received-cleanup:" + OffsetDateTime.now().format(HOURLY_REFERENCE_FORMAT);
+        int settled = proofRepository.markReceivedUnsettledAsSettledForFinalizedSettlements(proofIds, referenceId);
+        log.warn(
+                "Finalized received unsettled cleanup closed candidates={}, settled={}, referenceId={}, proofIds={}",
+                candidates.size(),
+                settled,
                 referenceId,
                 proofIds
         );

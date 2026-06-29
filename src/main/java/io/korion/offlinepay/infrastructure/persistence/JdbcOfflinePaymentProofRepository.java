@@ -429,6 +429,13 @@ public class JdbcOfflinePaymentProofRepository implements OfflinePaymentProofRep
     }
 
     @Override
+    public java.util.List<OfflinePaymentProof> findFinalizedReceivedUnsettledCandidates(int size) {
+        return jdbcClient.sql(finalizedReceivedUnsettledCandidatesSql(size))
+                .query(offlinePaymentProofRowMapper)
+                .list();
+    }
+
+    @Override
     public int markReceivedCollateralSettled(
             java.util.List<String> proofIds,
             String operationId,
@@ -461,6 +468,66 @@ public class JdbcOfflinePaymentProofRepository implements OfflinePaymentProofRep
                 .param("operationId", operationId)
                 .param("referenceId", referenceId)
                 .update();
+    }
+
+    @Override
+    public int markReceivedUnsettledAsSettledForFinalizedSettlements(
+            java.util.List<String> proofIds,
+            String referenceId
+    ) {
+        java.util.List<java.util.UUID> normalizedProofIds = proofIds == null
+                ? java.util.List.of()
+                : proofIds.stream()
+                        .filter(id -> id != null && !id.isBlank())
+                        .map(String::trim)
+                        .distinct()
+                        .map(java.util.UUID::fromString)
+                        .toList();
+        if (normalizedProofIds.isEmpty()) {
+            return 0;
+        }
+        String sql = QueryBuilder.update("offline_payment_proofs")
+                .set("received_settled_amount", "received_settled_amount + received_unsettled_amount")
+                .set("received_unsettled_amount", "0")
+                .set("received_collateral_settlement_reference_id", ":referenceId")
+                .set("received_collateral_settled_at", "COALESCE(received_collateral_settled_at, NOW())")
+                .touchUpdatedAt()
+                .where("id", QueryBuilder.Op.IN, "(:proofIds)")
+                .where("received_unsettled_amount", QueryBuilder.Op.GT, "0")
+                .where(finalizedReceivedUnsettledExistsCondition())
+                .build();
+        return jdbcClient.sql(sql)
+                .param("proofIds", normalizedProofIds)
+                .param("referenceId", referenceId)
+                .update();
+    }
+
+    static String finalizedReceivedUnsettledCandidatesSql(int size) {
+        return QueryBuilder.select("offline_payment_proofs", "offline_payment_proofs.*")
+                .where("offline_payment_proofs.received_unsettled_amount > 0")
+                .where(finalizedReceivedUnsettledExistsCondition())
+                .orderBy("offline_payment_proofs.updated_at ASC, offline_payment_proofs.created_at ASC")
+                .limit(Math.max(1, size))
+                .build();
+    }
+
+    private static String finalizedReceivedUnsettledExistsCondition() {
+        return """
+                EXISTS (
+                    SELECT 1
+                    FROM settlement_requests
+                    LEFT JOIN settlements
+                           ON settlements.settlement_id = settlement_requests.id
+                    WHERE settlement_requests.proof_id = offline_payment_proofs.id
+                      AND (
+                        settlement_requests.status = 'SETTLED'
+                        OR COALESCE(settlement_requests.settlement_result ->> 'financiallyHonored', 'false') = 'true'
+                        OR settlements.status = 'SETTLED'
+                        OR COALESCE(settlements.detail ->> 'financiallyHonored', 'false') = 'true'
+                        OR COALESCE(settlements.detail ->> 'financialSideEffectsApplied', 'false') = 'true'
+                      )
+                )
+                """;
     }
 
     @Override

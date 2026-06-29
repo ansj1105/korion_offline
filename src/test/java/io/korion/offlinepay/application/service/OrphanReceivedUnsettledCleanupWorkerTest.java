@@ -40,6 +40,24 @@ class OrphanReceivedUnsettledCleanupWorkerTest {
     }
 
     @Test
+    void closesFinalizedReceivedUnsettledCandidates() {
+        OfflinePaymentProofRepository proofRepository = Mockito.mock(OfflinePaymentProofRepository.class);
+        OrphanReceivedUnsettledCleanupWorker worker = new OrphanReceivedUnsettledCleanupWorker(
+                proofRepository,
+                properties(true)
+        );
+        when(proofRepository.findFinalizedReceivedUnsettledCandidates(eq(100)))
+                .thenReturn(List.of(proof("proof-3")));
+
+        worker.cleanupFinalizedReceivedUnsettled();
+
+        verify(proofRepository).markReceivedUnsettledAsSettledForFinalizedSettlements(
+                eq(List.of("proof-3")),
+                startsWith("finalized-received-cleanup:")
+        );
+    }
+
+    @Test
     void skipsCleanupWhenWorkerDisabled() {
         OfflinePaymentProofRepository proofRepository = Mockito.mock(OfflinePaymentProofRepository.class);
         OrphanReceivedUnsettledCleanupWorker worker = new OrphanReceivedUnsettledCleanupWorker(
@@ -48,9 +66,12 @@ class OrphanReceivedUnsettledCleanupWorkerTest {
         );
 
         worker.poll();
+        worker.cleanupFinalizedReceivedUnsettled();
 
         verify(proofRepository, never()).findOrphanReceivedUnsettledCandidates(any(), Mockito.anyInt());
+        verify(proofRepository, never()).findFinalizedReceivedUnsettledCandidates(Mockito.anyInt());
         verify(proofRepository, never()).markReceivedCollateralSettled(Mockito.anyList(), Mockito.any(), Mockito.any());
+        verify(proofRepository, never()).markReceivedUnsettledAsSettledForFinalizedSettlements(Mockito.anyList(), Mockito.any());
     }
 
     private static OfflinePaymentProof proof(String id) {

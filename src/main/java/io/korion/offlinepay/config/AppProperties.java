@@ -29,7 +29,8 @@ public record AppProperties(
                     envInt("LOCAL_EVIDENCE_RECONCILIATION_LIMIT", 20),
                     envLong("RECEIVER_HISTORY_AUTO_CONFIRM_DELAY_MS", 300_000L),
                     envLong("ORPHAN_RECEIVED_UNSETTLED_AGE_MS", 604_800_000L),
-                    envInt("ORPHAN_RECEIVED_UNSETTLED_CLEANUP_LIMIT", 50)
+                    envInt("ORPHAN_RECEIVED_UNSETTLED_CLEANUP_LIMIT", 50),
+                    envInt("SETTLED_RECEIVED_UNSETTLED_CLEANUP_LIMIT", 100)
             );
         }
     }
@@ -88,7 +89,8 @@ public record AppProperties(
             int localEvidenceReconciliationLimit,
             long receiverHistoryAutoConfirmDelayMs,
             long orphanReceivedUnsettledAgeMs,
-            int orphanReceivedUnsettledCleanupLimit
+            int orphanReceivedUnsettledCleanupLimit,
+            int settledReceivedUnsettledCleanupLimit
     ) {
         public Worker(boolean enabled, String consumerName, int claimIdleMs, int maxAttempts) {
             this(enabled, consumerName, claimIdleMs, maxAttempts, 86_400_000L, 20, 20, 300_000L);
@@ -114,7 +116,35 @@ public record AppProperties(
                     localEvidenceReconciliationLimit,
                     receiverHistoryAutoConfirmDelayMs,
                     604_800_000L,
-                    50
+                    50,
+                    100
+            );
+        }
+
+        public Worker(
+                boolean enabled,
+                String consumerName,
+                int claimIdleMs,
+                int maxAttempts,
+                long receiverHistoryPendingTimeoutMs,
+                int receiverHistoryPendingScanLimit,
+                int localEvidenceReconciliationLimit,
+                long receiverHistoryAutoConfirmDelayMs,
+                long orphanReceivedUnsettledAgeMs,
+                int orphanReceivedUnsettledCleanupLimit
+        ) {
+            this(
+                    enabled,
+                    consumerName,
+                    claimIdleMs,
+                    maxAttempts,
+                    receiverHistoryPendingTimeoutMs,
+                    receiverHistoryPendingScanLimit,
+                    localEvidenceReconciliationLimit,
+                    receiverHistoryAutoConfirmDelayMs,
+                    orphanReceivedUnsettledAgeMs,
+                    orphanReceivedUnsettledCleanupLimit,
+                    100
             );
         }
 
@@ -125,6 +155,7 @@ public record AppProperties(
             receiverHistoryAutoConfirmDelayMs = receiverHistoryAutoConfirmDelayMs <= 0 ? 300_000L : receiverHistoryAutoConfirmDelayMs;
             orphanReceivedUnsettledAgeMs = orphanReceivedUnsettledAgeMs <= 0 ? 604_800_000L : orphanReceivedUnsettledAgeMs;
             orphanReceivedUnsettledCleanupLimit = orphanReceivedUnsettledCleanupLimit <= 0 ? 50 : orphanReceivedUnsettledCleanupLimit;
+            settledReceivedUnsettledCleanupLimit = settledReceivedUnsettledCleanupLimit <= 0 ? 100 : settledReceivedUnsettledCleanupLimit;
         }
     }
 

@@ -60,3 +60,6 @@ offline-pay:
     orphan-received-unsettled-cleanup-zone: ${ORPHAN_RECEIVED_UNSETTLED_CLEANUP_ZONE:UTC}
     orphan-received-unsettled-age-ms: ${ORPHAN_RECEIVED_UNSETTLED_AGE_MS:604800000}
     orphan-received-unsettled-cleanup-limit: ${ORPHAN_RECEIVED_UNSETTLED_CLEANUP_LIMIT:50}
+    settled-received-unsettled-cleanup-cron: '${SETTLED_RECEIVED_UNSETTLED_CLEANUP_CRON:0 0 * * * *}'
+    settled-received-unsettled-cleanup-zone: ${SETTLED_RECEIVED_UNSETTLED_CLEANUP_ZONE:UTC}
+    settled-received-unsettled-cleanup-limit: ${SETTLED_RECEIVED_UNSETTLED_CLEANUP_LIMIT:100}
