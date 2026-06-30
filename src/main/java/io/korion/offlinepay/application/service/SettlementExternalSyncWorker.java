@@ -21,11 +21,15 @@ import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 @Component
 public class SettlementExternalSyncWorker {
+
+    private static final Logger log = LoggerFactory.getLogger(SettlementExternalSyncWorker.class);
 
     private final SettlementBatchEventBus eventBus;
     private final CoinManageDeviceSyncPort coinManageDeviceSyncPort;
@@ -80,14 +84,97 @@ public class SettlementExternalSyncWorker {
                 process(message);
                 eventBus.acknowledgeExternalSync(message.messageId());
             } catch (RuntimeException exception) {
-                ensureReconciliationCase(
-                        message,
-                        resolveFailureCaseType(message.eventType(), exception),
-                        resolveFailureReasonCode(message.eventType(), exception),
-                        exception
-                );
+                handleExternalSyncFailure(message, exception);
             }
         }
+    }
+
+    private void handleExternalSyncFailure(
+            SettlementBatchEventBus.QueuedExternalSyncMessage message,
+            RuntimeException exception
+    ) {
+        String caseType = resolveFailureCaseType(message.eventType(), exception);
+        String reasonCode = resolveFailureReasonCode(message.eventType(), exception);
+        RuntimeException reconciliationException = null;
+        try {
+            ensureReconciliationCase(message, caseType, reasonCode, exception);
+        } catch (RuntimeException failure) {
+            reconciliationException = failure;
+            log.warn(
+                    "Failed to persist reconciliation case for external sync failure; messageId={}, eventType={}, settlementId={}, reasonCode={}",
+                    message.messageId(),
+                    message.eventType(),
+                    message.settlementId(),
+                    reasonCode,
+                    failure
+            );
+        }
+
+        String errorMessage = externalSyncFailureMessage(exception);
+        OfflineFailureClass failureClass = OfflineFailurePolicy.classify(reasonCode, errorMessage);
+        if (shouldDeadLetterExternalSyncFailure(message, failureClass, errorMessage, reconciliationException)) {
+            String deadLetterMessage = buildExternalSyncDeadLetterMessage(errorMessage, reconciliationException);
+            eventBus.deadLetterExternalSync(message.messageId(), reasonCode, deadLetterMessage);
+            eventBus.publishExternalSyncDeadLetter(
+                    message.eventType(),
+                    message.settlementId(),
+                    message.batchId(),
+                    message.proofId(),
+                    message.attempts(),
+                    reasonCode,
+                    deadLetterMessage,
+                    OffsetDateTime.now().toString()
+            );
+        }
+    }
+
+    private boolean shouldDeadLetterExternalSyncFailure(
+            SettlementBatchEventBus.QueuedExternalSyncMessage message,
+            OfflineFailureClass failureClass,
+            String errorMessage,
+            RuntimeException reconciliationException
+    ) {
+        if (reconciliationException != null) {
+            return true;
+        }
+        if (!OfflineFailurePolicy.isRetryable(failureClass)) {
+            return true;
+        }
+        return isHistorySyncEvent(message.eventType()) && isPermanentFoxyaHistoryFailure(errorMessage);
+    }
+
+    private boolean isHistorySyncEvent(String eventType) {
+        return OfflineWorkflowEventType.HISTORY_SYNC_REQUESTED.name().equals(eventType)
+                || OfflineWorkflowEventType.RECEIVER_HISTORY_SYNC_REQUESTED.name().equals(eventType);
+    }
+
+    private boolean isPermanentFoxyaHistoryFailure(String errorMessage) {
+        String normalized = normalizeFailureText(errorMessage);
+        return normalized.contains("FK_WALLET_USER")
+                || normalized.contains("USER_WALLETS")
+                || normalized.contains("23503")
+                || normalized.contains("FOREIGN KEY CONSTRAINT")
+                || normalized.contains("OFFLINE PAY TRANSFER REFERENCE CONFLICT");
+    }
+
+    private String buildExternalSyncDeadLetterMessage(
+            String errorMessage,
+            RuntimeException reconciliationException
+    ) {
+        if (reconciliationException == null) {
+            return errorMessage;
+        }
+        return errorMessage
+                + " | reconciliationCaseFailure="
+                + externalSyncFailureMessage(reconciliationException);
+    }
+
+    private String externalSyncFailureMessage(RuntimeException exception) {
+        return exception.getMessage() == null ? "unknown external sync failure" : exception.getMessage();
+    }
+
+    private String normalizeFailureText(String value) {
+        return value == null ? "" : value.trim().toUpperCase();
     }
 
     private void process(SettlementBatchEventBus.QueuedExternalSyncMessage message) {

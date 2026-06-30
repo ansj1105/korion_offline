@@ -336,6 +336,27 @@ public class JdbcSettlementBatchEventBus implements SettlementBatchEventBus {
     }
 
     @Override
+    public void deadLetterExternalSync(String messageId, String reasonCode, String errorMessage) {
+        String sql = """
+                UPDATE settlement_outbox_events
+                SET status = :deadLetterStatus,
+                    lock_owner = NULL,
+                    locked_at = NULL,
+                    dead_lettered_at = NOW(),
+                    updated_at = NOW(),
+                    reason_code = :reasonCode,
+                    error_message = :errorMessage
+                WHERE id = :id
+                """;
+        jdbcClient.sql(sql)
+                .param("deadLetterStatus", STATUS_DEAD_LETTER)
+                .param("reasonCode", reasonCode)
+                .param("errorMessage", normalize(errorMessage))
+                .param("id", java.util.UUID.fromString(messageId))
+                .update();
+    }
+
+    @Override
     public void publishConflict(
             String batchId,
             String voucherId,

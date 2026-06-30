@@ -36,6 +36,8 @@ public interface SettlementBatchEventBus {
             String failedAt
     );
 
+    void deadLetterExternalSync(String messageId, String reasonCode, String errorMessage);
+
     void publishConflict(
             String batchId,
             String voucherId,

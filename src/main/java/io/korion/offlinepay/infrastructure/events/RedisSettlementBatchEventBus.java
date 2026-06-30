@@ -163,6 +163,11 @@ public class RedisSettlementBatchEventBus implements SettlementBatchEventBus {
     }
 
     @Override
+    public void deadLetterExternalSync(String messageId, String reasonCode, String errorMessage) {
+        // no-op for redis implementation; external sync outbox is JDBC-only
+    }
+
+    @Override
     public void publishConflict(
             String batchId,
             String voucherId,

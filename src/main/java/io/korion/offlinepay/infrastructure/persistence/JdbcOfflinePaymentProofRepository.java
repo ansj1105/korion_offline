@@ -167,17 +167,60 @@ public class JdbcOfflinePaymentProofRepository implements OfflinePaymentProofRep
                   "senderProofOptionalForReceiverSettlement": true
                 }
                 """;
-        String sql = QueryBuilder.update("offline_payment_proofs")
-                .set("payload", "jsonb_set(COALESCE(payload, '{}'::jsonb) || CAST(:markerJson AS jsonb), '{matchedSenderProof}', CAST(:senderProofPayload AS jsonb), true)")
-                .set("raw_payload", "jsonb_set(COALESCE(raw_payload, '{}'::jsonb) || CAST(:markerJson AS jsonb), '{matchedSenderProof}', CAST(:senderProofPayload AS jsonb), true)")
-                .touchUpdatedAt()
-                .where("id", QueryBuilder.Op.EQ, ":id")
-                .build();
-        return jdbcClient.sql(sql)
+        return jdbcClient.sql(attachSenderProofSql())
                 .param("id", java.util.UUID.fromString(proofId))
                 .param("markerJson", markerJson)
                 .param("senderProofPayload", senderProofPayloadJson)
                 .update();
+    }
+
+    static String attachSenderProofSql() {
+        return """
+                WITH sender AS (
+                    SELECT CAST(:senderProofPayload AS jsonb) AS payload
+                ),
+                hybrid_fields AS (
+                    SELECT jsonb_strip_nulls(jsonb_build_object(
+                        'txId', COALESCE(payload -> 'txId', payload -> 'localBlockTxId'),
+                        'offlineTxSequence', COALESCE(payload -> 'offlineTxSequence', payload -> 'localBlockOfflineTxSequence'),
+                        'deviceTime', COALESCE(payload -> 'deviceTime', payload -> 'localBlockDeviceTime'),
+                        'lastServerSyncTime', COALESCE(payload -> 'lastServerSyncTime', payload -> 'localBlockLastServerSyncTime'),
+                        'estimatedServerTime', COALESCE(payload -> 'estimatedServerTime', payload -> 'localBlockEstimatedServerTime'),
+                        'elapsedTimeMs', COALESCE(payload -> 'elapsedTimeMs', payload -> 'localBlockElapsedTimeMs'),
+                        'elapsedTimeSource', COALESCE(payload -> 'elapsedTimeSource', payload -> 'localBlockElapsedTimeSource'),
+                        'serverSyncAgeMs', COALESCE(payload -> 'serverSyncAgeMs', payload -> 'localBlockServerSyncAgeMs'),
+                        'serverTimeZone', COALESCE(payload -> 'serverTimeZone', payload -> 'localBlockServerTimeZone'),
+                        'clientTimeZone', COALESCE(payload -> 'clientTimeZone', payload -> 'localBlockClientTimeZone'),
+                        'clientTimeZoneOffsetMinutes', COALESCE(payload -> 'clientTimeZoneOffsetMinutes', payload -> 'localBlockClientTimeZoneOffsetMinutes'),
+                        'timeSyncSource', COALESCE(payload -> 'timeSyncSource', payload -> 'localBlockTimeSyncSource')
+                    )) AS payload
+                    FROM sender
+                )
+                UPDATE offline_payment_proofs proof
+                SET payload = jsonb_set(
+                        COALESCE(proof.payload, '{}'::jsonb)
+                            || CAST(:markerJson AS jsonb)
+                            || hybrid_fields.payload,
+                        '{matchedSenderProof}',
+                        sender.payload,
+                        true
+                    ),
+                    raw_payload = jsonb_set(
+                        COALESCE(proof.raw_payload, '{}'::jsonb)
+                            || CAST(:markerJson AS jsonb)
+                            || hybrid_fields.payload,
+                        '{matchedSenderProof}',
+                        sender.payload,
+                        true
+                    ),
+                    canonical_payload = (
+                        COALESCE(NULLIF(proof.canonical_payload, '')::jsonb, '{}'::jsonb)
+                            || hybrid_fields.payload
+                    )::text,
+                    updated_at = NOW()
+                FROM sender, hybrid_fields
+                WHERE proof.id = :id
+                """;
     }
 
     @Override

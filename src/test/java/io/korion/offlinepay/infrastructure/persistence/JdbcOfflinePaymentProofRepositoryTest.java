@@ -45,4 +45,18 @@ class JdbcOfflinePaymentProofRepositoryTest {
         assertTrue(sql.contains("settlements.detail ->> 'financiallyHonored'"));
         assertDoesNotThrow(() -> NamedParameterUtils.parseSqlStatement(sql));
     }
+
+    @Test
+    void attachSenderProofPromotesHybridTimeFields() {
+        String sql = JdbcOfflinePaymentProofRepository.attachSenderProofSql();
+
+        assertTrue(sql.contains("matchedSenderProof"));
+        assertTrue(sql.contains("offlineTxSequence"));
+        assertTrue(sql.contains("lastServerSyncTime"));
+        assertTrue(sql.contains("estimatedServerTime"));
+        assertTrue(sql.contains("elapsedTimeMs"));
+        assertTrue(sql.contains("canonical_payload"));
+        assertTrue(sql.contains("localBlockLastServerSyncTime"));
+        assertDoesNotThrow(() -> NamedParameterUtils.parseSqlStatement(sql));
+    }
 }

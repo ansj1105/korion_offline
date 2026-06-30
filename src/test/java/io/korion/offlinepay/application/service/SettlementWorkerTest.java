@@ -158,6 +158,196 @@ class SettlementWorkerTest {
     }
 
     @Test
+    void deadLettersPermanentFoxyaHistoryForeignKeyFailure() {
+        AppProperties properties = new AppProperties(
+                "USDT",
+                24,
+                20,
+                1000,
+                new AppProperties.ProofIssuer("test-proof-issuer", "", ""),
+                new AppProperties.CoinManage("http://localhost:3000", "test-key", 5000),
+                new AppProperties.FoxCoin("http://localhost:3101", "test-key", 5000),
+                new AppProperties.Alerts(
+                        new AppProperties.Telegram("", ""),
+                        new AppProperties.CircuitBreaker(3, 60000)
+                ),
+                new AppProperties.Redis(
+                        "offlinepay",
+                        "stream:settlement:requested",
+                        "stream:settlement:result",
+                        "stream:settlement:conflict",
+                        "stream:settlement:dead-letter",
+                        "stream:collateral:requested",
+                        "stream:collateral:result",
+                        "offlinepay:settlement-group"
+                ),
+                new AppProperties.Worker(true, "worker-1", 60000, 3)
+        );
+        io.korion.offlinepay.application.port.CoinManageDeviceSyncPort coinManageDeviceSyncPort =
+                Mockito.mock(io.korion.offlinepay.application.port.CoinManageDeviceSyncPort.class);
+        io.korion.offlinepay.application.port.CoinManageSettlementPort coinManageSettlementPort =
+                Mockito.mock(io.korion.offlinepay.application.port.CoinManageSettlementPort.class);
+        io.korion.offlinepay.application.port.FoxCoinHistoryPort foxCoinHistoryPort =
+                Mockito.mock(io.korion.offlinepay.application.port.FoxCoinHistoryPort.class);
+        io.korion.offlinepay.application.port.OfflinePaymentProofRepository proofRepository =
+                Mockito.mock(io.korion.offlinepay.application.port.OfflinePaymentProofRepository.class);
+        io.korion.offlinepay.application.port.SettlementRepository settlementRepository =
+                Mockito.mock(io.korion.offlinepay.application.port.SettlementRepository.class);
+        io.korion.offlinepay.application.port.ReconciliationCaseRepository reconciliationCaseRepository =
+                Mockito.mock(io.korion.offlinepay.application.port.ReconciliationCaseRepository.class);
+        OfflineSagaService offlineSagaService = Mockito.mock(OfflineSagaService.class);
+        JsonService jsonService = new JsonService(new com.fasterxml.jackson.databind.ObjectMapper());
+        SettlementExternalSyncWorker worker = new SettlementExternalSyncWorker(
+                eventBus,
+                coinManageDeviceSyncPort,
+                coinManageSettlementPort,
+                foxCoinHistoryPort,
+                proofRepository,
+                settlementRepository,
+                reconciliationCaseRepository,
+                offlineSagaService,
+                jsonService,
+                properties
+        );
+        SettlementBatchEventBus.QueuedExternalSyncMessage message =
+                new SettlementBatchEventBus.QueuedExternalSyncMessage(
+                        "sync-history-fk",
+                        "HISTORY_SYNC_REQUESTED",
+                        "settlement-history-1",
+                        "batch-history-1",
+                        "proof-history-1",
+                        "{\"historyCommand\":{\"settlementId\":\"settlement-history-1\",\"transferRef\":\"settlement-history-1\",\"batchId\":\"batch-history-1\",\"collateralId\":\"collateral-1\",\"proofId\":\"proof-history-1\",\"userId\":1761,\"deviceId\":\"device-1\",\"assetCode\":\"USDT\",\"amount\":10,\"settlementStatus\":\"SETTLED\",\"historyType\":\"OFFLINE_PAY_SETTLEMENT\"}}",
+                        74
+                );
+
+        when(eventBus.pollExternalSyncRequested(20)).thenReturn(List.of(message));
+        when(eventBus.reclaimStaleExternalSyncRequested(20, 60000)).thenReturn(List.of());
+        Mockito.doThrow(new IllegalStateException("500 Internal Server Error: insert or update on table \"user_wallets\" violates foreign key constraint \"fk_wallet_user\" (23503)"))
+                .when(foxCoinHistoryPort)
+                .recordSettlementHistory(Mockito.any(io.korion.offlinepay.application.port.FoxCoinHistoryPort.SettlementHistoryCommand.class));
+
+        worker.poll();
+
+        verify(eventBus).deadLetterExternalSync(
+                eq("sync-history-fk"),
+                eq("HISTORY_SYNC_FAIL"),
+                Mockito.contains("fk_wallet_user")
+        );
+        verify(eventBus).publishExternalSyncDeadLetter(
+                eq("HISTORY_SYNC_REQUESTED"),
+                eq("settlement-history-1"),
+                eq("batch-history-1"),
+                eq("proof-history-1"),
+                eq(74),
+                eq("HISTORY_SYNC_FAIL"),
+                Mockito.contains("fk_wallet_user"),
+                anyString()
+        );
+        verify(eventBus, never()).acknowledgeExternalSync("sync-history-fk");
+    }
+
+    @Test
+    void deadLettersExternalSyncWhenReconciliationCaseCannotBeSaved() {
+        AppProperties properties = new AppProperties(
+                "USDT",
+                24,
+                20,
+                1000,
+                new AppProperties.ProofIssuer("test-proof-issuer", "", ""),
+                new AppProperties.CoinManage("http://localhost:3000", "test-key", 5000),
+                new AppProperties.FoxCoin("http://localhost:3101", "test-key", 5000),
+                new AppProperties.Alerts(
+                        new AppProperties.Telegram("", ""),
+                        new AppProperties.CircuitBreaker(3, 60000)
+                ),
+                new AppProperties.Redis(
+                        "offlinepay",
+                        "stream:settlement:requested",
+                        "stream:settlement:result",
+                        "stream:settlement:conflict",
+                        "stream:settlement:dead-letter",
+                        "stream:collateral:requested",
+                        "stream:collateral:result",
+                        "offlinepay:settlement-group"
+                ),
+                new AppProperties.Worker(true, "worker-1", 60000, 3)
+        );
+        io.korion.offlinepay.application.port.CoinManageDeviceSyncPort coinManageDeviceSyncPort =
+                Mockito.mock(io.korion.offlinepay.application.port.CoinManageDeviceSyncPort.class);
+        io.korion.offlinepay.application.port.CoinManageSettlementPort coinManageSettlementPort =
+                Mockito.mock(io.korion.offlinepay.application.port.CoinManageSettlementPort.class);
+        io.korion.offlinepay.application.port.FoxCoinHistoryPort foxCoinHistoryPort =
+                Mockito.mock(io.korion.offlinepay.application.port.FoxCoinHistoryPort.class);
+        io.korion.offlinepay.application.port.OfflinePaymentProofRepository proofRepository =
+                Mockito.mock(io.korion.offlinepay.application.port.OfflinePaymentProofRepository.class);
+        io.korion.offlinepay.application.port.SettlementRepository settlementRepository =
+                Mockito.mock(io.korion.offlinepay.application.port.SettlementRepository.class);
+        io.korion.offlinepay.application.port.ReconciliationCaseRepository reconciliationCaseRepository =
+                Mockito.mock(io.korion.offlinepay.application.port.ReconciliationCaseRepository.class);
+        OfflineSagaService offlineSagaService = Mockito.mock(OfflineSagaService.class);
+        JsonService jsonService = new JsonService(new com.fasterxml.jackson.databind.ObjectMapper());
+        SettlementExternalSyncWorker worker = new SettlementExternalSyncWorker(
+                eventBus,
+                coinManageDeviceSyncPort,
+                coinManageSettlementPort,
+                foxCoinHistoryPort,
+                proofRepository,
+                settlementRepository,
+                reconciliationCaseRepository,
+                offlineSagaService,
+                jsonService,
+                properties
+        );
+        SettlementBatchEventBus.QueuedExternalSyncMessage message =
+                new SettlementBatchEventBus.QueuedExternalSyncMessage(
+                        "sync-history-reconciliation-fk",
+                        "HISTORY_SYNC_REQUESTED",
+                        "settlement-history-2",
+                        "batch-history-2",
+                        "proof-history-2",
+                        "{\"historyCommand\":{\"settlementId\":\"settlement-history-2\",\"transferRef\":\"settlement-history-2\",\"batchId\":\"batch-history-2\",\"collateralId\":\"collateral-2\",\"proofId\":\"proof-history-2\",\"userId\":1474,\"deviceId\":\"device-2\",\"assetCode\":\"USDT\",\"amount\":10,\"settlementStatus\":\"SETTLED\",\"historyType\":\"OFFLINE_PAY_SETTLEMENT\"}}",
+                        61
+                );
+
+        when(eventBus.pollExternalSyncRequested(20)).thenReturn(List.of(message));
+        when(eventBus.reclaimStaleExternalSyncRequested(20, 60000)).thenReturn(List.of());
+        Mockito.doThrow(new IllegalStateException("history circuit is open"))
+                .when(foxCoinHistoryPort)
+                .recordSettlementHistory(Mockito.any(io.korion.offlinepay.application.port.FoxCoinHistoryPort.SettlementHistoryCommand.class));
+        Mockito.doThrow(new IllegalStateException("insert or update on table \"reconciliation_cases\" violates foreign key constraint"))
+                .when(reconciliationCaseRepository)
+                .save(
+                        anyString(),
+                        anyString(),
+                        anyString(),
+                        anyString(),
+                        anyString(),
+                        Mockito.any(ReconciliationCaseStatus.class),
+                        anyString(),
+                        anyString()
+                );
+
+        worker.poll();
+
+        verify(eventBus).deadLetterExternalSync(
+                eq("sync-history-reconciliation-fk"),
+                eq("HISTORY_CIRCUIT_OPEN"),
+                Mockito.contains("reconciliationCaseFailure")
+        );
+        verify(eventBus).publishExternalSyncDeadLetter(
+                eq("HISTORY_SYNC_REQUESTED"),
+                eq("settlement-history-2"),
+                eq("batch-history-2"),
+                eq("proof-history-2"),
+                eq(61),
+                eq("HISTORY_CIRCUIT_OPEN"),
+                Mockito.contains("reconciliationCaseFailure"),
+                anyString()
+        );
+        verify(eventBus, never()).acknowledgeExternalSync("sync-history-reconciliation-fk");
+    }
+
+    @Test
     void externalSyncWorkerStoresLedgerResultInSagaPayload() {
         AppProperties properties = new AppProperties(
                 "USDT",
