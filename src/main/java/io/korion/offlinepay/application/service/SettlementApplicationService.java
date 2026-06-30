@@ -191,6 +191,7 @@ public class SettlementApplicationService {
         int requested = command.proofIds() == null ? 0 : command.proofIds().size();
         int confirmed = 0;
         int skipped = 0;
+        ReceiverSettlementTrigger trigger = resolveReceivedSettlementConfirmationTrigger(command.triggerMode());
         for (String proofId : command.proofIds() == null ? List.<String>of() : command.proofIds()) {
             if (proofId == null || proofId.isBlank()) {
                 skipped++;
@@ -211,10 +212,17 @@ public class SettlementApplicationService {
                 skipped++;
                 continue;
             }
-            handleReceiverOnlineConfirmation(proof, request, ReceiverSettlementTrigger.MANUAL_RECEIVED_CONFIRM, true);
+            handleReceiverOnlineConfirmation(proof, request, trigger, true);
             confirmed++;
         }
         return new ReceiverSettlementConfirmationResult(requested, confirmed, skipped);
+    }
+
+    private ReceiverSettlementTrigger resolveReceivedSettlementConfirmationTrigger(String triggerMode) {
+        if (triggerMode != null && "AUTO".equalsIgnoreCase(triggerMode.trim())) {
+            return ReceiverSettlementTrigger.AUTO_RECEIVED_CONFIRM;
+        }
+        return ReceiverSettlementTrigger.MANUAL_RECEIVED_CONFIRM;
     }
 
     @Transactional
@@ -2935,7 +2943,8 @@ public class SettlementApplicationService {
 
     public record ConfirmReceivedSettlementsCommand(
             long userId,
-            List<String> proofIds
+            List<String> proofIds,
+            String triggerMode
     ) {}
 
     private enum ReceiverSettlementTrigger {

@@ -974,7 +974,8 @@ class SettlementApplicationServiceTest {
         SettlementApplicationService.ReceiverSettlementConfirmationResult result =
                 service.confirmReceivedSettlements(new SettlementApplicationService.ConfirmReceivedSettlementsCommand(
                         88L,
-                        java.util.List.of("proof-receiver-manual-confirm")
+                        java.util.List.of("proof-receiver-manual-confirm"),
+                        "MANUAL"
                 ));
 
         assertEquals(1, result.requested());
@@ -1086,7 +1087,8 @@ class SettlementApplicationServiceTest {
         SettlementApplicationService.ReceiverSettlementConfirmationResult result =
                 service.confirmReceivedSettlements(new SettlementApplicationService.ConfirmReceivedSettlementsCommand(
                         88L,
-                        java.util.List.of("proof-receiver-history-synced")
+                        java.util.List.of("proof-receiver-history-synced"),
+                        "MANUAL"
                 ));
 
         assertEquals(1, result.requested());

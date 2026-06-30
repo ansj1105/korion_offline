@@ -55,7 +55,7 @@ public class ProofPayloadConsistencyValidator {
         if (mismatch(text(rawPayload, "deviceId"), proof.senderDeviceId()) || mismatch(text(spendingProof, "deviceId"), proof.senderDeviceId())) {
             return invalid(OfflinePayReasonCode.PAYLOAD_DEVICE_MISMATCH, proof, "sender device mismatch");
         }
-        if (mismatch(text(rawPayload, "counterpartyDeviceId"), proof.receiverDeviceId()) || mismatch(text(canonicalPayload, "counterpartyDeviceId"), proof.receiverDeviceId())) {
+        if (mismatch(effectiveCounterpartyDeviceId(rawPayload), proof.receiverDeviceId()) || mismatch(effectiveCounterpartyDeviceId(canonicalPayload), proof.receiverDeviceId())) {
             return invalid(OfflinePayReasonCode.PAYLOAD_DEVICE_MISMATCH, proof, "receiver device mismatch");
         }
         if (mismatch(decimal(rawPayload, "amount"), proof.amount()) || mismatch(decimal(spendingProof, "amount"), proof.amount())) {
@@ -117,7 +117,7 @@ public class ProofPayloadConsistencyValidator {
         if (isBlank(text(rawPayload, "deviceId")) || isBlank(text(spendingProof, "deviceId"))) {
             return invalid(OfflinePayReasonCode.PAYLOAD_REQUIRED_FIELD_MISSING, proof, "deviceId missing");
         }
-        if (isBlank(text(rawPayload, "counterpartyDeviceId")) || isBlank(text(canonicalPayload, "counterpartyDeviceId"))) {
+        if (isBlank(effectiveCounterpartyDeviceId(rawPayload)) || isBlank(effectiveCounterpartyDeviceId(canonicalPayload))) {
             return invalid(OfflinePayReasonCode.PAYLOAD_REQUIRED_FIELD_MISSING, proof, "counterpartyDeviceId missing");
         }
         if (decimal(rawPayload, "amount") == null || decimal(spendingProof, "amount") == null) {
@@ -283,6 +283,14 @@ public class ProofPayloadConsistencyValidator {
         }
         String value = child.asText(null);
         return value == null || value.isBlank() ? null : value;
+    }
+
+    private String effectiveCounterpartyDeviceId(JsonNode payload) {
+        String explicit = text(payload, "counterpartyDeviceId");
+        if (explicit != null) {
+            return explicit;
+        }
+        return text(payload, "receiverDeviceId");
     }
 
     private BigDecimal decimal(JsonNode node, String field) {

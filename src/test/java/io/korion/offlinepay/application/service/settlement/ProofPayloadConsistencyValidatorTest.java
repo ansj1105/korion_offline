@@ -137,6 +137,43 @@ class ProofPayloadConsistencyValidatorTest {
     }
 
     @Test
+    void acceptsReceiverUploadWhenCanonicalCounterpartyDeviceIdCanBeDerivedFromReceiverDeviceId() {
+        long timestampMs = 1_781_184_120_000L;
+        long expiresAtMs = timestampMs + 60_000L;
+        String rawPayload = """
+                {
+                  "voucherId": "voucher-hybrid",
+                  "deviceId": "device-1",
+                  "senderDeviceId": "device-1",
+                  "receiverDeviceId": "device-2",
+                  "counterpartyDeviceId": "device-2",
+                  "amount": "1.00",
+                  "expiresAt": %d,
+                  "spendingProof": {
+                    "deviceId": "device-1",
+                    "amount": "1.00",
+                    "monotonicCounter": 18,
+                    "nonce": "nonce-hybrid",
+                    "newStateHash": "hash-new",
+                    "prevStateHash": "hash-prev",
+                    "signature": "signature",
+                    "timestamp": %d
+                  }
+                }
+                """.formatted(expiresAtMs, timestampMs);
+        String canonicalPayload = """
+                {
+                  "voucherId": "voucher-hybrid",
+                  "deviceId": "device-1",
+                  "senderDeviceId": "device-1",
+                  "receiverDeviceId": "device-2"
+                }
+                """;
+
+        assertTrue(validator.validate(proofWithPayloads(rawPayload, canonicalPayload)).passed());
+    }
+
+    @Test
     void validatesHybridOfflineTimeEnvelope() {
         OfflinePaymentProof proof = proofWithHybridTime("2026-06-11T03:02:03Z");
 

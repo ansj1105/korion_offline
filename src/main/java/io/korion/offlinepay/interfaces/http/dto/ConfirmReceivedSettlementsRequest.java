@@ -7,9 +7,10 @@ import java.util.List;
 
 public record ConfirmReceivedSettlementsRequest(
         @Positive long userId,
-        @NotEmpty List<String> proofIds
+        @NotEmpty List<String> proofIds,
+        String triggerMode
 ) {
     public SettlementApplicationService.ConfirmReceivedSettlementsCommand toCommand() {
-        return new SettlementApplicationService.ConfirmReceivedSettlementsCommand(userId, proofIds);
+        return new SettlementApplicationService.ConfirmReceivedSettlementsCommand(userId, proofIds, triggerMode);
     }
 }
