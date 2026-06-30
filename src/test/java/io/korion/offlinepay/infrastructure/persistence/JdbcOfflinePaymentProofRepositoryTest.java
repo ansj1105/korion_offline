@@ -47,10 +47,15 @@ class JdbcOfflinePaymentProofRepositoryTest {
     }
 
     @Test
-    void attachSenderProofPromotesHybridTimeFields() {
+    void attachSenderProofPromotesPolicyAndHybridTimeFields() {
         String sql = JdbcOfflinePaymentProofRepository.attachSenderProofSql();
 
         assertTrue(sql.contains("matchedSenderProof"));
+        assertTrue(sql.contains("uiMode"));
+        assertTrue(sql.contains("paymentFlow"));
+        assertTrue(sql.contains("connectionType"));
+        assertTrue(sql.contains("availableAmount"));
+        assertTrue(sql.contains("senderAuthRequired"));
         assertTrue(sql.contains("offlineTxSequence"));
         assertTrue(sql.contains("lastServerSyncTime"));
         assertTrue(sql.contains("estimatedServerTime"));

@@ -179,8 +179,22 @@ public class JdbcOfflinePaymentProofRepository implements OfflinePaymentProofRep
                 WITH sender AS (
                     SELECT CAST(:senderProofPayload AS jsonb) AS payload
                 ),
-                hybrid_fields AS (
+                promoted_fields AS (
                     SELECT jsonb_strip_nulls(jsonb_build_object(
+                        'network', payload -> 'network',
+                        'token', payload -> 'token',
+                        'uiMode', payload -> 'uiMode',
+                        'connectionType', payload -> 'connectionType',
+                        'paymentFlow', payload -> 'paymentFlow',
+                        'availableAmount', payload -> 'availableAmount',
+                        'ledgerExecutionMode', payload -> 'ledgerExecutionMode',
+                        'senderAuthRequired', payload -> 'senderAuthRequired',
+                        'dualAmountEntered', payload -> 'dualAmountEntered',
+                        'deviceTrustLevel', payload -> 'deviceTrustLevel',
+                        'deviceAttestationId', payload -> 'deviceAttestationId',
+                        'deviceAttestationVerdict', payload -> 'deviceAttestationVerdict',
+                        'serverVerifiedTrustLevel', payload -> 'serverVerifiedTrustLevel',
+                        'serverAttestationVerifiedAt', payload -> 'serverAttestationVerifiedAt',
                         'txId', COALESCE(payload -> 'txId', payload -> 'localBlockTxId'),
                         'offlineTxSequence', COALESCE(payload -> 'offlineTxSequence', payload -> 'localBlockOfflineTxSequence'),
                         'deviceTime', COALESCE(payload -> 'deviceTime', payload -> 'localBlockDeviceTime'),
@@ -200,7 +214,7 @@ public class JdbcOfflinePaymentProofRepository implements OfflinePaymentProofRep
                 SET payload = jsonb_set(
                         COALESCE(proof.payload, '{}'::jsonb)
                             || CAST(:markerJson AS jsonb)
-                            || hybrid_fields.payload,
+                            || promoted_fields.payload,
                         '{matchedSenderProof}',
                         sender.payload,
                         true
@@ -208,17 +222,17 @@ public class JdbcOfflinePaymentProofRepository implements OfflinePaymentProofRep
                     raw_payload = jsonb_set(
                         COALESCE(proof.raw_payload, '{}'::jsonb)
                             || CAST(:markerJson AS jsonb)
-                            || hybrid_fields.payload,
+                            || promoted_fields.payload,
                         '{matchedSenderProof}',
                         sender.payload,
                         true
                     ),
                     canonical_payload = (
                         COALESCE(NULLIF(proof.canonical_payload, '')::jsonb, '{}'::jsonb)
-                            || hybrid_fields.payload
+                            || promoted_fields.payload
                     )::text,
                     updated_at = NOW()
-                FROM sender, hybrid_fields
+                FROM sender, promoted_fields
                 WHERE proof.id = :id
                 """;
     }
