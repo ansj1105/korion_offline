@@ -17,6 +17,7 @@ import io.korion.offlinepay.application.port.ReconciliationCaseRepository;
 import io.korion.offlinepay.application.port.SettlementBatchEventBus;
 import io.korion.offlinepay.application.port.SettlementBatchRepository;
 import io.korion.offlinepay.application.port.SettlementConflictRepository;
+import io.korion.offlinepay.application.port.SettlementOutboxEventRepository;
 import io.korion.offlinepay.application.port.SettlementRepository;
 import io.korion.offlinepay.application.port.SettlementResultRepository;
 import io.korion.offlinepay.application.service.settlement.ChainValidationResult;
@@ -86,6 +87,8 @@ public class SettlementApplicationService {
             "COMPLETE_ACKED",
             "COMPLETED"
     );
+    private static final String EVENT_LEDGER_SYNC_REQUESTED = "LEDGER_SYNC_REQUESTED";
+    private static final String EVENT_HISTORY_SYNC_REQUESTED = "HISTORY_SYNC_REQUESTED";
 
     private final CollateralRepository collateralRepository;
     private final CollateralOperationRepository collateralOperationRepository;
@@ -98,6 +101,7 @@ public class SettlementApplicationService {
     private final ReconciliationCaseRepository reconciliationCaseRepository;
     private final OfflineSagaRepository offlineSagaRepository;
     private final SettlementConflictRepository settlementConflictRepository;
+    private final SettlementOutboxEventRepository settlementOutboxEventRepository;
     private final SettlementBatchEventBus eventBus;
     private final OfflineSagaService offlineSagaService;
     private final CoinManageSettlementPort coinManageSettlementPort;
@@ -129,6 +133,7 @@ public class SettlementApplicationService {
             ReconciliationCaseRepository reconciliationCaseRepository,
             OfflineSagaRepository offlineSagaRepository,
             SettlementConflictRepository settlementConflictRepository,
+            SettlementOutboxEventRepository settlementOutboxEventRepository,
             SettlementBatchEventBus eventBus,
             OfflineSagaService offlineSagaService,
             CoinManageSettlementPort coinManageSettlementPort,
@@ -160,6 +165,7 @@ public class SettlementApplicationService {
         this.reconciliationCaseRepository = reconciliationCaseRepository;
         this.offlineSagaRepository = offlineSagaRepository;
         this.settlementConflictRepository = settlementConflictRepository;
+        this.settlementOutboxEventRepository = settlementOutboxEventRepository;
         this.eventBus = eventBus;
         this.offlineSagaService = offlineSagaService;
         this.coinManageSettlementPort = coinManageSettlementPort;
@@ -2081,10 +2087,11 @@ public class SettlementApplicationService {
         if (sequenceAnchorReason != null) {
             proofRepository.markSequenceAnchor(proof.id(), sequenceAnchorReason);
         }
+        boolean senderExternalSyncAlreadyRequested = hasSenderExternalSyncRequested(request.id());
         offlineSagaService.markProcessing(
                 OfflineSagaType.SETTLEMENT,
                 request.id(),
-                "EXTERNAL_SYNC_REQUESTED",
+                senderExternalSyncAlreadyRequested ? "EXTERNAL_SYNC_ALREADY_REQUESTED" : "EXTERNAL_SYNC_REQUESTED",
                 Map.of(
                         "settlementId", request.id(),
                         "batchId", request.batchId(),
@@ -2092,11 +2099,19 @@ public class SettlementApplicationService {
                         "collateralId", collateral.id(),
                         "reasonCode", reasonCode,
                         "financiallyHonored", financiallyHonored,
-                        "recoveredFinancialSideEffects", true
+                        "recoveredFinancialSideEffects", true,
+                        "senderExternalSyncAlreadyRequested", senderExternalSyncAlreadyRequested
                 )
         );
-        syncExternalSettlement(collateral, proof, request, evaluation, financiallyHonored);
+        if (!senderExternalSyncAlreadyRequested) {
+            syncExternalSettlement(collateral, proof, request, evaluation, financiallyHonored);
+        }
         return evaluation;
+    }
+
+    private boolean hasSenderExternalSyncRequested(String settlementId) {
+        return settlementOutboxEventRepository.existsByReferenceIdAndEventType(settlementId, EVENT_LEDGER_SYNC_REQUESTED)
+                || settlementOutboxEventRepository.existsByReferenceIdAndEventType(settlementId, EVENT_HISTORY_SYNC_REQUESTED);
     }
 
     private String financialSideEffectsAppliedJson(

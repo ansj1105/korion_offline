@@ -97,4 +97,22 @@ public class JdbcSettlementOutboxEventRepository implements SettlementOutboxEven
                 .single();
         return count == null ? 0L : count;
     }
+
+    @Override
+    public boolean existsByReferenceIdAndEventType(String referenceId, String eventType) {
+        if (referenceId == null || referenceId.isBlank()
+                || eventType == null || eventType.isBlank()) {
+            return false;
+        }
+        String sql = QueryBuilder.select("settlement_outbox_events", "COUNT(*)")
+                .where("reference_id", QueryBuilder.Op.EQ, ":referenceId")
+                .where("event_type", QueryBuilder.Op.EQ, ":eventType")
+                .build();
+        Long count = jdbcClient.sql(sql)
+                .param("referenceId", referenceId)
+                .param("eventType", eventType)
+                .query(Long.class)
+                .single();
+        return count != null && count > 0L;
+    }
 }

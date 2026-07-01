@@ -36,6 +36,7 @@ import io.korion.offlinepay.application.port.ReconciliationCaseRepository;
 import io.korion.offlinepay.application.port.SettlementBatchEventBus;
 import io.korion.offlinepay.application.port.SettlementBatchRepository;
 import io.korion.offlinepay.application.port.SettlementConflictRepository;
+import io.korion.offlinepay.application.port.SettlementOutboxEventRepository;
 import io.korion.offlinepay.application.port.SettlementRepository;
 import io.korion.offlinepay.application.port.SettlementResultRepository;
 import io.korion.offlinepay.application.service.settlement.ProofChainValidator;
@@ -106,6 +107,7 @@ class SettlementApplicationServiceTest {
     private final ReconciliationCaseRepository reconciliationCaseRepository = Mockito.mock(ReconciliationCaseRepository.class);
     private final OfflineSagaRepository offlineSagaRepository = Mockito.mock(OfflineSagaRepository.class);
     private final SettlementConflictRepository settlementConflictRepository = Mockito.mock(SettlementConflictRepository.class);
+    private final SettlementOutboxEventRepository settlementOutboxEventRepository = Mockito.mock(SettlementOutboxEventRepository.class);
     private final SettlementBatchEventBus eventBus = Mockito.mock(SettlementBatchEventBus.class);
     private final OfflineSagaService offlineSagaService = Mockito.mock(OfflineSagaService.class);
     private final CoinManageSettlementPort coinManageSettlementPort = Mockito.mock(CoinManageSettlementPort.class);
@@ -127,6 +129,7 @@ class SettlementApplicationServiceTest {
             reconciliationCaseRepository,
             offlineSagaRepository,
             settlementConflictRepository,
+            settlementOutboxEventRepository,
             eventBus,
             offlineSagaService,
             coinManageSettlementPort,
@@ -3437,6 +3440,10 @@ class SettlementApplicationServiceTest {
                 .thenReturn(Optional.of(request))
                 .thenReturn(Optional.of(settled));
         when(settlementRepository.hasFinancialSideEffectsApplied("settlement-financial-guard")).thenReturn(true);
+        when(settlementOutboxEventRepository.existsByReferenceIdAndEventType(
+                "settlement-financial-guard",
+                "HISTORY_SYNC_REQUESTED"
+        )).thenReturn(true);
         when(settlementRepository.markFinancialSideEffectsApplied(eq("settlement-financial-guard"), anyString()))
                 .thenReturn(false);
         when(collateralRepository.findById("collateral-financial-guard")).thenReturn(Optional.of(collateral));
@@ -3472,8 +3479,11 @@ class SettlementApplicationServiceTest {
         verify(offlineSagaService).markProcessing(
                 eq(OfflineSagaType.SETTLEMENT),
                 eq("settlement-financial-guard"),
-                eq("EXTERNAL_SYNC_REQUESTED"),
+                eq("EXTERNAL_SYNC_ALREADY_REQUESTED"),
                 any()
+        );
+        verify(eventBus, never()).publishExternalSyncRequested(
+                anyString(), anyString(), anyString(), anyString(), anyString(), anyString()
         );
         verify(proofRepository, never()).ensureReceivedUnsettledAmount(anyString(), any());
         verify(collateralRepository, never()).deductRemainingAmount(anyString(), any());

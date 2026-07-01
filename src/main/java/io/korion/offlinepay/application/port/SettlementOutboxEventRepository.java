@@ -14,4 +14,6 @@ public interface SettlementOutboxEventRepository {
     long countByStatus(String status);
 
     long countByEventType(String eventType);
+
+    boolean existsByReferenceIdAndEventType(String referenceId, String eventType);
 }
