@@ -139,6 +139,17 @@ class ProofChainValidatorTest {
     }
 
     @Test
+    void validateAcceptsFirstProofWithScopedClientCounterWhenGenesisLinkMatches() {
+        CollateralLock aggregateCollateral = collateral("collateral-new-user", "device-1", "AGGREGATED");
+        String newHash = hashService.computeNewStateHash("GENESIS", new BigDecimal("1"), 175, "device-1", "nonce-175");
+        OfflinePaymentProof proof = proof("proof-175", "collateral-new-user", "device-1", 175, "GENESIS", newHash, "nonce-175");
+
+        ChainValidationResult result = validator.validate(aggregateCollateral, List.of(), proof);
+
+        assertTrue(result.valid());
+    }
+
+    @Test
     void validateAcceptsOutOfOrderProofWhenNeighboringHashLinksMatch() {
         CollateralLock collateral = collateral("collateral-out-of-order", "device-1", "AGGREGATED");
         String hash42 = hashService.computeNewStateHash("hash-41", new BigDecimal("1"), 42, "device-1", "nonce-42");

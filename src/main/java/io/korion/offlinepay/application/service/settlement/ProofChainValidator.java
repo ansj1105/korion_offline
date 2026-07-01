@@ -46,9 +46,6 @@ public class ProofChainValidator {
             );
         }
         if (existingProofs.isEmpty()) {
-            if (incomingProof.monotonicCounter() != 1) {
-                return new ChainValidationResult(false, OfflinePayReasonCode.INVALID_GENESIS_COUNTER, "{}");
-            }
             if (!matchesInitialStateRoot(collateral, incomingProof)) {
                 return new ChainValidationResult(false, OfflinePayReasonCode.INVALID_GENESIS_LINK, "{}");
             }
@@ -65,9 +62,6 @@ public class ProofChainValidator {
                     .max(Comparator.comparingLong(OfflinePaymentProof::monotonicCounter))
                     .orElse(null);
             if (lastLowerProof == null) {
-                if (incomingProof.monotonicCounter() != 1) {
-                    return new ChainValidationResult(false, OfflinePayReasonCode.INVALID_GENESIS_COUNTER, "{}");
-                }
                 if (!matchesInitialStateRoot(collateral, incomingProof)) {
                     return new ChainValidationResult(false, OfflinePayReasonCode.INVALID_GENESIS_LINK, "{}");
                 }
