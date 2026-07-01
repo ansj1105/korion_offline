@@ -391,6 +391,13 @@ public class OfflineLedgerService {
                     event.requestId(),
                     false,
                     "NONE",
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
                     null
             ));
 
@@ -409,17 +416,46 @@ public class OfflineLedgerService {
 
     private List<LedgerHistoryItem> buildReceivedItems(List<LedgerEvent> events) {
         List<LedgerHistoryItem> items = new ArrayList<>();
-        BigDecimal runningReceived = BigDecimal.ZERO;
+        BigDecimal runningReceivedP2P = BigDecimal.ZERO;
+        BigDecimal runningReceivedStore = BigDecimal.ZERO;
         for (LedgerEvent event : events) {
             if (event.affectsServerBalance()) {
-                runningReceived = event.isTopup()
-                        ? runningReceived.add(event.amount())
-                        : runningReceived.subtract(event.amount());
+                String balanceCategory = resolveReceivedBalanceCategory(event);
+                if ("STORE".equals(balanceCategory)) {
+                    runningReceivedStore = event.isTopup()
+                            ? runningReceivedStore.add(event.amount())
+                            : runningReceivedStore.subtract(event.amount());
+                } else {
+                    runningReceivedP2P = event.isTopup()
+                            ? runningReceivedP2P.add(event.amount())
+                            : runningReceivedP2P.subtract(event.amount());
+                }
             }
         }
 
         for (LedgerEvent event : events) {
-            BigDecimal cumulativeAmount = runningReceived.max(BigDecimal.ZERO);
+            String balanceCategory = resolveReceivedBalanceCategory(event);
+            BigDecimal preP2P;
+            BigDecimal postP2P = runningReceivedP2P.max(BigDecimal.ZERO);
+            BigDecimal preStore;
+            BigDecimal postStore = runningReceivedStore.max(BigDecimal.ZERO);
+            if (event.affectsServerBalance()) {
+                if ("STORE".equals(balanceCategory)) {
+                    preP2P = postP2P;
+                    preStore = event.isTopup()
+                            ? postStore.subtract(event.amount()).max(BigDecimal.ZERO)
+                            : postStore.add(event.amount());
+                } else {
+                    preP2P = event.isTopup()
+                            ? postP2P.subtract(event.amount()).max(BigDecimal.ZERO)
+                            : postP2P.add(event.amount());
+                    preStore = postStore;
+                }
+            } else {
+                preP2P = postP2P;
+                preStore = postStore;
+            }
+            BigDecimal cumulativeAmount = "STORE".equals(balanceCategory) ? postStore : postP2P;
             String formattedAmount = (event.isTopup() || isReceivedSettlementMarker(event) ? "+" : "-")
                     + event.amount().toPlainString();
             boolean receivedSettlementRequired = event.direction() == LedgerDirection.RECEIVE
@@ -459,15 +495,34 @@ public class OfflineLedgerService {
                     event.requestId(),
                     receivedSettlementRequired,
                     receivedSettlementState,
-                    receivedSettlementRequired ? event.proofId() : null
+                    receivedSettlementRequired ? event.proofId() : null,
+                    cumulativeAmount.toPlainString(),
+                    preP2P.toPlainString(),
+                    postP2P.toPlainString(),
+                    preStore.toPlainString(),
+                    postStore.toPlainString(),
+                    preP2P.add(preStore).toPlainString(),
+                    postP2P.add(postStore).toPlainString()
             ));
             if (event.affectsServerBalance()) {
-                runningReceived = event.isTopup()
-                        ? runningReceived.subtract(event.amount()).max(BigDecimal.ZERO)
-                        : runningReceived.add(event.amount());
+                if ("STORE".equals(balanceCategory)) {
+                    runningReceivedStore = preStore.max(BigDecimal.ZERO);
+                } else {
+                    runningReceivedP2P = preP2P.max(BigDecimal.ZERO);
+                }
             }
         }
         return items;
+    }
+
+    private String resolveReceivedBalanceCategory(LedgerEvent event) {
+        if (event.receivedBalanceCategory() != null && !event.receivedBalanceCategory().isBlank()) {
+            return event.receivedBalanceCategory();
+        }
+        if ("STORE".equals(event.category())) {
+            return "STORE";
+        }
+        return "QR".equals(event.paymentMethod()) ? "STORE" : "P2P";
     }
 
     private boolean isReceivedSettlementMarker(LedgerEvent event) {
@@ -518,7 +573,8 @@ public class OfflineLedgerService {
                 "",
                 "",
                 "",
-                0L
+                0L,
+                ""
         );
     }
 
@@ -593,7 +649,8 @@ public class OfflineLedgerService {
                 settlementId,
                 authSessionId,
                 requestId,
-                offlineTxSequence
+                offlineTxSequence,
+                resolveReceivedBalanceCategory(category, paymentMethod)
         );
     }
 
@@ -635,8 +692,16 @@ public class OfflineLedgerService {
                 receiveEvent.settlementId(),
                 receiveEvent.authSessionId(),
                 receiveEvent.requestId(),
-                receiveEvent.offlineTxSequence()
+                receiveEvent.offlineTxSequence(),
+                receiveEvent.receivedBalanceCategory()
         );
+    }
+
+    private String resolveReceivedBalanceCategory(String category, String paymentMethod) {
+        if ("STORE".equals(category)) {
+            return "STORE";
+        }
+        return "QR".equals(paymentMethod) ? "STORE" : "P2P";
     }
 
     private PublicLedgerStatus toPublicLedgerStatus(OfflinePaymentProof proof, boolean receiverSettled) {
@@ -915,7 +980,14 @@ public class OfflineLedgerService {
             String requestId,
             boolean receivedSettlementRequired,
             String receivedSettlementState,
-            String receivedSettlementProofId
+            String receivedSettlementProofId,
+            String receivedCategoryBalance,
+            String preReceivedP2PUnsettledAmount,
+            String postReceivedP2PUnsettledAmount,
+            String preReceivedStoreUnsettledAmount,
+            String postReceivedStoreUnsettledAmount,
+            String preReceivedUnsettledTotalAmount,
+            String postReceivedUnsettledTotalAmount
     ) {}
 
     public record HubProjectionResponse(
@@ -974,7 +1046,8 @@ public class OfflineLedgerService {
             String settlementId,
             String authSessionId,
             String requestId,
-            long offlineTxSequence
+            long offlineTxSequence,
+            String receivedBalanceCategory
     ) {
         String date() {
             return String.format("%02d.%02d", time.getMonthValue(), time.getDayOfMonth());

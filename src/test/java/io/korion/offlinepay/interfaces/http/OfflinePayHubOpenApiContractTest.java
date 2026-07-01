@@ -25,5 +25,12 @@ class OfflinePayHubOpenApiContractTest {
         assertTrue(api.contains("ReportReconcileCommandRequest:"));
         assertTrue(api.contains("ReportReconcileCommandResponse:"));
         assertTrue(api.contains("enum: [SENT, RECEIVED]"));
+        assertTrue(api.contains("receivedCategoryBalance:"));
+        assertTrue(api.contains("preReceivedP2PUnsettledAmount:"));
+        assertTrue(api.contains("postReceivedP2PUnsettledAmount:"));
+        assertTrue(api.contains("preReceivedStoreUnsettledAmount:"));
+        assertTrue(api.contains("postReceivedStoreUnsettledAmount:"));
+        assertTrue(api.contains("preReceivedUnsettledTotalAmount:"));
+        assertTrue(api.contains("postReceivedUnsettledTotalAmount:"));
     }
 }

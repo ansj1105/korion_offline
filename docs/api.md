@@ -1068,6 +1068,34 @@ components:
         settledAmount:
           type: string
           description: 거래별 담보 반영 완료 금액. 추후 레퍼럴 정산 기준으로 사용할 수 있는 확정 금액.
+        receivedCategoryBalance:
+          type: string
+          nullable: true
+          description: 해당 RECEIVE row 처리 직후의 P2P 또는 STORE 미정산 잔액.
+        preReceivedP2PUnsettledAmount:
+          type: string
+          nullable: true
+          description: 해당 RECEIVE row 처리 직전 P2P 미정산 잔액.
+        postReceivedP2PUnsettledAmount:
+          type: string
+          nullable: true
+          description: 해당 RECEIVE row 처리 직후 P2P 미정산 잔액.
+        preReceivedStoreUnsettledAmount:
+          type: string
+          nullable: true
+          description: 해당 RECEIVE row 처리 직전 STORE 미정산 잔액.
+        postReceivedStoreUnsettledAmount:
+          type: string
+          nullable: true
+          description: 해당 RECEIVE row 처리 직후 STORE 미정산 잔액.
+        preReceivedUnsettledTotalAmount:
+          type: string
+          nullable: true
+          description: 해당 RECEIVE row 처리 직전 P2P+STORE 총 미정산 잔액.
+        postReceivedUnsettledTotalAmount:
+          type: string
+          nullable: true
+          description: 해당 RECEIVE row 처리 직후 P2P+STORE 총 미정산 잔액.
         proofId:
           type: string
           nullable: true
@@ -1627,9 +1655,10 @@ components:
             Server validation treats `offlineTxSequence` as the sender-device ordering key and rejects duplicate or inconsistent sequence submissions.
             When `senderLocalBlock=true` or `receiverLocalBlock=true`, the corresponding `*VoucherId`, `*Amount`, `*SenderDeviceId`, `*ReceiverDeviceId`, `*Counter`, `*PrevHash`, `*NewHash`, `*Nonce`, and `*Signature` fields must match the top-level proof fields. Receiver uploads may include `receiverLocalBlock*` fields together with the sender-signed payload so the server can cross-check sender and receiver local evidence by session/voucher/hash/signature before accepting confirmation.
             Receiver uploads must include `receiverSettlementMode` (`AUTO` or `MANUAL`) and `receiverSettlementAutoEnabled`. A validated manual receiver upload keeps `receivedUnsettledAmount` until `/api/settlements/received/confirm` is called; only automatic receiver uploads or explicit confirmation may create receiver wallet/history settlement.
-            Receiver-only local evidence is not a settlement proof. A receiver upload must match an existing sender proof for the same voucher/session; otherwise the server rejects the upload before creating proof or settlement rows.
+            Receiver local evidence may arrive before the matching sender proof. The server accepts valid receiver evidence as local device-to-device completion evidence and later links matching sender proof metadata by voucher/session/hash when it arrives.
             Sender local evidence alone is not enough for final collateral settlement. If a sender proof carries `senderLocalBlock=true`, the server keeps the settlement `PENDING` with `RECEIVER_EVIDENCE_REQUIRED` until a matching receiver local block confirms the same voucher, devices, counter, hash, nonce, signature, and amount.
             Sender and receiver local evidence is stored in `offline_pay_local_evidence` for audit and replay recovery. New receiver uploads should include `receiverEvidenceBlock=true`, `receiverEvidenceBlockCanonicalPayload`, `receiverEvidenceBlockNewHash`, `receiverEvidenceBlockSignature`, and `receiverEvidenceBlockSenderProof*` reference fields. The server recomputes SHA-256 over the canonical payload, verifies the receiver device signature, and checks the sender proof reference before final settlement.
+            Receiver uploads may include immutable presentation metadata (`receivedCategoryBalance`, `preReceivedP2PUnsettledAmount`, `postReceivedP2PUnsettledAmount`, `preReceivedStoreUnsettledAmount`, `postReceivedStoreUnsettledAmount`, `preReceivedUnsettledTotalAmount`, `postReceivedUnsettledTotalAmount`) captured from the app-local projection at row creation time. These fields are audit/display metadata; server ledger settlement remains authoritative.
           properties:
             requestId:
               type: string
@@ -1642,6 +1671,27 @@ components:
               format: int64
               minimum: 1
               description: Monotonic per-sender-device offline transaction sequence. Server uses this as the primary deterministic order key when offline estimated times collide and rejects duplicate sender-device sequence submissions.
+            receivedCategoryBalance:
+              type: string
+              description: App-local RECEIVE category unsettled balance after this row.
+            preReceivedP2PUnsettledAmount:
+              type: string
+              description: App-local P2P unsettled balance before this receiver row.
+            postReceivedP2PUnsettledAmount:
+              type: string
+              description: App-local P2P unsettled balance after this receiver row.
+            preReceivedStoreUnsettledAmount:
+              type: string
+              description: App-local STORE unsettled balance before this receiver row.
+            postReceivedStoreUnsettledAmount:
+              type: string
+              description: App-local STORE unsettled balance after this receiver row.
+            preReceivedUnsettledTotalAmount:
+              type: string
+              description: App-local total P2P+STORE unsettled balance before this receiver row.
+            postReceivedUnsettledTotalAmount:
+              type: string
+              description: App-local total P2P+STORE unsettled balance after this receiver row.
             deviceTime:
               type: string
               format: date-time
